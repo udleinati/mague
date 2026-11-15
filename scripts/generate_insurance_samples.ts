@@ -285,7 +285,7 @@ function variant05(p: Params): Variant {
       escapeHtml(p.condominiumName)
     }</div>
         <div style="font-size:13px;color:#6b7280;line-height:1.5;">
-          Av da Mague, X<br>
+          Rua das Acácias, 12<br>
           1000-000 Lisboa
         </div>
       </div>

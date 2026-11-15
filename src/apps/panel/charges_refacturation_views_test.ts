@@ -37,7 +37,7 @@ const refacturation = (over: Record<string, unknown> = {}) => ({
   id: "ch_ref",
   code: "R000MO",
   unitId: "u1",
-  unit_label: "A - Bloco 2 - Loja 1",
+  unit_label: "A - Bloco 3 - Loja 1",
   issueDate: "2026-08-21",
   dueDate: "2026-09-30",
   originalAmount: 10000,
@@ -56,7 +56,7 @@ const showCtx = (over: Record<string, unknown> = {}) => ({
   refacturedTotal: 10000,
   refacturable: 40000,
   canRefacture: true,
-  units: [{ id: "u1", designation: "A", identifier: "Bloco 2 - Loja 1", permillage: 100 }],
+  units: [{ id: "u1", designation: "A", identifier: "Bloco 3 - Loja 1", permillage: 100 }],
   supplierLabel: null,
   unitLabel: null,
   accountLabel: null,
@@ -98,7 +98,7 @@ Deno.test("refaturação: a fração mostra o identificador e liga à fração",
   // ADR 0015: a designação de fração é sempre link para a fração. E "A"
   // sozinho não chega para distinguir - o identificador é que localiza.
   const html = await render("pages/charges/show.vto", showCtx());
-  assertStringIncludes(html, "A - Bloco 2 - Loja 1");
+  assertStringIncludes(html, "A - Bloco 3 - Loja 1");
   assertStringIncludes(html, '/admin/c/c1/units/u1"');
 });
 

@@ -106,10 +106,10 @@ describe("classifyConvocationRecipients (por fração)", () => {
 
   it("carrega designation + identifier da fração (alimentam unitLabel)", () => {
     const out = classifyConvocationRecipients([
-      row({ unitDesignation: "AT", unitIdentifier: "Bloco 2 5C" }),
+      row({ unitDesignation: "AT", unitIdentifier: "Bloco 3 5C" }),
     ]);
     assertEquals(out[0].unitDesignation, "AT");
-    assertEquals(out[0].unitIdentifier, "Bloco 2 5C");
+    assertEquals(out[0].unitIdentifier, "Bloco 3 5C");
   });
 });
 

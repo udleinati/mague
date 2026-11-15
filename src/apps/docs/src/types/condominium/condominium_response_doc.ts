@@ -2,7 +2,7 @@ import { z } from "@hono/zod-openapi";
 
 export const CondominiumResponseDoc = z.object({
   id: z.string().openapi({ example: "MgX001" }),
-  name: z.string().openapi({ example: "Av da Mague, X" }),
+  name: z.string().openapi({ example: "Rua das Acácias, 12" }),
   fiscalNumber: z.string().nullable().openapi({ example: "123456789" }),
   email: z.string().nullable().openapi({ example: "geral@condominio.pt" }),
   address: z.string().nullable().openapi({ example: "Rua das Flores, 100" }),
@@ -15,7 +15,7 @@ export const CondominiumResponseDoc = z.object({
 });
 
 export const CreateCondominiumBodyDoc = z.object({
-  name: z.string().min(1).max(100).openapi({ example: "Av da Mague, X" }),
+  name: z.string().min(1).max(100).openapi({ example: "Rua das Acácias, 12" }),
   fiscalNumber: z.string().regex(/^\d{9}$/).nullable().optional().openapi({
     example: "123456789",
     description: "NIF/NIPC (9 dígitos)",

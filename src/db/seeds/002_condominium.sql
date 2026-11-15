@@ -1,7 +1,7 @@
--- 002_condominium.sql - Condomínio "Av da Mague, X" + ligação admin
+-- 002_condominium.sql - Condomínio "Rua das Acácias, 12" + ligação admin
 
 INSERT INTO core.condominium (id, name, address, is_active)
-VALUES ('MgX001', 'Av da Mague, X', 'Av da Mague, X', true)
+VALUES ('MgX001', 'Rua das Acácias, 12', 'Rua das Acácias, 12', true)
 ON CONFLICT (id) DO NOTHING;
 
 -- Liga admin ao condomínio

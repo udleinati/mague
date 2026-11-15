@@ -18,14 +18,14 @@ function recipient(p: Partial<ConvocationRecipient>): ConvocationRecipient {
     hasEmail: true,
     relationshipType: "owner",
     unitDesignation: "AT",
-    unitIdentifier: "Bloco 2 5C",
+    unitIdentifier: "Bloco 3 5C",
     ownerNamesOfUnit: [],
     ...p,
   };
 }
 
 const CTX = {
-  unitLabel: "AT - Bloco 2 5C",
+  unitLabel: "AT - Bloco 3 5C",
   condominiumName: "Condomínio Alfa",
   correctionEmail: "gestor@alfa.pt",
   assemblyType: "ordinary" as const,
@@ -46,7 +46,7 @@ describe("planConvocationDispatch (owner)", () => {
       assertEquals(plan.proxy.nifLabel, "NIF");
       assertEquals(plan.proxy.nif, "123456789");
       assertEquals(plan.proxy.name, "Maria Silva");
-      assertEquals(plan.proxy.unitLabel, "AT - Bloco 2 5C");
+      assertEquals(plan.proxy.unitLabel, "AT - Bloco 3 5C");
       assertEquals(plan.proxy.personType, "singular");
     }
   });
@@ -106,7 +106,7 @@ describe("planConvocationDispatch (assunto + nota de correção)", () => {
     const plan = planConvocationDispatch(recipient({}), CTX);
     assertEquals(
       plan.subject,
-      "Convocatória - Assembleia ordinária de condóminos - 10/07/2026 19:00 - Fração AT - Bloco 2 5C - Condomínio Alfa",
+      "Convocatória - Assembleia ordinária de condóminos - 10/07/2026 19:00 - Fração AT - Bloco 3 5C - Condomínio Alfa",
     );
   });
 
@@ -114,7 +114,7 @@ describe("planConvocationDispatch (assunto + nota de correção)", () => {
     const plan = planConvocationDispatch(recipient({}), { ...CTX, assemblyType: "extraordinary" });
     assertEquals(
       plan.subject,
-      "Convocatória - Assembleia extraordinária de condóminos - 10/07/2026 19:00 - Fração AT - Bloco 2 5C - Condomínio Alfa",
+      "Convocatória - Assembleia extraordinária de condóminos - 10/07/2026 19:00 - Fração AT - Bloco 3 5C - Condomínio Alfa",
     );
   });
 

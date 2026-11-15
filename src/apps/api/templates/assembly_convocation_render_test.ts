@@ -92,14 +92,14 @@ describe("template assembly_proxy.vto (procuração)", () => {
         name: "Maria Silva",
         nif: "123456789",
         personType: "singular",
-        unitLabel: "AT - Bloco 2 5C",
+        unitLabel: "AT - Bloco 3 5C",
       },
       generatedAt: "2026-06-04T10:00:00+00:00",
     });
     assertStringIncludes(html, "Eu,");
     assertStringIncludes(html, "Maria Silva");
     // WHY: a fração entra já formatada via unitLabel ("designation - identifier").
-    assertStringIncludes(html, "AT - Bloco 2 5C");
+    assertStringIncludes(html, "AT - Bloco 3 5C");
     // WHY: o NIF impresso desambigua nomes longos/abreviados (ex. "Ana R").
     assertStringIncludes(html, "123456789");
     assert(!html.includes("[Nome do condómino]"), "não deve restar placeholder de nome");
@@ -114,7 +114,7 @@ describe("template assembly_proxy.vto (procuração)", () => {
         name: "Imobiliária X, Lda",
         nif: "501234567",
         personType: "collective",
-        unitLabel: "AT - Bloco 2 5C",
+        unitLabel: "AT - Bloco 3 5C",
       },
       generatedAt: "2026-06-04T10:00:00+00:00",
     });
@@ -127,7 +127,7 @@ describe("template assembly_proxy.vto (procuração)", () => {
     assertStringIncludes(html, "501234567");
     assertStringIncludes(html, "na qualidade de proprietária da fração");
     assertStringIncludes(html, "declara nomear como sua representante");
-    assertStringIncludes(html, "AT - Bloco 2 5C");
+    assertStringIncludes(html, "AT - Bloco 3 5C");
     // Discrimina o ramo: a redação singular ("Eu, ..." / "declaro ... meu") não
     // pode aparecer para uma pessoa coletiva.
     assert(

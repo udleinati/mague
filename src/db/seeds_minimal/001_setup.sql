@@ -32,12 +32,12 @@ ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash, role = EX
 -- ── Condomínios (principal + 2 extra para testar troca de contexto) ────────
 INSERT INTO core.condominium (id, name, address, is_active)
 VALUES
-  ('MgX001', 'Av da Mague, X',       'Av da Mague, X',             true),
+  ('MgX001', 'Rua das Acácias, 12',       'Rua das Acácias, 12',             true),
   ('CondoBeta',  'Rua das Flores, 42',    'Rua das Flores, 42, Lisboa', true),
   ('CondoGama',  'Praça do Comércio, 1',  'Praça do Comércio, 1, Porto', true)
 ON CONFLICT (id) DO NOTHING;
 
--- Manager gere apenas Av da Mague (MgX001). O super vê os 3.
+-- Manager gere apenas Rua das Acácias (MgX001). O super vê os 3.
 INSERT INTO core.manager (id, condominium_id, user_id, is_active)
 VALUES ('mgr_min_001', 'MgX001', 'u_manager', true)
 ON CONFLICT (id) DO NOTHING;

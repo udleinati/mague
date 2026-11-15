@@ -183,7 +183,7 @@ Deno.test("units/show: plano só com nota interna não mostra rótulo de partilh
         id: "pp1",
         status: "active",
         notes: null,
-        internalNotes: "Informou que está regularizando.",
+        internalNotes: "Combinado pagar em três prestações.",
         endDate: null,
         createdAt: "2026-06-01",
       },
@@ -192,7 +192,7 @@ Deno.test("units/show: plano só com nota interna não mostra rótulo de partilh
     }),
   );
   const card = planCardOf(html);
-  assertStringIncludes(card, "Informou que está regularizando.");
+  assertStringIncludes(card, "Combinado pagar em três prestações.");
   assert(!card.includes("Nota partilhada"), "sem nota partilhada, sem rótulo vazio");
 });
 

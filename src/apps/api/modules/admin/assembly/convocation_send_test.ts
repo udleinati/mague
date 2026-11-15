@@ -18,7 +18,7 @@ const META = {
 };
 
 const PLAN_CTX = {
-  unitLabel: "AT - Bloco 2 5C",
+  unitLabel: "AT - Bloco 3 5C",
   condominiumName: META.condominiumName,
   correctionEmail: META.correctionEmail,
   assemblyType: META.assemblyType,
@@ -38,7 +38,7 @@ function recipient(p: Partial<ConvocationRecipient>): ConvocationRecipient {
     hasEmail: true,
     relationshipType: "owner",
     unitDesignation: "AT",
-    unitIdentifier: "Bloco 2 5C",
+    unitIdentifier: "Bloco 3 5C",
     ownerNamesOfUnit: [],
     ...p,
   };

@@ -43,7 +43,7 @@
     </div>
     <div class="form-control {{ if account.kind === "cash" }}hidden{{ /if }}" id="accountHolderField">
       <label class="label" for="accountHolder"><span class="label-text font-medium">Titular da conta</span></label>
-      <input type="text" id="accountHolder" name="accountHolder" class="input input-bordered" maxlength="255" value="{{ account.accountHolder ?? '' }}" placeholder="Ex: Condomínio Av da Mague, X">
+      <input type="text" id="accountHolder" name="accountHolder" class="input input-bordered" maxlength="255" value="{{ account.accountHolder ?? '' }}" placeholder="Ex: Condomínio Rua das Acácias, 12">
       <span class="text-xs text-base-content/50 mt-1">Nome que aparece no portal do condómino quando faz transferência.</span>
     </div>
     <div class="form-control {{ if account.kind === "cash" }}hidden{{ /if }}" id="quotaPaymentField">
