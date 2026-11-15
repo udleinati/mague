@@ -1,0 +1,11 @@
+{{# Alerta/flash inline. Params: type ("success"|"error"|"warning"|"info"), message.
+    Texto em `text-base-content` (não `text-X-content`, quebrava em dark; nem `text-X`
+    puro, pálido em light); bg /10 + border /30 + ícone na cor sólida. #}}
+{{ set _t = type === "error" ? { bg: "bg-error/10", border: "border-error/30", icon: "text-error", glyph: "⚠" }
+         : type === "warning" ? { bg: "bg-warning/10", border: "border-warning/30", icon: "text-warning", glyph: "⚠" }
+         : type === "info" ? { bg: "bg-info/10", border: "border-info/30", icon: "text-info", glyph: "ℹ" }
+         : { bg: "bg-success/10", border: "border-success/30", icon: "text-success", glyph: "✓" } }}
+<div data-server-flash class="rounded-lg {{ _t.bg }} border {{ _t.border }} px-4 py-3 flex items-start gap-3">
+  <span class="{{ _t.icon }} text-lg leading-none">{{ _t.glyph }}</span>
+  <span class="text-sm font-medium text-base-content">{{ message }}</span>
+</div>

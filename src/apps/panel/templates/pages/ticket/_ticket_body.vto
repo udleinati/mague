@@ -1,0 +1,515 @@
+{{# Corpo do ticket. Devolvido pelos POSTs (update/status/comments/anexos)
+   em HX-Request - swap outerHTML deste `<div>` + toast OOB no fim. Re-render
+   integral porque mudar estado afeta vários blocos (ADR 0026). #}}
+
+{{ set unitForTicket = ticket.unitId ? units.find((u) => u.id === ticket.unitId) : null }}
+{{ set unitLabel = unitForTicket
+  ? (unitForTicket.designation + (unitForTicket.identifier ? (" (" + unitForTicket.identifier + ")") : ""))
+  : "Zona comum" }}
+{{ set isClosed = ticket.status === "closed" }}
+{{ set isOpen = ticket.status === "open" }}
+{{ set isMutable = ticket.status === "open" || ticket.status === "in_progress" }}
+{{ set sBg = ticket.status === "open" ? "bg-amber-100"
+  : ticket.status === "in_progress" ? "bg-info/10 text-info"
+  : ticket.status === "resolved" ? "bg-success/10 text-success"
+  : "bg-purple-100" }}
+{{ set sStyle = ticket.status === "open" ? "color:#854D0E"
+  : ticket.status === "closed" ? "color:#6B21A8" : "" }}
+{{ set pBg = ticket.priority === "urgent" ? "bg-error/10 text-error"
+  : ticket.priority === "high" ? "bg-amber-100"
+  : "bg-base-200 text-base-content/70" }}
+{{ set pStyle = ticket.priority === "high" ? "color:#854D0E" : "" }}
+
+<div id="ticket-body">
+
+{{# Banner por estado: `open` editável · `in_progress`/`resolved` congelado
+   (correções vão para histórico) · `closed` nada. #}}
+{{ if isOpen }}
+  <div class="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs inline-flex items-center gap-2" style="color:#854D0E">
+    <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+    </svg>
+    Ainda em estado Aberto - podes ajustar título, descrição, fração, categoria e prioridade. Mudar para "Em progresso" congela o registo.
+  </div>
+{{ else if !isClosed }}
+  <div class="mb-6 rounded-lg border border-info/30 bg-info/5 px-3 py-2 text-xs text-info/90 inline-flex items-center gap-2">
+    <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    Em curso - não editável. Para correções, adiciona um comentário no histórico.
+  </div>
+{{ /if }}
+
+{{# ── Patologia associada / Promover ─────────────────────────────────
+   Ligado (ADR 0024): chip + desassociar. Senão: associar a existente ou
+   promover a nova. #}}
+<div class="mb-6 flex items-center gap-3 flex-wrap">
+  {{ if ticket.pathology }}
+    <a href="{{ ('/pathologies/' + ticket.pathology.id) |> condoPath }}"
+       class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary/10 text-primary border border-primary/20 text-xs font-semibold hover:bg-primary/15 transition-colors"
+       title="Abrir patologia">
+      <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+      </svg>
+      <span class="font-mono">{{ ticket.pathology.code }}</span>
+      <span class="text-base-content/70 font-normal">{{ ticket.pathology.title }}</span>
+    </a>
+    <form method="post"
+          action="{{ ('/tickets/' + ticket.id + '/update') |> condoPath }}"
+          class="inline"
+          data-confirm-title="Desassociar patologia?"
+          data-confirm-body="O ticket {{ ticket.code ?? '' }} deixa de estar ligado a {{ ticket.pathology.code }}. Pode ser re-associado depois.">
+      <input type="hidden" name="pathologyId" value="">
+      <button type="submit" class="text-xs link link-error link-hover">desassociar</button>
+    </form>
+  {{ else }}
+    {{# Sem patologia: associar a existente (modal combobox) ou promover a
+       nova (pré-enche título/descrição). #}}
+    <button type="button" class="btn btn-xs btn-primary gap-1"
+            onclick="document.getElementById('modal_link_pathology').showModal()">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244"/>
+      </svg>
+      Associar a patologia existente
+    </button>
+    <button type="button" class="btn btn-xs btn-outline gap-1"
+            onclick="document.getElementById('modal_promote_pathology').showModal()">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+      </svg>
+      Nova patologia
+    </button>
+  {{ /if }}
+</div>
+
+{{# ── Mudar estado ───────────────────────────────────────────────────
+   Ação primária. Cada clique POSTa /update via HTMX e devolve este partial
+   inteiro num único swap. #}}
+<div class="mb-6 bg-base-100 rounded-xl border border-base-200 shadow-sm p-4 sm:p-5">
+  <div class="flex items-center gap-3 flex-wrap">
+    <div class="text-[10px] uppercase tracking-widest text-base-content/50 font-bold whitespace-nowrap">Mudar estado</div>
+    <div class="inline-flex flex-wrap gap-1 p-1 bg-base-200/40 rounded-lg border border-base-200">
+      {{ for key, label of statusLabels }}
+        {{ set isCurrent = ticket.status === key }}
+        {{ set activeBg = key === "open" ? "bg-amber-100"
+          : key === "in_progress" ? "bg-info/15 text-info"
+          : key === "resolved" ? "bg-success/15 text-success"
+          : "bg-purple-100" }}
+        {{ set activeStyle = key === "open" ? "color:#854D0E"
+          : key === "closed" ? "color:#6B21A8" : "" }}
+        {{ set hoverBg = key === "open" ? "hover:bg-amber-100/60"
+          : key === "in_progress" ? "hover:bg-info/10 hover:text-info"
+          : key === "resolved" ? "hover:bg-success/10 hover:text-success"
+          : "hover:bg-purple-100/60" }}
+        {{ if isCurrent }}
+          <span class="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-bold shadow-sm ring-1 ring-base-content/10 {{ activeBg }}" style="{{ activeStyle }}" aria-current="true">
+            {{ label }}
+          </span>
+        {{ else }}
+          <form method="post"
+                action="{{ ('/tickets/' + ticket.id + '/update') |> condoPath }}"
+                hx-post="{{ ('/tickets/' + ticket.id + '/update') |> condoPath }}"
+                hx-target="#ticket-body"
+                hx-swap="outerHTML show:no"
+                class="inline">
+            <input type="hidden" name="status" value="{{ key }}">
+            <button type="submit"
+                    class="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium text-base-content/60 {{ hoverBg }} cursor-pointer transition-all"
+                    title="Mudar para {{ label }}">
+              {{ label }}
+            </button>
+          </form>
+        {{ /if }}
+      {{ /for }}
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  {{# COLUNA ESQUERDA: detalhes read-only + anexos + histórico #}}
+  <div class="lg:col-span-2 space-y-6">
+
+    <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+      {{ if isOpen }}
+        {{# Edição dos descritivos enquanto `open`. Estado e notas vivem em
+           forms separados abaixo. #}}
+        <form method="post"
+              action="{{ ('/tickets/' + ticket.id + '/update') |> condoPath }}"
+              hx-post="{{ ('/tickets/' + ticket.id + '/update') |> condoPath }}"
+              hx-target="#ticket-body"
+              hx-swap="outerHTML show:no">
+          <h2 class="text-xs uppercase font-bold text-base-content/50 tracking-wider mb-4">Editar ocorrência</h2>
+          <div class="form-control mb-3">
+            <label class="label py-1" for="title"><span class="label-text text-xs">Título *</span></label>
+            <input type="text" id="title" name="title" required minlength="1" maxlength="200"
+                   value="{{ ticket.title }}"
+                   class="input input-sm input-bordered">
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div class="form-control">
+              <label class="label py-1" for="category"><span class="label-text text-xs">Categoria</span></label>
+              <select id="category" name="category" class="select select-sm select-bordered">
+                {{ for key, label of categoryLabels }}
+                  <option value="{{ key }}" {{ if key === ticket.category }}selected{{ /if }}>{{ label }}</option>
+                {{ /for }}
+              </select>
+            </div>
+            <div class="form-control">
+              <label class="label py-1" for="priority"><span class="label-text text-xs">Prioridade</span></label>
+              <select id="priority" name="priority" class="select select-sm select-bordered">
+                {{ for key, label of priorityLabels }}
+                  <option value="{{ key }}" {{ if key === ticket.priority }}selected{{ /if }}>{{ label }}</option>
+                {{ /for }}
+              </select>
+            </div>
+            <div class="form-control">
+              <label class="label py-1" for="unitId"><span class="label-text text-xs">Fração</span></label>
+              <select id="unitId" name="unitId" class="select select-sm select-bordered">
+                <option value="" {{ if !ticket.unitId }}selected{{ /if }}>- Zona comum -</option>
+                {{ for u of units }}
+                  <option value="{{ u.id }}" {{ if u.id === ticket.unitId }}selected{{ /if }}>{{ u.designation }}{{ if u.identifier }} ({{ u.identifier }}){{ /if }}</option>
+                {{ /for }}
+              </select>
+            </div>
+            <div class="form-control">
+              <label class="label py-1" for="location"><span class="label-text text-xs">Localização</span></label>
+              <input type="text" id="location" name="location" maxlength="200"
+                     value="{{ ticket.location ?? '' }}"
+                     class="input input-sm input-bordered"
+                     placeholder="Ex: Hall do 2º piso">
+            </div>
+          </div>
+
+          <div class="form-control mt-3">
+            <label class="label py-1" for="description"><span class="label-text text-xs">Descrição</span></label>
+            <textarea id="description" name="description" rows="3" maxlength="5000"
+                      class="textarea textarea-sm textarea-bordered">{{ ticket.description ?? "" }}</textarea>
+          </div>
+
+          {{# `admin_unit` desabilitado sem `unitId`: o backend rejeita
+             admin_unit sem fração (CHECK constraint). #}}
+          <div class="form-control mt-3 bg-base-200/40 rounded-lg px-3 py-2">
+            <label class="label py-1" for="visibility_edit">
+              <span class="label-text font-medium">Visibilidade</span>
+            </label>
+            <select id="visibility_edit" name="visibility" class="select select-sm select-bordered">
+              <option value="admin_only" {{ if ticket.visibility === "admin_only" }}selected{{ /if }}>Só administração</option>
+              <option value="admin_unit" {{ if !ticket.unitId }}disabled{{ /if }} {{ if ticket.visibility === "admin_unit" }}selected{{ /if }}>Administração + fração{{ if !ticket.unitId }} (requer fração){{ /if }}</option>
+              <option value="public" {{ if ticket.visibility === "public" }}selected{{ /if }}>Visível a todos os condóminos</option>
+            </select>
+            <span class="text-xs text-base-content/60 mt-1">
+              <strong>Só administração:</strong> uso interno.
+              <strong>Administração + fração:</strong> ocupantes da fração vêem.
+              <strong>Visível a todos:</strong> todos os condóminos vêem (zona comum).
+            </span>
+          </div>
+
+          <div class="flex justify-end mt-3 pt-3 border-t border-base-200">
+            <button type="submit" class="btn btn-sm btn-primary">Guardar alterações</button>
+          </div>
+        </form>
+      {{ else }}
+        {{# Read-only quando o admin já assumiu o caso (não-open). #}}
+        <h2 class="text-xs uppercase font-bold text-base-content/50 tracking-wider mb-4">Ocorrência</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+          <div>
+            <div class="text-[10px] uppercase tracking-wider text-base-content/50">Categoria</div>
+            <div class="mt-0.5 font-medium">{{ categoryLabels[ticket.category] ?? ticket.category }}</div>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase tracking-wider text-base-content/50">Prioridade</div>
+            <div class="mt-0.5"><span class="inline-block px-2 py-0.5 rounded text-xs font-medium {{ pBg }}" style="{{ pStyle }}">{{ priorityLabels[ticket.priority] }}</span></div>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase tracking-wider text-base-content/50">Fração</div>
+            <div class="mt-0.5 font-medium">{{ unitLabel }}</div>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase tracking-wider text-base-content/50">Localização</div>
+            <div class="mt-0.5">{{ if ticket.location }}{{ ticket.location }}{{ else }}<span class="text-base-content/40 italic">não indicada</span>{{ /if }}</div>
+          </div>
+        </div>
+
+        {{ if ticket.description }}
+          <div class="mt-5 pt-4 border-t border-base-200">
+            <div class="text-[10px] uppercase tracking-wider text-base-content/50">Descrição</div>
+            <div class="mt-1 text-sm whitespace-pre-line">{{ ticket.description }}</div>
+          </div>
+        {{ /if }}
+      {{ /if }}
+
+      {{# Notas de resolução: resolvida=editável · fechada=read-only · outras=oculto. #}}
+      {{ if isClosed }}
+        {{ if ticket.resolutionNotes }}
+          <div class="mt-4 pt-4 border-t border-base-200">
+            <div class="text-[10px] uppercase tracking-wider text-base-content/50 font-bold mb-1">Notas de resolução <span class="font-normal normal-case tracking-normal opacity-60">(congelado)</span></div>
+            <div class="text-sm whitespace-pre-line text-base-content/80">{{ ticket.resolutionNotes }}</div>
+          </div>
+        {{ /if }}
+      {{ else if ticket.resolutionNotes || ticket.status === "resolved" }}
+        <div class="mt-4 pt-4 border-t border-base-200">
+          <form method="post"
+                action="{{ ('/tickets/' + ticket.id + '/update') |> condoPath }}"
+                hx-post="{{ ('/tickets/' + ticket.id + '/update') |> condoPath }}"
+                hx-target="#ticket-body"
+                hx-swap="outerHTML show:no">
+            <label class="label py-1"><span class="label-text text-xs">Notas de resolução <span class="text-base-content/40 font-normal">(internas)</span></span></label>
+            <textarea name="resolutionNotes" rows="2" maxlength="5000" class="textarea textarea-sm textarea-bordered w-full"
+                      placeholder="O que foi feito para resolver…">{{ ticket.resolutionNotes ?? "" }}</textarea>
+            <div class="flex justify-end mt-2">
+              <button type="submit" class="btn btn-xs btn-ghost">Guardar notas</button>
+            </div>
+          </form>
+        </div>
+      {{ /if }}
+    </div>
+
+    {{# Anexos só mutáveis em open/in_progress (API: requireMutableTicket).
+       Wrapper `#ticket-attachments` é o swap target; `hx-select` extrai só
+       esta seção do response inteiro, preserva scroll (ADR 0026). #}}
+    <div id="ticket-attachments" class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xs uppercase font-bold text-base-content/50 tracking-wider">Fotos / Anexos <span class="text-base-content/40 font-normal normal-case tracking-normal">· {{ ticket.attachments.length }}</span></h2>
+      </div>
+
+      {{# Delete inline (não o partial) porque precisa de HTMX para swap só
+         desta seção; migrar quando o partial suportar opt-in HTMX. #}}
+      {{ if ticket.attachments.length > 0 }}
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+          {{ for a of ticket.attachments }}
+            <div class="border border-base-200 rounded-lg overflow-hidden bg-base-50">
+              {{ if a.mimeType.startsWith("image/") }}
+                <a href="{{ ('/tickets/' + ticket.id + '/attachments/' + a.id) |> condoPath }}" target="_blank">
+                  <img src="{{ ('/tickets/' + ticket.id + '/attachments/' + a.id) |> condoPath }}"
+                       alt="{{ a.filename }}"
+                       class="w-full h-32 object-cover">
+                </a>
+              {{ else }}
+                <a href="{{ ('/tickets/' + ticket.id + '/attachments/' + a.id) |> condoPath }}" target="_blank"
+                   class="block h-32 flex items-center justify-center bg-base-200 text-4xl">
+                  📎
+                </a>
+              {{ /if }}
+              <div class="p-2 flex items-center justify-between gap-2 text-xs">
+                <span class="truncate flex-1" title="{{ a.filename }}">{{ a.filename }}</span>
+                {{ if isMutable }}
+                  <form method="post"
+                        action="{{ ('/tickets/' + ticket.id + '/attachments/' + a.id + '/delete') |> condoPath }}"
+                        hx-post="{{ ('/tickets/' + ticket.id + '/attachments/' + a.id + '/delete') |> condoPath }}"
+                        hx-target="#ticket-attachments"
+                        hx-select="#ticket-attachments"
+                        hx-swap="outerHTML show:no"
+                        class="inline"
+                        data-confirm-title="Remover anexo"
+                        data-confirm-body="Queres mesmo remover este anexo? O ficheiro fica inacessível."
+                        data-confirm-ok="Remover"
+                        data-confirm-danger="true">
+                    <button class="link link-error text-xs" title="Remover">×</button>
+                  </form>
+                {{ /if }}
+              </div>
+            </div>
+          {{ /for }}
+        </div>
+      {{ /if }}
+
+      {{ if isMutable }}
+        {{# Upload multi-ficheiro via dropzone. `hx-encoding` é preciso para
+           multipart; handler faz `getAll("files")` (parseBody do Hono
+           colapsava ao último). #}}
+        <form method="post"
+              action="{{ ('/tickets/' + ticket.id + '/attachments') |> condoPath }}"
+              hx-post="{{ ('/tickets/' + ticket.id + '/attachments') |> condoPath }}"
+              hx-target="#ticket-attachments"
+              hx-select="#ticket-attachments"
+              hx-swap="outerHTML show:no"
+              hx-encoding="multipart/form-data"
+              enctype="multipart/form-data"
+              class="space-y-3">
+          {{ include "partials/file_dropzone.vto" {
+            name: "files",
+            multiple: true,
+            helpText: "Foto, PDF, etc. - podes selecionar vários",
+          } }}
+          <div class="flex justify-end">
+            <button type="submit" class="btn btn-sm btn-primary gap-1.5" data-upload-submit disabled>
+              {{# Heroicons arrow-up-tray (upload), NÃO arrow-down-tray: o
+                 path diverge só na seta (up `V13.5` vs down `V3`). #}}
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/>
+              </svg>
+              Carregar
+            </button>
+          </div>
+        </form>
+      {{ else if ticket.attachments.length === 0 }}
+        <p class="text-xs text-base-content/40 italic">Sem fotos anexadas. Ocorrência em estado final - reverte para "Em progresso" para anexar.</p>
+      {{ else }}
+        <p class="text-[11px] text-base-content/40 italic mt-2">Ocorrência em estado final - upload e remoção bloqueados.</p>
+      {{ /if }}
+    </div>
+
+    {{# Histórico + comentários. Cada entrada: autor + data + corpo + badge
+       opcional (nota interna / mudança de estado). #}}
+    <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+      <h2 class="text-xs uppercase font-bold text-base-content/50 tracking-wider mb-4">Histórico e comentários <span class="text-base-content/40 font-normal normal-case tracking-normal">· {{ ticket.comments.length }}</span></h2>
+
+      {{ if ticket.comments.length === 0 }}
+        <p class="text-sm text-base-content/40 italic mb-4">Sem comentários ainda.</p>
+      {{ else }}
+        <div class="space-y-3 mb-5">
+          {{ for c of ticket.comments }}
+            {{# Barra lateral: info=mudança estado · base/40=nota interna · base/20=público. #}}
+            <div class="flex gap-3">
+              <div class="w-1 mt-1 rounded-full {{ if c.statusTo }}bg-info{{ else if c.isInternal }}bg-base-content/40{{ else }}bg-base-content/20{{ /if }}"></div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 text-xs text-base-content/60 mb-1 flex-wrap">
+                  <span class="font-medium">{{ c.submittedBy?.email ?? "Sistema" }}</span>
+                  <span>·</span>
+                  <span>{{ c.createdAt |> formatDate }}</span>
+                  {{ if c.isInternal }}
+                    <span class="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-base-200 text-base-content/60 ml-1">Nota interna</span>
+                  {{ /if }}
+                  {{ if c.statusTo }}
+                    <span class="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-info/10 text-info ml-1">{{ statusLabels[c.statusFrom] ?? c.statusFrom }} → {{ statusLabels[c.statusTo] ?? c.statusTo }}</span>
+                  {{ /if }}
+                </div>
+                <div class="text-sm whitespace-pre-line">{{ c.comment }}</div>
+              </div>
+              {{ if isMutable }}
+                <form method="post"
+                      action="{{ ('/tickets/' + ticket.id + '/comments/' + c.id + '/delete') |> condoPath }}"
+                      hx-post="{{ ('/tickets/' + ticket.id + '/comments/' + c.id + '/delete') |> condoPath }}"
+                      hx-target="#ticket-body"
+                      hx-swap="outerHTML show:no"
+                      class="shrink-0"
+                      data-confirm-title="Remover comentário"
+                      data-confirm-body="Queres remover este comentário do histórico? Esta ação é irreversível."
+                      data-confirm-ok="Remover"
+                      data-confirm-danger="true">
+                  <button type="submit"
+                          class="btn btn-xs btn-ghost text-base-content/50 hover:text-error hover:bg-error/10 gap-1 px-2"
+                          title="Remover comentário">
+                    <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/>
+                    </svg>
+                    <span class="text-xs">Remover</span>
+                  </button>
+                </form>
+              {{ /if }}
+            </div>
+          {{ /for }}
+        </div>
+      {{ /if }}
+
+      {{ if isMutable }}
+        <form method="post"
+              action="{{ ('/tickets/' + ticket.id + '/comments') |> condoPath }}"
+              hx-post="{{ ('/tickets/' + ticket.id + '/comments') |> condoPath }}"
+              hx-target="#ticket-body"
+              hx-swap="outerHTML show:no"
+              hx-on::after-request="if(event.detail.successful) this.reset()"
+              class="border-t border-base-200 pt-4">
+          <textarea name="comment" rows="2" required maxlength="5000"
+                    class="textarea textarea-sm textarea-bordered w-full"
+                    placeholder="Adicionar comentário…"></textarea>
+          <div class="flex items-center justify-between mt-2">
+            <label class="cursor-pointer flex items-center gap-2 text-xs text-base-content/70">
+              <input type="checkbox" name="isInternal" class="checkbox checkbox-xs">
+              <span>Nota interna (não visível ao condómino)</span>
+            </label>
+            <button type="submit" class="btn btn-sm btn-primary">Enviar comentário</button>
+          </div>
+        </form>
+      {{ else }}
+        <p class="text-[11px] text-base-content/40 italic border-t border-base-200 pt-3 mt-3">
+          Ocorrência em estado final - histórico congelado. Reverte para "Em progresso" se precisares de adicionar comentários.
+        </p>
+      {{ /if }}
+    </div>
+  </div>
+
+  {{# COLUNA DIREITA: metadados + ação principal #}}
+  <div class="space-y-4">
+    <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+      <h3 class="text-xs uppercase font-bold text-base-content/50 tracking-wider mb-3">Estado</h3>
+      <span class="inline-block px-3 py-1 rounded-full text-sm font-medium {{ sBg }} mb-4" style="{{ sStyle }}">{{ statusLabels[ticket.status] }}</span>
+
+      <h3 class="text-xs uppercase font-bold text-base-content/50 tracking-wider mb-2 mt-4">Prioridade</h3>
+      <span class="inline-block px-3 py-1 rounded-full text-sm font-medium {{ pBg }}" style="{{ pStyle }}">{{ priorityLabels[ticket.priority] }}</span>
+
+      {{# Visibilidade - 3 estados explícitos. #}}
+      <h3 class="text-xs uppercase font-bold text-base-content/50 tracking-wider mb-2 mt-4">Visibilidade</h3>
+      {{ if ticket.visibility === "public" }}
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-success/10 text-success">
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+          Visível a todos os condóminos
+        </span>
+      {{ else if ticket.visibility === "admin_unit" }}
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-info/10 text-info">
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+          Administração + fração
+        </span>
+      {{ else }}
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-base-200 text-base-content/70">
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+          Só administração
+        </span>
+      {{ /if }}
+
+      <div class="border-t border-base-200 mt-4 pt-3 space-y-2 text-xs">
+        <div class="flex justify-between gap-2">
+          <span class="text-base-content/60">Criado</span>
+          <span class="text-right">{{ ticket.createdAt |> formatDate }}</span>
+        </div>
+        <div class="pt-1">
+          <div class="text-base-content/60 mb-1">Submetido por</div>
+          {{ if submitterName }}
+            <div class="font-medium text-sm text-base-content/90">{{ submitterName }}</div>
+          {{ /if }}
+          <div class="text-[11px] text-base-content/60 truncate" title="{{ ticket.submittedBy?.email ?? '' }}">
+            {{ ticket.submittedBy?.email ?? "-" }}
+          </div>
+          {{ if unitForTicket }}
+            <div class="text-[11px] text-base-content/60 mt-0.5">
+              via fração
+              <a href="{{ ('/units/' + unitForTicket.id) |> condoPath }}" class="link link-hover font-medium">
+                {{ unitForTicket.designation }}{{ if unitForTicket.identifier }} - {{ unitForTicket.identifier }}{{ /if }}
+              </a>
+            </div>
+          {{ /if }}
+        </div>
+        {{ if ticket.resolvedAt }}
+          <div class="flex justify-between gap-2">
+            <span class="text-base-content/60">Resolvido</span>
+            <span class="text-right">{{ ticket.resolvedAt |> formatDate }}</span>
+          </div>
+        {{ /if }}
+      </div>
+    </div>
+
+    {{# Ação destrutiva vive na Zona perigosa de show.vto (ADR 0025), fora
+       deste partial (navega para a lista, fora do swap target). #}}
+  </div>
+</div>
+
+</div>
+
+{{# Toast OOB para #toast-container (auto-dismiss via JS global no admin.vto). #}}
+{{ if toast }}
+  <div id="toast-container" hx-swap-oob="beforeend">
+    <div class="rounded-lg bg-base-100 shadow-lg min-w-[260px]" data-auto-dismiss="4000">
+      <div class="relative overflow-hidden rounded-lg bg-success/10 border border-success/30 pl-4 pr-8 py-3 flex items-start gap-3">
+        <span class="text-success text-lg leading-none">✓</span>
+        <span class="text-sm font-medium text-base-content">{{ toast.message }}</span>
+        <button type="button"
+                class="absolute right-2 top-2 text-success opacity-50 hover:opacity-100 text-sm leading-none"
+                aria-label="Fechar"
+                data-toast-close>✕</button>
+        <div class="absolute bottom-0 left-0 h-0.5 bg-success opacity-60"
+             style="width: 0%" data-toast-progress></div>
+      </div>
+    </div>
+  </div>
+{{ /if }}

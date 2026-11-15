@@ -1,0 +1,54 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId } }}
+
+<div class="max-w-5xl">
+  {{ layout "partials/page_header.vto" {
+    title: target.name,
+    scale: "detail",
+    breadcrumbs: [
+      { label: "Condomínios", href: "/admin/c/" + currentCondominiumId + "/condominiums" },
+      { label: target.name },
+    ],
+    status: target.isActive
+      ? { label: "Ativo", tone: "success" }
+      : { label: "Inactivo", tone: "muted" },
+    meta: [
+      target.city ? { value: target.city, plain: true } : null,
+      target.address ? { value: target.address, plain: true } : null,
+    ]
+  } }}
+    <a href="/admin/c/{{ currentCondominiumId }}/condominiums/{{ target.id }}/edit" class="btn btn-sm btn-primary">Editar</a>
+  {{ /layout }}
+  <div class="card bg-base-100 shadow-sm border border-base-200 overflow-hidden">
+    <div class="px-6 pt-5 pb-3 border-b border-base-200">
+      <h2 class="text-lg font-bold">Dados</h2>
+    </div>
+    <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div>
+        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">NIF</div>
+        <div class="font-medium">{{ target.fiscalNumber ?? "-" }}</div>
+      </div>
+      <div>
+        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Email</div>
+        <div class="font-medium">{{ target.email ?? "-" }}</div>
+      </div>
+      <div>
+        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Código postal</div>
+        <div class="font-medium">{{ target.postalCode ?? "-" }}</div>
+      </div>
+      <div>
+        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Dia de cobrança</div>
+        <div class="font-medium">Dia {{ target.quotaDayOfMonth }}</div>
+      </div>
+      <div>
+        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Criado em</div>
+        <div class="font-medium">{{ target.createdAt }}</div>
+      </div>
+      <div>
+        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Atualizado em</div>
+        <div class="font-medium">{{ target.updatedAt }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{{ /layout }}

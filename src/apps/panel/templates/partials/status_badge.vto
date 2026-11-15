@@ -1,0 +1,37 @@
+{{# Status badge genérico - dot + label inline para estados (ADR 0036). O caller
+   decide label e tone. Para charges usar charge_status.vto (encapsula a regra de
+   domínio do "Vencido" via cutoff). Para seguros, o par {label, tone} vem do
+   global `insuranceStatusBadge(kind, voice)`.
+
+   Inputs:
+     • label   → texto do estado (ex: "Ativa", "Pago"). Obrigatório.
+     • tone    → "success" | "warning" | "error" | "info" | "neutral" | "muted"
+                 Default: "neutral" (aberto/indefinido). "muted" = cancelado/
+                 inativo (cinza, sem font-medium).
+     • size    → "sm" (default - cabeçalhos) | "xs" (células de tabela).
+     • variant → "plain" (default - dot + label) | "pill" (chip com fundo, para
+                 listas densas onde o badge tem de se destacar do texto à volta).
+
+   Mapping com literais (Tailwind JIT só vê literais). Tone desconhecido → neutral.
+#}}
+{{ set _tone = tone ?? "neutral" }}
+{{ if _tone === "success" }}
+  {{ set _fg = "text-success font-medium" }}{{ set _dot = "bg-success" }}{{ set _bg = "bg-success/10" }}
+{{ else if _tone === "warning" }}
+  {{ set _fg = "text-warning font-medium" }}{{ set _dot = "bg-warning" }}{{ set _bg = "bg-warning/10" }}
+{{ else if _tone === "error" }}
+  {{ set _fg = "text-error font-medium" }}{{ set _dot = "bg-error" }}{{ set _bg = "bg-error/10" }}
+{{ else if _tone === "info" }}
+  {{ set _fg = "text-info font-medium" }}{{ set _dot = "bg-info" }}{{ set _bg = "bg-info/10" }}
+{{ else if _tone === "muted" }}
+  {{# `_bg` mais claro que o `_dot`: em pill com o mesmo tom o ponto desaparecia. #}}
+  {{ set _fg = "text-base-content/50" }}{{ set _dot = "bg-base-300" }}{{ set _bg = "bg-base-200" }}
+{{ else }}
+  {{ set _fg = "text-base-content/60" }}{{ set _dot = "bg-base-content/40" }}{{ set _bg = "bg-base-200" }}
+{{ /if }}
+{{ set _sizeClass = (size ?? "sm") === "xs" ? "text-xs" : "text-sm" }}
+{{ if (variant ?? "plain") === "pill" }}
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full {{ _sizeClass }} {{ _fg }} {{ _bg }}"><span class="inline-block w-1.5 h-1.5 rounded-full {{ _dot }}"></span>{{ label }}</span>
+{{ else }}
+<span class="inline-flex items-center gap-1.5 {{ _sizeClass }} {{ _fg }}"><span class="inline-block w-1.5 h-1.5 rounded-full {{ _dot }}"></span>{{ label }}</span>
+{{ /if }}

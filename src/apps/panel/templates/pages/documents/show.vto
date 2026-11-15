@@ -1,0 +1,117 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{# Detalhe do documento com edição inline (sem modal), como units/edit.vto. #}}
+
+<div class="max-w-3xl">
+  {{ set _createdAt = document.createdAt |> formatDate }}
+  {{ set _updatedAt = document.updatedAt |> formatDate }}
+  {{# Ação destrutiva vive na Zona perigosa no fim da página (ADR 0025). #}}
+  {{ include "partials/page_header.vto" {
+    title: document.title,
+    scale: "detail",
+    breadcrumbs: [
+      { label: "Documentos", href: "/admin/c/" + currentCondominiumId + "/documents" },
+      { label: document.title },
+    ],
+    meta: [
+      { value: "Criado em " + _createdAt, plain: true },
+      document.updatedAt && document.updatedAt !== document.createdAt
+        ? { value: "Atualizado em " + _updatedAt, plain: true }
+        : null,
+    ],
+  } }}
+
+  {{# ── Form de edição inline ───────────────────────────────────────── #}}
+  <form method="post" action="/admin/c/{{ currentCondominiumId }}/documents/{{ document.id }}/update"
+        class="card bg-base-100 shadow-sm border border-base-200 p-6 space-y-4">
+    {{# Sentinel: sem isto o backend não distingue checkbox desmarcada de campo omitido. #}}
+    <input type="hidden" name="isPublicSubmitted" value="1">
+
+    <div class="form-control">
+      <label class="label py-1" for="title"><span class="label-text font-medium">Título *</span></label>
+      <input type="text" id="title" name="title" required maxlength="255"
+             value="{{ document.title }}"
+             class="input input-sm input-bordered">
+    </div>
+
+    <div class="form-control">
+      <label class="label py-1" for="description"><span class="label-text font-medium">Descrição</span></label>
+      <textarea id="description" name="description" rows="4" maxlength="2000"
+                class="textarea textarea-sm textarea-bordered">{{ document.description ?? "" }}</textarea>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div class="form-control">
+        <label class="label py-1" for="category"><span class="label-text font-medium">Categoria *</span></label>
+        <select id="category" name="category" required class="select select-sm select-bordered">
+          {{ for cat of ["minutes", "regulation", "contract", "budget", "insurance", "plant", "other"] }}
+            <option value="{{ cat }}" {{ if cat === document.category }}selected{{ /if }}>{{ categoryLabels[cat] }}</option>
+          {{ /for }}
+        </select>
+      </div>
+      <div class="form-control">
+        <label class="label py-1" for="publishedAt"><span class="label-text font-medium">Data oficial <span class="text-base-content/40 font-normal">(opcional)</span></span></label>
+        <input type="date" id="publishedAt" name="publishedAt" lang="pt-PT"
+               value="{{ document.publishedAt ?? '' }}"
+               class="input input-sm input-bordered">
+      </div>
+    </div>
+
+    <div class="form-control bg-base-200/40 rounded-lg px-3 py-2">
+      <label class="label cursor-pointer py-1">
+        <span class="label-text">
+          <span class="font-medium">Documento público</span><br>
+          <span class="text-xs text-base-content/60">Visível no portal do condómino. Privado = só admin.</span>
+        </span>
+        <input type="checkbox" name="isPublic" value="1" class="checkbox checkbox-primary checkbox-sm"
+               {{ if document.isPublic }}checked{{ /if }}>
+      </label>
+    </div>
+
+    <div class="flex justify-end pt-3 border-t border-base-200">
+      <button type="submit" class="btn btn-sm btn-primary">Guardar alterações</button>
+    </div>
+  </form>
+
+  {{# ── Anexos ───────────────────────────────────────────────────────── #}}
+  <div class="card bg-base-100 shadow-sm border border-base-200 p-6 mt-4">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-base font-semibold">Anexos {{ if document.attachments && document.attachments.length > 0 }}<span class="text-sm font-normal text-base-content/50">· {{ String(document.attachments.length) }}</span>{{ /if }}</h2>
+    </div>
+
+    <form method="post" action="/admin/c/{{ currentCondominiumId }}/documents/{{ document.id }}/attachments" enctype="multipart/form-data" class="space-y-3 mb-4 pb-4 border-b border-base-200">
+      {{ include "partials/file_dropzone.vto" {
+        name: "file",
+        multiple: false,
+        accept: uploadAccept,
+        helpText: "PDF ou imagem (JPEG, PNG, WEBP, HEIC). Máximo " + String(uploadMaxMb) + " MB.",
+      } }}
+      <div class="flex justify-end">
+        <button type="submit" class="btn btn-sm btn-primary gap-1.5" data-upload-submit disabled>
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/>
+          </svg>
+          Carregar
+        </button>
+      </div>
+    </form>
+
+    {{ include "partials/attachments_list.vto" {
+      attachments: document.attachments ?? [],
+      baseUrl: "/admin/c/" + currentCondominiumId + "/documents/" + document.id + "/attachments",
+      layout: "list",
+      emptyText: "Nenhum anexo. Carrega um PDF ou imagem acima.",
+    } }}
+  </div>
+</div>
+
+{{# Zona perigosa - pattern canónico (ADR 0025). #}}
+{{ include "partials/danger_zone.vto" {
+  entityName: "documento",
+  entityLabel: document.title,
+  actionUrl: "/admin/c/" + currentCondominiumId + "/documents/" + document.id + "/delete",
+  confirmBody: "Apaga o documento " + document.title + " e os anexos associados.",
+  currentUser,
+} }}
+
+{{ /layout }}

@@ -1,0 +1,37 @@
+{{# Estado de acesso ao portal de um occupant + ação contextual (sem email /
+   convidar / tem conta + re-enviar). O `<div id="portal-status-...">` é o
+   swap-target HTMX da rota de invite - sem reload da página. #}}
+<div id="portal-status-{{ occupant.id }}" class="inline-flex items-center gap-2">
+  {{ if !occupant.email }}
+    <span class="inline-flex items-center gap-1 text-[10px] text-base-content/40 italic" title="Sem email - adiciona um para poder convidar">
+      ⓘ sem email
+    </span>
+  {{ else if !occupant.userId }}
+    <button type="button" class="btn btn-xs btn-ghost text-primary"
+            hx-post="/admin/c/{{ currentCondominiumId }}/occupants/{{ occupant.id }}/invite"
+            hx-target="#portal-status-{{ occupant.id }}"
+            hx-swap="outerHTML"
+            hx-confirm="Vai ser enviado um email para {{ occupant.email }} com link válido por 24h para definir a password do portal."
+            data-confirm-title="Convidar {{ occupant.name }}?"
+            data-confirm-ok="Enviar convite"
+            data-confirm-cancel="Cancelar"
+            title="Convidar para o portal">
+      ✉ Convidar
+    </button>
+  {{ else }}
+    <span class="inline-flex items-center gap-1.5 text-xs font-medium text-success" title="Já tem conta no portal (ou convite aceite)">
+      <span class="inline-block w-1.5 h-1.5 rounded-full bg-success"></span> Tem conta
+    </span>
+    <button type="button" class="link text-[10px] text-base-content/60 hover:text-primary"
+            hx-post="/admin/c/{{ currentCondominiumId }}/occupants/{{ occupant.id }}/invite"
+            hx-target="#portal-status-{{ occupant.id }}"
+            hx-swap="outerHTML"
+            hx-confirm="Vai ser enviado um novo email para {{ occupant.email }} com link para (re)definir a password. Tokens anteriores ficam inválidos."
+            data-confirm-title="Re-enviar convite a {{ occupant.name }}?"
+            data-confirm-ok="Re-enviar"
+            data-confirm-cancel="Cancelar"
+            title="Re-enviar email com link de password">
+      re-enviar
+    </button>
+  {{ /if }}
+</div>

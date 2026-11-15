@@ -1,0 +1,100 @@
+{{# Modal "+ Nova patologia" - só CREATE (ADR 0019); o edit é inline em
+   `show.vto`. Vars: currentCondominiumId, units, categoryLabels. #}}
+
+<dialog id="modal_pathology" class="modal">
+  <div class="modal-box max-w-2xl overflow-visible">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-lg mb-1">Nova patologia</h3>
+    <p class="text-xs text-base-content/60 mb-4">
+      Regista um defeito físico observado no edifício. Inicia em rascunho - sai privada
+      do portal até passares para "Identificada".
+    </p>
+
+    <form method="post" action="/admin/c/{{ currentCondominiumId }}/pathologies" class="space-y-4">
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text text-xs">Título *</span></label>
+        <input type="text" name="title" required maxlength="255"
+               placeholder="Ex: Fissura vertical na fachada norte"
+               class="input input-sm input-bordered">
+      </div>
+
+      <div class="form-control">
+        <label class="label py-1">
+          <span class="label-text text-xs">Descrição</span>
+          <span class="label-text-alt text-[10px] text-base-content/40">localização física, dimensões, observações</span>
+        </label>
+        <textarea name="description" rows="3" maxlength="4000"
+                  placeholder="Fissura com cerca de 1,5m vertical, abertura ~2mm. Localizada junto à janela…"
+                  class="textarea textarea-sm textarea-bordered"></textarea>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Categoria *</span></label>
+          <select name="category" required class="select select-sm select-bordered">
+            {{ for cat, label of categoryLabels }}
+              <option value="{{ cat }}" {{ if cat === "other" }}selected{{ /if }}>{{ label }}</option>
+            {{ /for }}
+          </select>
+        </div>
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Detectada em</span></label>
+          <input type="date" name="detectedAt" class="input input-sm input-bordered">
+        </div>
+      </div>
+
+      {{# Âmbito exige parte comum OR ≥1 fração. Default parte comum ligado;
+         validação client-side abaixo bloqueia o submit se nenhum (evita 400). #}}
+      <div class="bg-base-200/30 rounded-lg p-3 space-y-3" id="pathology_scope">
+        <div class="text-[10px] uppercase tracking-widest font-bold text-base-content/60">Âmbito *</div>
+        <label class="label cursor-pointer py-1 justify-start gap-3">
+          <input type="checkbox" id="pathology_common_area" name="affectsCommonArea" value="1"
+                 class="checkbox checkbox-primary checkbox-sm" checked>
+          <span class="label-text">
+            <span class="font-medium">Afecta partes comuns</span><br>
+            <span class="text-xs text-base-content/60">Fachadas, escadas, garagem, telhado, muros, etc.</span>
+          </span>
+        </label>
+
+        <div>
+          <div class="text-xs font-medium mb-1.5">Frações afetadas <span class="text-base-content/40 font-normal">(zero ou mais)</span></div>
+          {{ include "partials/units_picker.vto" {
+            allUnits: units,
+            selectedIds: [],
+            inputName: "unitIds[]",
+          } }}
+          <p data-pathology-scope-hint class="text-[10px] text-base-content/50 mt-1.5">
+            Marca pelo menos um âmbito (partes comuns OU ≥1 fração).
+          </p>
+        </div>
+      </div>
+
+      {{# Validação client-side do âmbito (JS bind 1x). #}}
+      <script>
+        (function () {
+          const form = document.currentScript.closest('form');
+          if (!form || form.__pathScopeBound) return;
+          form.__pathScopeBound = true;
+          form.addEventListener('submit', (e) => {
+            const common = form.querySelector('#pathology_common_area').checked;
+            const unitInputs = form.querySelectorAll('input[name="unitIds[]"]');
+            if (common || unitInputs.length > 0) return;
+            e.preventDefault();
+            const hint = form.querySelector('[data-pathology-scope-hint]');
+            if (hint) {
+              hint.classList.remove('text-base-content/50');
+              hint.classList.add('text-error', 'font-medium');
+            }
+            form.querySelector('#pathology_common_area').focus();
+          });
+        })();
+      </script>
+
+      <div class="flex justify-end gap-2 pt-3 border-t border-base-200">
+        <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('modal_pathology').close()">Cancelar</button>
+        <button type="submit" class="btn btn-sm btn-primary">Criar (rascunho)</button>
+      </div>
+    </form>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>

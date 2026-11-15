@@ -1,0 +1,311 @@
+{{ layout "layouts/portal.vto" { title, section, condominium, unit, currentUser, currentPortalUnitId, currentCondominiumId } }}
+
+{{# Detalhe da ocorrência (espelha admin/tickets/:id). Condómino só edita
+   enquanto `open`; após o admin tocar, campos descritivos congelam
+   (ground truth do admin) - fica leitura + histórico. #}}
+
+{{ set isOpen = ticket.status === "open" }}
+{{# Visitante: vê ocorrência pública de zona comum (não é da fração dele),
+   read-only. Ver API `portalRetrieveTicket`. #}}
+{{ set isVisitor = ticket.isVisitor === true }}
+{{ set canEdit = isOpen && !isVisitor }}
+{{# Responder acompanha o admin (`requireMutableTicket`): open + in_progress.
+   `admin_unit` espelha o gate da API (mutação do portal só nessa visibilidade);
+   numa ocorrência passada a `public` a conversa fica do lado da administração. #}}
+{{ set canComment = !isVisitor && ticket.visibility === "admin_unit"
+  && (ticket.status === "open" || ticket.status === "in_progress") }}
+{{ set sBg = ticket.status === "open" ? "bg-amber-100"
+  : ticket.status === "in_progress" ? "bg-info/10 text-info"
+  : ticket.status === "resolved" ? "bg-success/10 text-success"
+  : "bg-purple-100" }}
+{{ set sStyle = ticket.status === "open" ? "color:#854D0E"
+  : ticket.status === "closed" ? "color:#6B21A8" : "" }}
+{{ set pBg = ticket.priority === "urgent" ? "bg-error/10 text-error"
+  : ticket.priority === "high" ? "bg-amber-100"
+  : ticket.priority === "low" ? "bg-base-200 text-base-content/60"
+  : "bg-base-200 text-base-content/70" }}
+{{ set pStyle = ticket.priority === "high" ? "color:#854D0E" : "" }}
+
+<div class="mb-6">
+  <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/tickets" class="text-sm text-base-content/60 hover:text-base-content">← Voltar à lista</a>
+  <div class="flex items-baseline gap-3 mt-2 flex-wrap">
+    <span class="font-mono text-base-content/40 text-2xl">{{ ticket.code }}</span>
+    <h1 class="text-2xl sm:text-3xl font-black break-words">{{ ticket.title }}</h1>
+  </div>
+  {{ if isVisitor }}
+    <div class="mt-3 rounded-lg border border-success/30 bg-success/5 px-3 py-2 text-xs text-success/90 inline-flex items-center gap-2">
+      <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+      </svg>
+      Ocorrência pública de zona comum publicada pela administração - só leitura.
+    </div>
+  {{ else if !isOpen }}
+    <div class="mt-3 rounded-lg border border-info/30 bg-info/5 px-3 py-2 text-xs text-info/90 inline-flex items-center gap-2">
+      <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      A administração já tomou conhecimento - texto não editável.
+    </div>
+  {{ /if }}
+</div>
+
+{{# ── Régua de estado (open → in_progress → resolved → closed) ─────────
+   Read-only no portal - só admin muda estado. #}}
+<div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-4 mb-6">
+  <div class="flex items-center gap-2 flex-wrap text-xs sm:text-sm">
+    <span class="uppercase tracking-wider font-bold text-base-content/50 mr-2 text-[10px] sm:text-xs">Estado</span>
+    {{ set statusOrder = ["open", "in_progress", "resolved", "closed"] }}
+    {{ for i, key of statusOrder }}
+      {{ set isCurrent = ticket.status === key }}
+      {{ set activeBg = key === "open" ? "bg-amber-100"
+        : key === "in_progress" ? "bg-info/10 text-info"
+        : key === "resolved" ? "bg-success/10 text-success"
+        : "bg-purple-100" }}
+      {{ set activeStyle = key === "open" ? "color:#854D0E"
+        : key === "closed" ? "color:#6B21A8" : "" }}
+      {{ if isCurrent }}
+        <span class="inline-flex items-center px-3 py-1 rounded-full font-medium {{ activeBg }}" style="{{ activeStyle }}">{{ statusLabels[key] }}</span>
+      {{ else }}
+        <span class="inline-flex items-center px-3 py-1 rounded-full font-medium bg-base-200/50 text-base-content/40">{{ statusLabels[key] }}</span>
+      {{ /if }}
+      {{ if i < statusOrder.length - 1 }}
+        <svg class="w-3 h-3 text-base-content/30 shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+        </svg>
+      {{ /if }}
+    {{ /for }}
+  </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  {{# COLUNA ESQUERDA: edição (só se open) OU display read-only + anexos + histórico #}}
+  <div class="lg:col-span-2 space-y-6">
+
+    {{ if canEdit }}
+      {{# Só campos descritivos; API portal ignora `status`/`resolutionNotes`. #}}
+      <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+        <h2 class="text-sm font-bold mb-4">Editar ocorrência</h2>
+        <form method="post"
+              action="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/tickets/{{ ticket.id }}/update"
+              class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div class="form-control md:col-span-2">
+            <label class="label py-1"><span class="label-text text-xs">Título *</span></label>
+            <input type="text" name="title" value="{{ ticket.title }}" required minlength="3" maxlength="200"
+                   class="input input-sm input-bordered">
+          </div>
+
+          <div class="form-control">
+            <label class="label py-1"><span class="label-text text-xs">Categoria</span></label>
+            <select name="category" class="select select-sm select-bordered">
+              {{ for key, label of categoryLabels }}
+                <option value="{{ key }}" {{ if ticket.category === key }}selected{{ /if }}>{{ label }}</option>
+              {{ /for }}
+            </select>
+          </div>
+
+          <div class="form-control">
+            <label class="label py-1"><span class="label-text text-xs">Prioridade</span></label>
+            <select name="priority" class="select select-sm select-bordered">
+              {{ for key, label of priorityLabels }}
+                <option value="{{ key }}" {{ if ticket.priority === key }}selected{{ /if }}>{{ label }}</option>
+              {{ /for }}
+            </select>
+          </div>
+
+          <div class="form-control md:col-span-2">
+            <label class="label py-1"><span class="label-text text-xs">Localização</span></label>
+            <input type="text" name="location" value="{{ ticket.location ?? '' }}" maxlength="200"
+                   class="input input-sm input-bordered"
+                   placeholder="Ex: Hall do 2º piso">
+          </div>
+
+          <div class="form-control md:col-span-2">
+            <label class="label py-1"><span class="label-text text-xs">Descrição</span></label>
+            <textarea name="description" rows="3" maxlength="5000"
+                      class="textarea textarea-sm textarea-bordered">{{ ticket.description ?? "" }}</textarea>
+          </div>
+
+          <div class="md:col-span-2 flex justify-end pt-2 border-t border-base-200">
+            <button type="submit" class="btn btn-sm btn-primary">Guardar alterações</button>
+          </div>
+        </form>
+      </div>
+    {{ else }}
+      <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+        <h2 class="text-xs uppercase font-bold text-base-content/50 tracking-wider mb-4">Ocorrência</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+          <div>
+            <div class="text-[10px] uppercase tracking-wider text-base-content/50">Categoria</div>
+            <div class="mt-0.5 font-medium">{{ categoryLabels[ticket.category] ?? ticket.category }}</div>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase tracking-wider text-base-content/50">Prioridade</div>
+            <div class="mt-0.5"><span class="inline-block px-2 py-0.5 rounded text-xs font-medium {{ pBg }}" style="{{ pStyle }}">{{ priorityLabels[ticket.priority] }}</span></div>
+          </div>
+          <div class="md:col-span-2">
+            <div class="text-[10px] uppercase tracking-wider text-base-content/50">Localização</div>
+            <div class="mt-0.5">{{ if ticket.location }}{{ ticket.location }}{{ else }}<span class="text-base-content/40 italic">não indicada</span>{{ /if }}</div>
+          </div>
+        </div>
+
+        {{ if ticket.description }}
+          <div class="mt-5 pt-4 border-t border-base-200">
+            <div class="text-[10px] uppercase tracking-wider text-base-content/50">Descrição</div>
+            <div class="mt-1 text-sm whitespace-pre-line">{{ ticket.description }}</div>
+          </div>
+        {{ /if }}
+      </div>
+    {{ /if }}
+
+    {{# Anexos: upload/delete só enquanto `open`; depois a evidência preserva-se. #}}
+    <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xs uppercase font-bold text-base-content/50 tracking-wider">Fotos / Anexos <span class="text-base-content/40 font-normal normal-case tracking-normal">· {{ ticket.attachments.length }}</span></h2>
+      </div>
+
+      {{ if ticket.attachments.length > 0 }}
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+          {{ for a of ticket.attachments }}
+            {{ set attUrl = "/portal/c/" + currentCondominiumId + "/u/" + currentPortalUnitId + "/tickets/" + ticket.id + "/attachments/" + a.id }}
+            <div class="border border-base-200 rounded-lg overflow-hidden bg-base-50">
+              {{ if a.mimeType.startsWith("image/") }}
+                <a href="{{ attUrl }}" target="_blank">
+                  <img src="{{ attUrl }}" alt="{{ a.filename }}" class="w-full h-32 object-cover">
+                </a>
+              {{ else }}
+                <a href="{{ attUrl }}" target="_blank"
+                   class="block h-32 flex items-center justify-center bg-base-200 text-4xl">📎</a>
+              {{ /if }}
+              <div class="p-2 flex items-center justify-between gap-2 text-xs">
+                <span class="truncate flex-1" title="{{ a.filename }}">{{ a.filename }}</span>
+                {{ if canEdit }}
+                  <form method="post"
+                        action="{{ attUrl }}/delete"
+                        class="inline"
+                        data-confirm-title="Remover anexo"
+                        data-confirm-body="Queres mesmo remover este anexo? O ficheiro fica inacessível."
+                        data-confirm-ok="Remover"
+                        data-confirm-danger="true">
+                    <button class="link link-error text-xs" title="Remover">×</button>
+                  </form>
+                {{ /if }}
+              </div>
+            </div>
+          {{ /for }}
+        </div>
+      {{ /if }}
+
+      {{ if canEdit }}
+        <form method="post"
+              action="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/tickets/{{ ticket.id }}/attachments"
+              enctype="multipart/form-data"
+              class="space-y-3">
+          {{ include "partials/file_dropzone.vto" {
+            name: "file",
+            multiple: false,
+            helpText: "Foto, PDF, etc.",
+          } }}
+          <div class="flex justify-end">
+            <button type="submit" class="btn btn-sm btn-primary gap-1.5" data-upload-submit disabled>
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/>
+              </svg>
+              Carregar
+            </button>
+          </div>
+        </form>
+      {{ else if ticket.attachments.length === 0 }}
+        <p class="text-xs text-base-content/40 italic">Sem fotos anexadas.</p>
+      {{ /if }}
+    </div>
+
+    {{# Só comentários públicos (API filtra `isInternal=false`). Responder segue
+       a regra do admin: aberto enquanto `open`/`in_progress`. #}}
+    <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+      <h2 class="text-xs uppercase font-bold text-base-content/50 tracking-wider mb-4">Histórico <span class="text-base-content/40 font-normal normal-case tracking-normal">· {{ ticket.comments.length }}</span></h2>
+
+      {{ if ticket.comments.length === 0 }}
+        <p class="text-sm text-base-content/40 italic">Sem comentários ainda.</p>
+      {{ else }}
+        <div class="space-y-3">
+          {{ for c of ticket.comments }}
+            {{ set isMine = currentUser && c.submittedBy && c.submittedBy.userId === currentUser.id }}
+            <div class="flex gap-3">
+              <div class="w-1 mt-1 rounded-full {{ if c.statusTo }}bg-info{{ else }}bg-base-content/20{{ /if }}"></div>
+              <div class="flex-1">
+                <div class="flex items-center gap-2 text-xs text-base-content/60 mb-1 flex-wrap">
+                  <span class="font-medium text-base-content/70">{{ if isMine }}Eu{{ else }}Administração{{ /if }}</span>
+                  <span>{{ c.createdAt |> formatDate }}</span>
+                  {{ if c.statusTo }}
+                    <span class="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-info/10 text-info ml-1">{{ statusLabels[c.statusFrom] ?? c.statusFrom }} → {{ statusLabels[c.statusTo] ?? c.statusTo }}</span>
+                  {{ /if }}
+                </div>
+                <div class="text-sm whitespace-pre-line">{{ c.comment }}</div>
+              </div>
+            </div>
+          {{ /for }}
+        </div>
+      {{ /if }}
+
+      {{ if canComment }}
+        <form method="post"
+              action="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/tickets/{{ ticket.id }}/comments"
+              class="mt-5 pt-4 border-t border-base-200 space-y-2">
+          <textarea name="comment" rows="3" required maxlength="5000"
+                    class="textarea textarea-sm textarea-bordered w-full"
+                    placeholder="Escrever uma mensagem à administração..."></textarea>
+          <div class="flex justify-end">
+            <button type="submit" class="btn btn-sm btn-primary">Enviar mensagem</button>
+          </div>
+        </form>
+      {{ else if !isVisitor && (ticket.status === "resolved" || ticket.status === "closed") }}
+        <p class="mt-5 pt-4 border-t border-base-200 text-xs text-base-content/40 italic">Ocorrência fechada - já não aceita novas mensagens.</p>
+      {{ /if }}
+    </div>
+  </div>
+
+  {{# COLUNA DIREITA: estado/prioridade + apagar (só enquanto open) #}}
+  <div class="space-y-4">
+    <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+      <h3 class="text-xs uppercase font-bold text-base-content/50 tracking-wider mb-3">Estado</h3>
+      <span class="inline-block px-3 py-1 rounded-full text-sm font-medium {{ sBg }} mb-4" style="{{ sStyle }}">{{ statusLabels[ticket.status] }}</span>
+
+      <h3 class="text-xs uppercase font-bold text-base-content/50 tracking-wider mb-2 mt-4">Prioridade</h3>
+      <span class="inline-block px-3 py-1 rounded-full text-sm font-medium {{ pBg }}" style="{{ pStyle }}">{{ priorityLabels[ticket.priority] }}</span>
+
+      <div class="border-t border-base-200 mt-4 pt-3 space-y-2 text-xs">
+        <div class="flex justify-between">
+          <span class="text-base-content/60">Criado</span>
+          <span>{{ ticket.createdAt |> formatDate }}</span>
+        </div>
+        {{ if ticket.resolvedAt }}
+          <div class="flex justify-between">
+            <span class="text-base-content/60">Resolvido</span>
+            <span>{{ ticket.resolvedAt |> formatDate }}</span>
+          </div>
+        {{ /if }}
+      </div>
+
+      {{ if ticket.resolutionNotes }}
+        <div class="mt-3 p-3 bg-success/5 border border-success/20 rounded-lg text-xs">
+          <div class="font-semibold text-base-content uppercase tracking-wider mb-1">Resposta do administrador</div>
+          <div class="whitespace-pre-line">{{ ticket.resolutionNotes }}</div>
+        </div>
+      {{ /if }}
+    </div>
+
+    {{# Apagar: só enquanto `open` e for da fração. Visitante nunca apaga. #}}
+    {{ if canEdit }}
+      <form method="post"
+            action="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/tickets/{{ ticket.id }}/delete"
+            data-confirm-title="Apagar ocorrência"
+            data-confirm-body="Queres apagar esta ocorrência? Só é possível apagar enquanto está em estado Aberto."
+            data-confirm-ok="Apagar"
+            data-confirm-danger="true">
+        <button class="btn btn-sm btn-ghost text-error w-full">Apagar ocorrência</button>
+      </form>
+    {{ /if }}
+  </div>
+</div>
+
+{{ /layout }}

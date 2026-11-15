@@ -1,0 +1,229 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{# Preteridos (not_approved) nunca foram faturados: ficam fora dos KPIs e do
+   somatório mesmo quando revelados na tabela pelo toggle. #}}
+{{ set kpiBudgets = budgets.filter((b) => b.status !== "not_approved") }}
+{{ set principal = kpiBudgets.filter((b) => b.type === "principal").length }}
+{{ set suplementar = kpiBudgets.filter((b) => b.type === "suplementar").length }}
+{{ set approved = kpiBudgets.filter((b) => b.status === "approved").length }}
+{{# `totalAmount` do serializer é só a parte ordinária (soma das linhas). #}}
+{{# O grande total faturado aos condóminos = ordinário + FCR. #}}
+{{ set ordinarySum = kpiBudgets.reduce((s, b) => s + Number(b.totalAmount || 0), 0) }}
+{{ set fcrSum = kpiBudgets.reduce((s, b) => s + Number(b.fcrAmount || 0), 0) }}
+{{ set grandSum = ordinarySum + fcrSum }}
+
+{{ layout "partials/page_header.vto" { title: "Orçamento" } }}
+  <button type="button" class="btn btn-sm btn-primary" onclick="document.getElementById('modal_budget').showModal()">
+    + Novo orçamento
+  </button>
+{{ /layout }}
+
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+  {{ include "partials/kpi_card.vto" {
+    tone: "primary", label: "Orçamentos", value: String(kpiBudgets.length), caption: String(approved) + " aprovados"
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "info", label: "Principais", value: String(principal), caption: "por ano fiscal"
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "warning", label: "Suplementares", value: String(suplementar), caption: "adicionais ao principal"
+  } }}
+  {{ set _grandSumValue = grandSum |> formatMoney }}
+  {{ set _ordinarySumValue = ordinarySum |> formatMoney }}
+  {{ set _fcrSumValue = fcrSum |> formatMoney }}
+  {{ set _somatorioCaption = "Ord. " + _ordinarySumValue + " + FCR " + _fcrSumValue }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "success", label: "Somatório", value: _grandSumValue, caption: _somatorioCaption
+  } }}
+</div>
+
+<dialog id="modal_budget" class="modal">
+  <div class="modal-box max-w-lg">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-lg mb-4">Novo orçamento</h3>
+    <form method="post" action="/admin/c/{{ currentCondominiumId }}/budget" class="space-y-3">
+      <div class="form-control">
+        <label class="label py-1" for="type"><span class="label-text text-xs">Tipo</span></label>
+        <select id="type" name="type" class="select select-sm select-bordered w-full" required data-budget-type>
+          <option value="principal">Principal</option>
+          <option value="suplementar">Suplementar</option>
+        </select>
+      </div>
+      <div class="form-control hidden" data-budget-parent-wrap>
+        <label class="label py-1" for="parentBudgetId"><span class="label-text text-xs">Orçamento pai (principal)</span></label>
+        <select id="parentBudgetId" name="parentBudgetId" class="select select-sm select-bordered w-full" data-budget-parent>
+          <option value="">-</option>
+          {{ set hasPrincipal = false }}
+          {{ for b of budgets }}
+            {{ if b.type === "principal" }}
+              {{ set hasPrincipal = true }}
+              <option value="{{ b.id }}" data-year="{{ b.year }}">{{ b.year }} · {{ b.status === "approved" ? "aprovado" : "rascunho" }}{{ if b.notes }} · {{ b.notes }}{{ /if }}</option>
+            {{ /if }}
+          {{ /for }}
+        </select>
+        {{ if !hasPrincipal }}
+          <label class="label py-0"><span class="label-text-alt text-warning text-xs">Sem principais. Cria um primeiro.</span></label>
+        {{ /if }}
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div class="form-control">
+          <label class="label py-1" for="year"><span class="label-text text-xs">Ano</span></label>
+          <input type="number" id="year" name="year" min="2000" max="2100" required value="{{ defaultYear }}" class="input input-sm input-bordered w-full" data-budget-year>
+        </div>
+        <div class="form-control hidden" data-budget-installments-wrap>
+          <label class="label py-1" for="installments"><span class="label-text text-xs">Nº de prestações</span></label>
+          <input type="number" id="installments" name="installments" min="1" max="120" step="1" value="3" class="input input-sm input-bordered w-full" data-budget-installments>
+        </div>
+        <div class="form-control" data-budget-fcr-wrap>
+          <label class="label py-1" for="fcrPercentage"><span class="label-text text-xs">% FCR</span></label>
+          <input type="number" id="fcrPercentage" name="fcrPercentage" min="0" max="100" step="0.01" value="10" class="input input-sm input-bordered w-full" required data-budget-fcr>
+        </div>
+      </div>
+      <div class="form-control">
+        <label class="label py-1" for="notes"><span class="label-text text-xs">Descrição</span></label>
+        <input type="text" id="notes" name="notes" maxlength="255" placeholder="Ex: Proposta A" class="input input-sm input-bordered w-full">
+      </div>
+      <div class="flex justify-end gap-2 pt-2">
+        <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('modal_budget').close()">Cancelar</button>
+        <button type="submit" class="btn btn-sm btn-primary">Criar</button>
+      </div>
+    </form>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<script>
+  (function () {
+    var typeSel = document.querySelector('[data-budget-type]');
+    var parentWrap = document.querySelector('[data-budget-parent-wrap]');
+    var parentSel = document.querySelector('[data-budget-parent]');
+    var yearInput = document.querySelector('[data-budget-year]');
+    var instWrap = document.querySelector('[data-budget-installments-wrap]');
+    var instInput = document.querySelector('[data-budget-installments]');
+    var fcrWrap = document.querySelector('[data-budget-fcr-wrap]');
+    var fcrInput = document.querySelector('[data-budget-fcr]');
+    if (!typeSel || !parentWrap || !parentSel || !yearInput || !instWrap || !instInput || !fcrWrap || !fcrInput) return;
+
+    var syncYear = function () {
+      if (typeSel.value !== 'suplementar') return;
+      var opt = parentSel.options[parentSel.selectedIndex];
+      var y = opt && opt.dataset.year;
+      if (y) yearInput.value = y;
+    };
+
+    var sync = function (initial) {
+      var isSupl = typeSel.value === 'suplementar';
+      parentWrap.classList.toggle('hidden', !isSupl);
+      parentSel.required = isSupl;
+      instWrap.classList.toggle('hidden', !isSupl);
+      instInput.required = isSupl;
+      // FCR não se aplica a obra: esconde e desativa nos suplementares.
+      fcrWrap.classList.toggle('hidden', isSupl);
+      fcrInput.required = !isSupl;
+      yearInput.readOnly = isSupl;
+      yearInput.classList.toggle('bg-base-200', isSupl);
+      if (isSupl) syncYear();
+    };
+    typeSel.addEventListener('change', function () { sync(false); });
+    parentSel.addEventListener('change', syncYear);
+    sync(true);
+  })();
+</script>
+
+{{ if notApprovedCount > 0 || showNotApproved }}
+  <div class="flex justify-end mb-2">
+    {{ if showNotApproved }}
+      <a href="/admin/c/{{ currentCondominiumId }}/budget" class="link link-hover text-xs text-base-content/60">Ocultar não aprovados</a>
+    {{ else }}
+      <a href="/admin/c/{{ currentCondominiumId }}/budget?nao-aprovados=1" class="link link-hover text-xs text-base-content/60">Mostrar não aprovados ({{ notApprovedCount }})</a>
+    {{ /if }}
+  </div>
+{{ /if }}
+
+{{ layout "partials/table_card.vto" { title: "Lista", count: budgets.length, searchable: true } }}
+  <table class="table table-sm">
+    <thead>
+      <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+        <th class="pl-4">Ano</th>
+        <th>Tipo</th>
+        <th>Estado</th>
+        <th class="text-right">% FCR</th>
+        <th class="text-right hidden md:table-cell">Ordinário</th>
+        <th class="text-right hidden md:table-cell">FCR</th>
+        <th class="text-right">Total</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ if budgets.length === 0 }}
+        <tr><td colspan="8" class="p-8 text-center text-base-content/50">Sem orçamentos.</td></tr>
+      {{ else }}
+        {{ for b of budgets }}
+          <tr class="hover:bg-base-200/30 border-t border-base-100 text-sm {{ if b.type === 'suplementar' }}bg-base-200/30{{ /if }}">
+            <td class="pl-4 font-bold">
+              {{ if b.type === "suplementar" }}<span class="text-base-content/40">↳ </span>{{ /if }}<span data-search>{{ b.year }}</span>
+              {{ if b.notes }}<div class="text-xs text-base-content/60 font-normal mt-0.5" data-search>{{ b.notes }}</div>{{ /if }}
+            </td>
+            <td>
+              {{ if b.type === "suplementar" }}
+                {{ include "partials/status_badge.vto" { label: "Suplementar", tone: "warning", size: "xs" } }}
+              {{ else }}
+                {{ include "partials/status_badge.vto" { label: "Principal", tone: "info", size: "xs" } }}
+              {{ /if }}
+            </td>
+            <td>
+              {{ if b.status === "draft" }}
+                {{ include "partials/status_badge.vto" { label: "Rascunho", tone: "neutral", size: "xs" } }}
+              {{ else if b.status === "not_approved" }}
+                {{ include "partials/status_badge.vto" { label: "Não aprovado", tone: "muted", size: "xs" } }}
+              {{ else }}
+                {{ include "partials/status_badge.vto" { label: "Aprovado", tone: "success", size: "xs" } }}
+              {{ /if }}
+            </td>
+            <td class="text-right tabular-nums">{{ if b.type === "suplementar" }}<span class="text-base-content/30">-</span>{{ else }}{{ b.fcrPercentage }}%{{ /if }}</td>
+            <td class="text-right tabular-nums text-base-content/70 hidden md:table-cell">{{ b.totalAmount |> formatMoney }}</td>
+            <td class="text-right tabular-nums text-base-content/70 hidden md:table-cell">{{ if b.type === "suplementar" }}<span class="text-base-content/30">-</span>{{ else }}{{ b.fcrAmount |> formatMoney }}{{ /if }}</td>
+            <td class="text-right tabular-nums font-semibold">
+              {{ (Number(b.totalAmount || 0) + Number(b.fcrAmount || 0)) |> formatMoney }}
+              <div class="text-[10px] text-base-content/50 font-normal md:hidden">
+                Ord. {{ b.totalAmount |> formatMoney }}{{ if b.type !== "suplementar" }} · FCR {{ b.fcrAmount |> formatMoney }}{{ /if }}
+              </div>
+            </td>
+            <td class="pr-4 text-right">
+              <div class="inline-flex items-center gap-4">
+                {{ include "partials/action_link.vto" {
+                  kind: "view",
+                  href: "/admin/c/" + currentCondominiumId + "/budget/" + b.id,
+                } }}
+                {{ if b.status === "draft" }}
+                  <form method="post" action="/admin/c/{{ currentCondominiumId }}/budget/{{ b.id }}/reject" class="inline"
+                        data-confirm-title="Marcar como não aprovado?"
+                        data-confirm-body="Esta proposta sai da lista por defeito e fica como histórico. É reversível - podes reabri-la depois."
+                        data-confirm-typed-match="NAO APROVAR"
+                        data-confirm-ok="Marcar não aprovado">
+                    {{ include "partials/action_link.vto" { kind: "pause", label: "Não aprovar", asButton: true } }}
+                  </form>
+                {{ else if b.status === "not_approved" }}
+                  <form method="post" action="/admin/c/{{ currentCondominiumId }}/budget/{{ b.id }}/reopen" class="inline">
+                    {{ include "partials/action_link.vto" { kind: "resume", label: "Reabrir", asButton: true } }}
+                  </form>
+                {{ /if }}
+                {{ if b.status !== "approved" }}
+                  <form method="post" action="/admin/c/{{ currentCondominiumId }}/budget/{{ b.id }}/delete" class="inline"
+                        data-confirm-title="Apagar orçamento?"
+                        data-confirm-body="Queres mesmo apagar este orçamento? Se tiver linhas, elas são removidas também."
+                        data-confirm-ok="Apagar"
+                        data-confirm-danger="true">
+                    {{ include "partials/action_link.vto" { kind: "delete", asButton: true } }}
+                  </form>
+                {{ /if }}
+              </div>
+            </td>
+          </tr>
+        {{ /for }}
+      {{ /if }}
+    </tbody>
+  </table>
+{{ /layout }}
+
+{{ /layout }}

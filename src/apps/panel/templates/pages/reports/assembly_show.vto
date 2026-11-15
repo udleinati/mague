@@ -1,0 +1,220 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{ set _base = "/admin/c/" + currentCondominiumId + "/reports/assemblies" }}
+{{ set _title = assembly.minutesNumber ? ("Ata " + assembly.minutesNumber) : "Assembleia" }}
+{{ set _dateLabel = (assembly.heldAt ? assembly.heldAt : assembly.scheduledAt) |> formatDate }}
+{{ set _typeLabel = assembly.type === "extraordinary" ? "Extraordinária" : "Ordinária" }}
+
+{{ layout "partials/page_header.vto" {
+  title: _title,
+  scale: "detail",
+  breadcrumbs: [
+    { label: "Painel", href: "/admin/c/" + currentCondominiumId + "/dashboard" },
+    { label: "Relatórios" },
+    { label: "Por Ata", href: _base },
+    { label: _title },
+  ],
+  meta: [
+    { value: _typeLabel, plain: true },
+    { label: "Data", value: _dateLabel }
+  ]
+} }}
+  <a href="/admin/c/{{ currentCondominiumId }}/assembly/{{ assembly.id }}" class="btn btn-sm btn-ghost">Abrir a assembleia</a>
+{{ /layout }}
+
+{{ for b of assembly.budgets }}
+  {{ set _budgetedStr = b.budgetedCents |> formatMoney }}
+  {{ set _actualStr = b.actualCents |> formatMoney }}
+  {{ set _varianceStr = b.varianceCents |> formatMoney }}
+  {{ set _issuedStr = b.quotas.issuedCents |> formatMoney }}
+  {{ set _settledStr = b.quotas.settledCents |> formatMoney }}
+  {{ set _openStr = b.quotas.openCents |> formatMoney }}
+  {{ set _execCaption = String(b.executionPct) + "% de " + _budgetedStr }}
+  {{ set _collCaption = String(b.quotas.collectionPct) + "% de " + _issuedStr }}
+  {{ set _pendingCaption = String(b.quotas.unitsPending) + " de " + String(b.quotas.unitsTotal) + " frações" }}
+  {{ set _budgetLabel = b.type === "suplementar" ? "suplementar (obra)" : "principal" }}
+
+  <div class="mb-8">
+    <div class="flex flex-wrap items-baseline justify-between gap-2 mb-4">
+      <div>
+        <h2 class="text-xl font-bold">Orçamento {{ b.year }} <span class="font-normal text-base-content/60">{{ _budgetLabel }}</span></h2>
+        <div class="text-sm text-base-content/60">Ponto {{ String(b.agendaItem.sequence) }} da ordem do dia: {{ b.agendaItem.subject }}</div>
+      </div>
+      <a href="/admin/c/{{ currentCondominiumId }}/budget/{{ b.id }}" class="btn btn-xs btn-ghost">Abrir orçamento</a>
+    </div>
+
+    <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4 mb-5">
+      {{ include "partials/kpi_card.vto" {
+        tone: "neutral", label: "Orçamentado", value: _budgetedStr, caption: "aprovado nesta Ata"
+      } }}
+      {{ include "partials/kpi_card.vto" {
+        tone: "info", label: "Já gasto", value: _actualStr, caption: _execCaption, highlightValue: true
+      } }}
+      {{ include "partials/kpi_card.vto" {
+        tone: b.varianceCents < 0 ? "error" : "success", label: "Folga", value: _varianceStr, caption: "orçamentado menos gasto", highlightValue: true
+      } }}
+      {{ include "partials/kpi_card.vto" {
+        tone: "success", label: "Quotas cobradas", value: _settledStr, caption: _collCaption, highlightValue: true
+      } }}
+      {{ include "partials/kpi_card.vto" {
+        tone: "error", label: "Quotas por cobrar", value: _openStr, caption: _pendingCaption, highlightValue: true
+      } }}
+    </div>
+
+    {{# ── Rubricas: previsto vs efetivo ── #}}
+    {{ layout "partials/table_card.vto" {
+      title: "Rubricas do orçamento",
+      count: b.lines.length,
+      subtitle: "O que a Ata previu por rubrica e o que já foi lançado nela",
+      wrapperClass: "mb-4"
+    } }}
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th>Código</th>
+            <th>Rubrica</th>
+            <th class="text-right">Orçamentado</th>
+            <th class="text-right">Efetivado</th>
+            <th class="text-right">Desvio</th>
+            <th class="text-right">Despesas</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{ for l of b.lines }}
+            <tr>
+              <td class="font-mono text-xs text-base-content/60">{{ l.accountCode }}</td>
+              <td>
+                {{ l.accountName }}
+                {{ if l.ambiguous }}
+                  <span class="badge badge-xs badge-warning badge-outline ml-1" title="Esta rubrica pertence a mais do que um orçamento deste ano - as despesas precisam de etiqueta explícita">ambígua</span>
+                {{ /if }}
+              </td>
+              <td class="text-right tabular-nums">{{ l.budgetedCents |> formatMoney }}</td>
+              <td class="text-right tabular-nums">{{ l.actualCents |> formatMoney }}</td>
+              <td class="text-right tabular-nums {{ if l.varianceCents < 0 }}text-error{{ else }}text-success{{ /if }}">{{ l.varianceCents |> formatMoney }}</td>
+              <td class="text-right tabular-nums text-base-content/60">{{ String(l.chargeCount) }}</td>
+            </tr>
+          {{ /for }}
+        </tbody>
+        <tfoot>
+          <tr class="font-semibold">
+            <td colspan="2">Total</td>
+            <td class="text-right tabular-nums">{{ b.budgetedCents |> formatMoney }}</td>
+            <td class="text-right tabular-nums">{{ b.actualCents |> formatMoney }}</td>
+            <td class="text-right tabular-nums {{ if b.varianceCents < 0 }}text-error{{ else }}text-success{{ /if }}">{{ b.varianceCents |> formatMoney }}</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    {{ /layout }}
+
+    {{# ── Despesas imputadas ── #}}
+    {{ set _expSubtitle = "Etiquetada = escolhida à mão na despesa · Inferida = rubrica do orçamento no ano certo" }}
+    {{ layout "partials/table_card.vto" {
+      title: "Despesas imputadas",
+      count: b.expenses.length,
+      subtitle: _expSubtitle,
+      wrapperClass: "mb-4"
+    } }}
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th>Código</th>
+            <th>Descrição</th>
+            <th>Fornecedor</th>
+            <th>Rubrica</th>
+            <th>Competência</th>
+            <th class="text-right">Valor</th>
+            <th class="text-right">Por pagar</th>
+            <th>Imputação</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{ if b.expenses.length === 0 }}
+            <tr><td colspan="8" class="text-center text-base-content/50 py-8">Ainda não há despesas imputadas a este orçamento.</td></tr>
+          {{ /if }}
+          {{ for e of b.expenses }}
+            <tr class="{{ if e.source === 'ambiguous' }}bg-warning/10{{ /if }}">
+              <td class="font-mono text-xs">
+                <a href="/admin/c/{{ currentCondominiumId }}/charges/{{ e.id }}" class="link link-hover text-info">{{ e.code }}</a>
+              </td>
+              <td class="max-w-xs truncate" title="{{ e.description }}">{{ e.description }}</td>
+              <td class="text-sm">{{ if e.supplierName }}{{ e.supplierName }}{{ else }}<span class="text-base-content/40">-</span>{{ /if }}</td>
+              <td class="text-xs text-base-content/60">{{ e.accountName }}</td>
+              <td class="whitespace-nowrap tabular-nums text-sm">{{ e.competencePeriod |> formatMonth }}</td>
+              <td class="text-right tabular-nums">{{ e.originalAmountCents |> formatMoney }}</td>
+              <td class="text-right tabular-nums {{ if e.openAmountCents > 0 }}text-error{{ /if }}">{{ if e.openAmountCents > 0 }}{{ e.openAmountCents |> formatMoney }}{{ else }}<span class="text-base-content/30">-</span>{{ /if }}</td>
+              <td>
+                {{ if e.source === "tagged" }}
+                  <span class="badge badge-xs badge-info badge-outline">Etiquetada</span>
+                {{ else if e.source === "inferred" }}
+                  <span class="badge badge-xs badge-ghost">Inferida</span>
+                {{ else }}
+                  <span class="badge badge-xs badge-warning" title="Rubrica partilhada por mais do que um orçamento deste ano - não contada em nenhum">Ambígua</span>
+                {{ /if }}
+              </td>
+            </tr>
+          {{ /for }}
+        </tbody>
+      </table>
+    {{ /layout }}
+
+    {{# ── Cobrança fração a fração ── #}}
+    {{ set _quotaSubtitle = "Quotas geradas por este orçamento: quanto foi emitido a cada fração e quanto já entrou" }}
+    {{ layout "partials/table_card.vto" {
+      title: "Cobrança por fração",
+      count: b.quotas.byUnit.length,
+      subtitle: _quotaSubtitle,
+      searchable: true
+    } }}
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th>Fração</th>
+            <th class="text-right">Prestações</th>
+            <th class="text-right">Emitido</th>
+            <th class="text-right">Pago</th>
+            <th class="text-right">Em falta</th>
+            <th>Estado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{ if b.quotas.byUnit.length === 0 }}
+            <tr><td colspan="6" class="text-center text-base-content/50 py-8">Este orçamento ainda não gerou quotas.</td></tr>
+          {{ /if }}
+          {{ for u of b.quotas.byUnit }}
+            <tr class="{{ if u.openCents > 0 }}bg-error/5{{ /if }}">
+              <td>
+                <a href="/admin/c/{{ currentCondominiumId }}/units/{{ u.unitId }}" class="link link-hover font-medium">{{ u.designation }}</a>
+              </td>
+              <td class="text-right tabular-nums text-base-content/60">{{ String(u.chargeCount) }}</td>
+              <td class="text-right tabular-nums">{{ u.issuedCents |> formatMoney }}</td>
+              <td class="text-right tabular-nums text-success">{{ u.settledCents |> formatMoney }}</td>
+              <td class="text-right tabular-nums {{ if u.openCents > 0 }}text-error font-semibold{{ /if }}">{{ if u.openCents > 0 }}{{ u.openCents |> formatMoney }}{{ else }}<span class="text-base-content/30">-</span>{{ /if }}</td>
+              <td>
+                {{ if u.openCents === 0 }}
+                  {{ include "partials/status_badge.vto" { label: "Liquidada", tone: "success", size: "xs" } }}
+                {{ else if u.settledCents > 0 }}
+                  {{ include "partials/status_badge.vto" { label: "Parcial", tone: "warning", size: "xs" } }}
+                {{ else }}
+                  {{ include "partials/status_badge.vto" { label: "Por pagar", tone: "error", size: "xs" } }}
+                {{ /if }}
+              </td>
+            </tr>
+          {{ /for }}
+        </tbody>
+        <tfoot>
+          <tr class="font-semibold">
+            <td colspan="2">Total</td>
+            <td class="text-right tabular-nums">{{ b.quotas.issuedCents |> formatMoney }}</td>
+            <td class="text-right tabular-nums text-success">{{ b.quotas.settledCents |> formatMoney }}</td>
+            <td class="text-right tabular-nums text-error">{{ b.quotas.openCents |> formatMoney }}</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    {{ /layout }}
+  </div>
+{{ /for }}
+
+{{ /layout }}

@@ -1,0 +1,268 @@
+{{ layout "layouts/portal.vto" { title, section, condominium, unit, currentUser, currentPortalUnitId, currentCondominiumId } }}
+
+<div class="mb-4">
+  {{ include "partials/breadcrumbs.vto" {
+    items: [
+      { label: "Seguro", href: "/portal/c/" + currentCondominiumId + "/u/" + currentPortalUnitId + "/insurances" },
+      { label: "Detalhes" }
+    ]
+  } }}
+
+  <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/insurances" class="btn btn-sm btn-ghost gap-1">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+    Voltar à listagem
+  </a>
+</div>
+
+{{# Estado computado (`kind`), nunca o `status` cru: uma apólice vencida continua
+   `active` na BD e o detalhe rotulava-a "Ativa". Voz `portal` - ver
+   `libs/insurance_status.ts`. #}}
+{{ set _status = insuranceStatusBadge(policy.kind, "portal") }}
+
+<div class="grid grid-cols-1 lg:grid-cols-[1fr_minmax(0,440px)] gap-6">
+  {{# ─── Coluna 1: detalhes da apólice (read-only) ───────────────────── #}}
+  <div>
+    <div class="flex items-center gap-3 mb-1">
+      <h1 class="text-2xl font-bold">Apólice de seguro</h1>
+      {{ include "partials/status_badge.vto" { ..._status, size: "xs", variant: "pill" } }}
+    </div>
+    {{ if presumedPending }}
+      <p class="text-xs text-warning mb-3">
+        ⚠ Apólice criada por renovação. Aguarda recibo anual para passar de presumida a documentada.
+      </p>
+    {{ /if }}
+    <p class="text-sm text-base-content/60 mb-4">
+      {{ if policy.can.edit }}
+        Esta apólice ainda está em revisão. Podes editar
+        <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/insurances/{{ policy.id }}/confirm" class="link link-primary">aqui</a>.
+      {{ else }}
+        Modo apenas leitura. Para alterações, contacta a administração.
+      {{ /if }}
+    </p>
+
+    {{# Renovar a partir do detalhe: o gate `submitRenewal` é o mesmo `canRenew`
+       do admin, sem a autoridade dele (ADR 0016). #}}
+    {{ if policy.can.submitRenewal }}
+      <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/insurances/{{ policy.id }}/renew"
+         class="btn btn-primary btn-sm mb-4">Renovar esta apólice</a>
+    {{ /if }}
+
+    <dl class="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+      <div>
+        <dt class="text-[10px] uppercase tracking-wider text-base-content/50">Data de início</dt>
+        <dd class="font-medium tabular-nums mt-0.5">
+          {{ if policy.validFrom }}{{ policy.validFrom |> formatDate }}{{ else }}<span class="text-base-content/40 italic">-</span>{{ /if }}
+        </dd>
+      </div>
+      <div>
+        <dt class="text-[10px] uppercase tracking-wider text-base-content/50">Data de fim</dt>
+        <dd class="font-medium tabular-nums mt-0.5">
+          {{ if policy.validTo }}{{ policy.validTo |> formatDate }}{{ else }}<span class="text-base-content/40 italic">-</span>{{ /if }}
+        </dd>
+      </div>
+      <div>
+        <dt class="text-[10px] uppercase tracking-wider text-base-content/50">Número da apólice</dt>
+        <dd class="font-medium mt-0.5 break-all">
+          {{ if policy.policyNumber }}{{ policy.policyNumber }}{{ else }}<span class="text-base-content/40 italic">-</span>{{ /if }}
+        </dd>
+      </div>
+      <div>
+        <dt class="text-[10px] uppercase tracking-wider text-base-content/50">Seguradora</dt>
+        <dd class="font-medium mt-0.5">
+          {{ if policy.insurer }}{{ policy.insurer }}{{ else }}<span class="text-base-content/40 italic">-</span>{{ /if }}
+        </dd>
+      </div>
+      <div>
+        <dt class="text-[10px] uppercase tracking-wider text-base-content/50">Capital segurado</dt>
+        <dd class="font-medium tabular-nums mt-0.5">
+          {{ if policy.coverageAmountCents }}{{ policy.coverageAmountCents |> formatMoney }}{{ else }}<span class="text-base-content/40 italic">-</span>{{ /if }}
+        </dd>
+      </div>
+      {{# Linhagem (ADR 0040): que vigência é que esta renovou. #}}
+      {{ if policy.renewedFrom }}
+        <div>
+          <dt class="text-[10px] uppercase tracking-wider text-base-content/50">Renovação de</dt>
+          <dd class="font-medium mt-0.5">
+            <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/insurances/{{ policy.renewedFrom.id }}"
+               class="link link-hover">
+              {{ if policy.renewedFrom.policyNumber }}{{ policy.renewedFrom.policyNumber }}{{ else }}apólice anterior{{ /if }}
+            </a>
+            <span class="text-base-content/50 tabular-nums text-xs block">
+              {{ policy.renewedFrom.validFrom |> formatDate }} - {{ policy.renewedFrom.validTo |> formatDate }}
+            </span>
+          </dd>
+        </div>
+      {{ /if }}
+      <div>
+        <dt class="text-[10px] uppercase tracking-wider text-base-content/50">Submetida em</dt>
+        <dd class="font-medium tabular-nums mt-0.5">
+          {{ if policy.createdAt }}{{ policy.createdAt |> formatDate }}{{ else }}<span class="text-base-content/40 italic">-</span>{{ /if }}
+        </dd>
+      </div>
+      <div>
+        <dt class="text-[10px] uppercase tracking-wider text-base-content/50">Última atualização</dt>
+        <dd class="font-medium tabular-nums mt-0.5">
+          {{ if policy.updatedAt }}{{ policy.updatedAt |> formatDate }}{{ else }}<span class="text-base-content/40 italic">-</span>{{ /if }}
+        </dd>
+      </div>
+      {{ if policy.kind === "rejected_only" && policy.rejectedReason }}
+        <div class="col-span-2 mt-2 p-3 rounded-box bg-error/5 border border-error/20">
+          <dt class="text-[10px] uppercase tracking-wider text-error/80 font-bold">Razão da rejeição</dt>
+          <dd class="text-sm text-base-content/80 mt-1 whitespace-pre-line">{{ policy.rejectedReason }}</dd>
+        </div>
+      {{ /if }}
+    </dl>
+  </div>
+
+  {{# ─── Coluna 2: ficheiros (read-only; presumida aceita comprovativo) ── #}}
+  <div>
+    <h2 class="text-sm font-bold uppercase tracking-wider text-base-content/60 mb-2">
+      Ficheiros ({{ String(attachments.length) }})
+    </h2>
+    <div class="space-y-2">
+      {{ if attachments.length === 0 }}
+        <div class="rounded-box border border-dashed border-base-300 p-8 text-center text-sm text-base-content/50 italic">
+          Sem ficheiros carregados nesta apólice.
+        </div>
+      {{ /if }}
+      {{ for att of attachments }}
+        {{ set _attUrl = "/portal/c/" + currentCondominiumId + "/u/" + currentPortalUnitId + "/insurances/" + policy.id + "/attachments/" + att.id }}
+        {{ set _isImage = att.mimeType === "image/jpeg" || att.mimeType === "image/png" || att.mimeType === "image/webp" || att.mimeType === "image/heic" }}
+        <a href="{{ _attUrl }}" target="_blank" rel="noopener"
+           class="flex items-center gap-3 p-2 rounded-box border border-base-200 bg-base-100 hover:bg-base-200/40">
+          {{ if _isImage }}
+            <div class="w-12 h-12 flex items-center justify-center rounded flex-shrink-0 bg-info/10 text-info text-[10px] font-bold">IMG</div>
+          {{ else if att.mimeType === "application/pdf" }}
+            <div class="w-12 h-12 flex items-center justify-center rounded flex-shrink-0 bg-error/10 text-error text-[10px] font-bold">PDF</div>
+          {{ else }}
+            <div class="w-12 h-12 flex items-center justify-center rounded flex-shrink-0 bg-base-200 text-base-content/40">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            </div>
+          {{ /if }}
+          <div class="flex-1 min-w-0">
+            <div class="text-xs font-medium truncate">{{ att.filename }}</div>
+            <div class="text-[10px] text-base-content/40">{{ att.mimeType }}</div>
+          </div>
+          <span class="link link-primary text-xs flex-shrink-0">abrir ↗</span>
+        </a>
+      {{ /for }}
+    </div>
+
+    {{# Comprovativo da renovação: só na presumida que ainda aceita anexos
+       (`canAddAttachment` - vencida/substituída dão 422) e enquanto não há
+       ficheiro. Gate "rever e confirmar" client-side -
+       a pessoa vê o que vai enviar ANTES de sair do browser (zero exposição
+       ao admin se errar). Add-only: numa ativa o condómino não pode apagar
+       (canRemoveAttachment), por isso o gate visual é a única proteção.
+       `accept` sem HEIC de propósito: browsers não-Safari não o conseguem
+       pré-visualizar, logo não o oferecemos (diverge do uploadAccept global). #}}
+    {{ if policy.can.addAttachment && policy.presumedAt && attachments.length === 0 }}
+      <form id="comprovativo-form" method="post" enctype="multipart/form-data"
+            action="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/insurances/{{ policy.id }}/attachments?return=detail"
+            class="mt-4">
+        <div class="rounded-box border border-base-200 bg-base-100 p-3 space-y-3">
+          <p class="text-xs text-base-content/60">
+            Envia o recibo ou comprovativo da renovação (PDF ou imagem). Revê antes
+            de enviar - <strong>depois de enviado não o podes remover</strong>.
+          </p>
+
+          <label class="relative flex flex-col items-center justify-center gap-1 cursor-pointer rounded-xl border-2 border-dashed border-base-300 hover:border-primary/50 hover:bg-base-200/30 transition-colors px-4 py-5 text-center">
+            {{# NÃO usar `uploadAccept` (allowlist global): HEIC fica de fora de
+               propósito - o gate de revisão abaixo pré-visualiza o ficheiro e
+               browsers não-Safari não renderizam HEIC. Ver o teste em
+               portal_insurance_views_test.ts. #}}
+            <input type="file" name="file" required
+                   accept="application/pdf,image/jpeg,image/png,image/webp"
+                   class="sr-only" data-comprovativo-input>
+            <span class="text-sm font-medium text-base-content/80" data-comprovativo-placeholder>
+              <span class="text-primary">Escolhe</span> o ficheiro do comprovativo
+            </span>
+            <span class="text-[11px] text-base-content/50">PDF, JPG, PNG ou WebP</span>
+          </label>
+
+          {{# Preview: img para imagem; PDF abre em separador (fiável em mobile)
+             + iframe inline no desktop. #}}
+          <div data-comprovativo-preview class="hidden">
+            <div class="text-[11px] uppercase tracking-wider text-base-content/50 mb-1">Pré-visualização</div>
+            <img data-comprovativo-img class="hidden max-h-72 rounded border border-base-200 mx-auto" alt="">
+            <div data-comprovativo-pdf class="hidden">
+              <a data-comprovativo-open target="_blank" rel="noopener" class="link link-primary text-sm">Abrir o PDF para rever ↗</a>
+              <iframe data-comprovativo-frame class="hidden w-full h-72 rounded border border-base-200 mt-2"></iframe>
+            </div>
+            <div data-comprovativo-msg class="text-xs text-base-content/60 mt-1 text-center"></div>
+          </div>
+
+          <label class="flex items-start gap-2 cursor-pointer">
+            <input type="checkbox" class="checkbox checkbox-sm mt-0.5" data-comprovativo-confirm disabled>
+            <span class="text-xs text-base-content/70">
+              Revi o ficheiro acima e confirmo que é o comprovativo correto. Sei que
+              não o poderei remover depois de enviar.
+            </span>
+          </label>
+
+          <button type="submit" class="btn btn-sm btn-primary w-full" data-comprovativo-submit disabled>
+            Confirmar e enviar
+          </button>
+        </div>
+      </form>
+
+      <script>
+        (function () {
+          var form = document.getElementById("comprovativo-form");
+          if (!form) return;
+          var input = form.querySelector("[data-comprovativo-input]");
+          var placeholder = form.querySelector("[data-comprovativo-placeholder]");
+          var wrap = form.querySelector("[data-comprovativo-preview]");
+          var img = form.querySelector("[data-comprovativo-img]");
+          var pdf = form.querySelector("[data-comprovativo-pdf]");
+          var open = form.querySelector("[data-comprovativo-open]");
+          var frame = form.querySelector("[data-comprovativo-frame]");
+          var msg = form.querySelector("[data-comprovativo-msg]");
+          var confirmBox = form.querySelector("[data-comprovativo-confirm]");
+          var submit = form.querySelector("[data-comprovativo-submit]");
+          var url = null;
+          var previewed = false;
+
+          function reset() {
+            if (url) { URL.revokeObjectURL(url); url = null; }
+            previewed = false;
+            wrap.classList.add("hidden");
+            img.classList.add("hidden"); img.removeAttribute("src");
+            pdf.classList.add("hidden");
+            frame.classList.add("hidden"); frame.removeAttribute("src");
+            msg.textContent = "";
+            confirmBox.checked = false; confirmBox.disabled = true;
+            submit.disabled = true;
+          }
+
+          function sync() { submit.disabled = !(previewed && confirmBox.checked); }
+
+          input.addEventListener("change", function () {
+            reset();
+            var f = input.files && input.files[0];
+            if (!f) { placeholder.textContent = "Escolhe o ficheiro do comprovativo"; return; }
+            placeholder.textContent = f.name;
+            url = URL.createObjectURL(f);
+            wrap.classList.remove("hidden");
+            if (f.type.indexOf("image/") === 0) {
+              img.src = url; img.classList.remove("hidden");
+              previewed = true;
+            } else if (f.type === "application/pdf") {
+              open.href = url; pdf.classList.remove("hidden");
+              frame.src = url; frame.classList.remove("hidden");
+              previewed = true;
+            } else {
+              msg.textContent = "Formato não suportado para revisão. Usa PDF ou imagem (JPG/PNG/WebP).";
+              previewed = false;
+            }
+            confirmBox.disabled = !previewed;
+            sync();
+          });
+
+          confirmBox.addEventListener("change", sync);
+        })();
+      </script>
+    {{ /if }}
+  </div>
+</div>
+

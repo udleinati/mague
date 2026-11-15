@@ -1,0 +1,10 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{# Wrapper HTMX. Mesmo padrão dos charges: o conteúdo dinâmico vai num
+   partial que faz swap em #receipts-fragment quando o user mexe nos
+   filtros. Ver controllers/receipts.ts (listFragment). #}}
+<div id="receipts-fragment">
+  {{ include "pages/receipts/_list_fragment.vto" }}
+</div>
+
+{{ /layout }}

@@ -1,0 +1,225 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{ layout "partials/page_header.vto" {
+  title: tab === "skipped"
+    ? ("Recibos ignorados · " + String(skipped.length))
+    : ("Recibos pendentes · " + String(pending.length)),
+  breadcrumbs: [
+    { label: "Painel", href: "/admin/c/" + currentCondominiumId + "/dashboard" },
+    { label: "Recibos", href: "/admin/c/" + currentCondominiumId + "/receipts" },
+    { label: tab === "skipped" ? "Ignoradas" : "Pendentes" },
+  ],
+  meta: [
+    {
+      value: tab === "skipped"
+        ? "Tuplas (pagamento, fração) marcadas como ignoradas. Retoma para voltarem aos pendentes."
+        : "Pagamentos conciliados a aguardar emissão de recibo. Cada linha gera 1 PDF + email aos owners.",
+      plain: true,
+    },
+  ]
+} }}
+  <a href="/admin/c/{{ currentCondominiumId }}/receipts" class="btn btn-sm btn-ghost">Histórico →</a>
+  {{ if tab === "pending" && pending.length > 0 }}
+    {{ set _batchSize = pending.length > 100 ? 100 : pending.length }}
+    {{ set _batchLabel = pending.length > 100 ? "Emitir lote (" + String(_batchSize) + " de " + String(pending.length) + ")" : "Emitir todos (" + String(pending.length) + ")" }}
+    <form method="post" action="/admin/c/{{ currentCondominiumId }}/receipts/emit-bulk"
+          data-confirm-title="Emitir recibos em lote"
+          data-confirm-body="Vai emitir até {{ String(_batchSize) }} recibos nesta operação{{ if pending.length > 100 }} (de {{ String(pending.length) }} pendentes - repete depois para os restantes){{ /if }}. Cada recibo demora ~500ms (PDF + email aos owners), pelo que isto pode levar até cerca de 1 minuto. Não fechar a janela. Continuar?"
+          data-confirm-ok="Emitir lote"
+          data-confirm-busy="true"
+          data-confirm-busy-message="A emitir recibos…"
+          data-confirm-busy-tip="A operação demora cerca de 1 minuto. Não fechar nem recarregar a página.">
+      <button type="submit" class="btn btn-sm btn-primary">⚡ {{ _batchLabel }}</button>
+    </form>
+  {{ /if }}
+{{ /layout }}
+
+{{# Tabs no estilo da conciliação - links normais, full GET. #}}
+<div role="tablist" class="tabs tabs-bordered mb-4">
+  <a href="/admin/c/{{ currentCondominiumId }}/receipts/pending"
+     role="tab"
+     class="tab {{ if tab === 'pending' }}tab-active{{ /if }}">
+    Pendentes
+    <span class="ml-1 text-xs text-base-content/50">· {{ String(pending.length) }}</span>
+  </a>
+  <a href="/admin/c/{{ currentCondominiumId }}/receipts/pending?tab=skipped"
+     role="tab"
+     class="tab {{ if tab === 'skipped' }}tab-active{{ /if }}">
+    Ignoradas
+    <span class="ml-1 text-xs text-base-content/50">· {{ String(skipped.length) }}</span>
+  </a>
+</div>
+
+{{# ─── TAB: PENDENTES ───────────────────────────────────────────────── #}}
+{{ if tab === "pending" }}
+  {{ if pending.length === 0 }}
+    <div class="bg-base-100 rounded-xl border border-base-200 p-12 text-center">
+      <div class="text-5xl mb-3 opacity-30">✓</div>
+      <p class="text-base-content/60 font-medium">Sem recibos pendentes.</p>
+      <p class="text-sm text-base-content/50 mt-1">
+        À medida que reconcilias pagamentos, novos recibos aparecem aqui para emissão.
+      </p>
+      <a href="/admin/c/{{ currentCondominiumId }}/reconciliation" class="btn btn-sm btn-outline mt-4">Ir à conciliação →</a>
+    </div>
+  {{ else }}
+    {{ set _seenUnits = {} }}
+    {{ for p of pending }}{{ set _ = _seenUnits[p.unitId] = 1 }}{{ /for }}
+    {{ set _totalAmountValue = totalAmount |> formatMoney }}
+    <div class="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-6">
+      {{ include "partials/kpi_card.vto" {
+        tone: "primary", label: "Pendentes", value: String(pending.length), caption: "tuplas (bank_tx, fração)"
+      } }}
+      {{ include "partials/kpi_card.vto" {
+        tone: "success", label: "Total a emitir", value: _totalAmountValue, caption: "soma dos valores", highlightValue: true
+      } }}
+      {{ include "partials/kpi_card.vto" {
+        tone: "info", label: "Frações distintas", value: String(Object.keys(_seenUnits).length), caption: "a notificar via email", highlightValue: true
+      } }}
+    </div>
+
+    <div class="bg-base-100 rounded-xl border border-base-200 overflow-hidden shadow-sm" data-table-search-scope>
+      <div class="flex justify-between items-center p-4 border-b border-base-200">
+        <div class="text-sm font-semibold">Pendentes <span class="text-base-content/50 font-normal">· {{ String(pending.length) }}</span></div>
+        <input type="search" data-table-search placeholder="Pesquisar fração…" class="input input-sm input-bordered">
+      </div>
+      <div class="table-scroll">
+        <table class="table table-sm w-full">
+          <thead>
+            <tr class="text-base-content/40 text-[10px] uppercase tracking-widest border-b border-base-200">
+              <th class="pl-4">Data pagamento</th>
+              <th>Fração</th>
+              <th>Conta</th>
+              <th>Descrição banco</th>
+              <th class="text-right">Valor</th>
+              <th class="text-right pr-4 w-40"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {{ for p of pending }}
+              <tr id="pending-row-{{ p.bankTransactionId }}-{{ p.unitId }}" class="border-t border-base-100 text-sm hover:bg-base-200/30">
+                <td class="pl-4 tabular-nums whitespace-nowrap">{{ p.paymentDate |> formatDate }}</td>
+                <td data-search>
+                  <a href="/admin/c/{{ currentCondominiumId }}/units/{{ p.unitId }}" class="link link-hover">
+                    <span class="font-bold">{{ p.unitDesignation }}</span>{{ if p.unitIdentifier }}<span class="text-base-content/50 font-normal"> - {{ p.unitIdentifier }}</span>{{ /if }}
+                  </a>
+                </td>
+                <td class="text-xs text-base-content/70 whitespace-nowrap">
+                  {{ if p.bankAccountKind === "cash" }}💵{{ else }}🏦{{ /if }} {{ p.bankAccountName }}
+                </td>
+                <td class="text-xs text-base-content/60 max-w-[280px] truncate" title="{{ p.bankTxDescription ?? '' }}">
+                  {{ p.bankTxDescription ?? "-" }}
+                </td>
+                <td class="text-right tabular-nums font-semibold whitespace-nowrap">
+                  {{ p.recipientAmount |> formatMoney }}
+                </td>
+                <td id="pending-action-{{ p.bankTransactionId }}-{{ p.unitId }}" class="pr-4 text-right whitespace-nowrap">
+                  <div class="inline-flex items-center gap-3">
+                    {{# Ignorar: HTMX swap=outerHTML no row → desaparece da
+                       lista. Toast OOB confirma. Equivalente ao "ignorar"
+                       na conciliação, mas por tupla (bank_tx, fração). #}}
+                    <button type="button" class="link text-xs text-base-content/60 hover:text-warning"
+                            hx-post="/admin/c/{{ currentCondominiumId }}/receipts/skip"
+                            hx-vals='{"bankTransactionId": "{{ p.bankTransactionId }}", "unitId": "{{ p.unitId }}"}'
+                            hx-target="#pending-action-{{ p.bankTransactionId }}-{{ p.unitId }}"
+                            hx-swap="none"
+                            hx-confirm="Ignorar esta linha?
+
+📅 {{ p.paymentDate |> formatDate }}
+🏠 {{ p.unitDesignation }}
+💶 {{ p.recipientAmount |> formatMoney }}
+
+A linha permanece visível mas marcada como ignorada. Podes retomar a qualquer momento."
+                            data-confirm-title="Ignorar pendente"
+                            data-confirm-ok="Sim, ignorar"
+                            data-confirm-cancel="Cancelar"
+                            title="Ignorar - sai da fila, retomável depois">
+                      ignorar
+                    </button>
+                    <button type="button" class="btn btn-xs btn-primary"
+                            hx-post="/admin/c/{{ currentCondominiumId }}/receipts/emit"
+                            hx-vals='{"bankTransactionId": "{{ p.bankTransactionId }}", "unitId": "{{ p.unitId }}"}'
+                            hx-swap="none">
+                      Emitir
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            {{ /for }}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {{ /if }}
+{{ else }}
+  {{# ─── TAB: IGNORADAS ───────────────────────────────────────────── #}}
+  {{ if skipped.length === 0 }}
+    <div class="bg-base-100 rounded-xl border border-base-200 p-12 text-center">
+      <div class="text-5xl mb-3 opacity-30">○</div>
+      <p class="text-base-content/60 font-medium">Sem linhas ignoradas.</p>
+      <p class="text-sm text-base-content/50 mt-1">
+        Linhas que ignores na fila de pendentes aparecem aqui para retomar.
+      </p>
+    </div>
+  {{ else }}
+    <div class="bg-base-100 rounded-xl border border-base-200 overflow-hidden shadow-sm" data-table-search-scope>
+      <div class="flex justify-between items-center p-4 border-b border-base-200">
+        <div class="text-sm font-semibold">Ignoradas <span class="text-base-content/50 font-normal">· {{ String(skipped.length) }}</span></div>
+        <input type="search" data-table-search placeholder="Pesquisar fração…" class="input input-sm input-bordered">
+      </div>
+      <div class="table-scroll">
+        <table class="table table-sm w-full">
+          <thead>
+            <tr class="text-base-content/40 text-[10px] uppercase tracking-widest border-b border-base-200">
+              <th class="pl-4">Data pagamento</th>
+              <th>Fração</th>
+              <th>Conta</th>
+              <th>Descrição banco</th>
+              <th>Ignorada por</th>
+              <th class="text-right">Valor</th>
+              <th class="text-right pr-4 w-32"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {{ for s of skipped }}
+              <tr id="skipped-row-{{ s.bankTransactionId }}-{{ s.unitId }}" class="border-t border-base-100 text-sm hover:bg-base-200/30 opacity-75">
+                <td class="pl-4 tabular-nums whitespace-nowrap">{{ s.paymentDate |> formatDate }}</td>
+                <td data-search>
+                  <a href="/admin/c/{{ currentCondominiumId }}/units/{{ s.unitId }}" class="link link-hover">
+                    <span class="font-bold">{{ s.unitDesignation }}</span>{{ if s.unitIdentifier }}<span class="text-base-content/50 font-normal"> - {{ s.unitIdentifier }}</span>{{ /if }}
+                  </a>
+                </td>
+                <td class="text-xs text-base-content/70 whitespace-nowrap">
+                  {{ if s.bankAccountKind === "cash" }}💵{{ else }}🏦{{ /if }} {{ s.bankAccountName }}
+                </td>
+                <td class="text-xs text-base-content/60 max-w-[240px] truncate" title="{{ s.bankTxDescription ?? '' }}">
+                  {{ s.bankTxDescription ?? "-" }}
+                </td>
+                <td class="text-xs text-base-content/60 whitespace-nowrap">
+                  {{ s.skippedByName ?? "-" }}
+                  {{ if s.reason }}<span class="text-base-content/40 italic"> · {{ s.reason }}</span>{{ /if }}
+                </td>
+                <td class="text-right tabular-nums font-semibold whitespace-nowrap">
+                  {{ s.recipientAmount |> formatMoney }}
+                </td>
+                <td class="pr-4 text-right whitespace-nowrap">
+                  <button type="button" class="link link-primary text-xs"
+                          hx-post="/admin/c/{{ currentCondominiumId }}/receipts/unskip"
+                          hx-vals='{"bankTransactionId": "{{ s.bankTransactionId }}", "unitId": "{{ s.unitId }}"}'
+                          hx-target="#skipped-row-{{ s.bankTransactionId }}-{{ s.unitId }}"
+                          hx-swap="outerHTML swap:200ms"
+                          title="Retomar - volta à fila de pendentes">
+                    retomar
+                  </button>
+                </td>
+              </tr>
+            {{ /for }}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {{ /if }}
+{{ /if }}
+
+{{# Toasts (auto-dismiss + progresso) vivem no admin.vto; sem JS local. #}}
+
+{{ /layout }}

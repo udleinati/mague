@@ -1,0 +1,136 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{ set held = assemblies.filter((a) => a.status === "held").length }}
+{{ set scheduled = assemblies.filter((a) => a.status !== "held" && a.status !== "cancelled").length }}
+{{ set ordinary = assemblies.filter((a) => a.type === "ordinary").length }}
+
+{{ layout "partials/page_header.vto" { title: "Assembleias" } }}
+  <button type="button" class="btn btn-sm btn-primary"
+          onclick="document.getElementById('modal_new_assembly').showModal()">
+    + Agendar nova assembleia
+  </button>
+{{ /layout }}
+
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+  {{ include "partials/kpi_card.vto" {
+    tone: "primary", label: "Assembleias", value: String(assemblies.length), caption: "no total"
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "success", label: "Realizadas", value: String(held), caption: "com ata"
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "warning", label: "Por realizar", value: String(scheduled), caption: "rascunho + convocadas"
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "info", label: "Ordinárias", value: String(ordinary), caption: String(assemblies.length - ordinary) + " extraordinárias"
+  } }}
+</div>
+
+{{# Modal de create: convenção do panel (ADR 0019). #}}
+<dialog id="modal_new_assembly" class="modal">
+  <div class="modal-box max-w-2xl">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-lg mb-1">Agendar nova assembleia</h3>
+    <p class="text-xs text-base-content/60 mb-4">
+      Indica as duas convocatórias na altura da abertura (Art. 1432.º nº 4 CC).
+    </p>
+    <form method="post" action="/admin/c/{{ currentCondominiumId }}/assembly" class="space-y-4">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="form-control">
+          <label class="label" for="na_type"><span class="label-text font-medium">Tipo</span></label>
+          <select id="na_type" name="type" class="select select-bordered" required>
+            <option value="ordinary">Ordinária</option>
+            <option value="extraordinary">Extraordinária</option>
+          </select>
+        </div>
+        <div class="form-control">
+          <label class="label" for="na_minutesNumber"><span class="label-text font-medium">Nº ata</span></label>
+          <input type="text" id="na_minutesNumber" name="minutesNumber" maxlength="50"
+                 class="input input-bordered" placeholder="Ex: 05/2026">
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="form-control">
+          <label class="label" for="na_scheduledAt"><span class="label-text font-medium">1ª convocatória</span></label>
+          <input type="datetime-local" id="na_scheduledAt" name="scheduledAt"
+                 class="input input-bordered" required>
+        </div>
+        <div class="form-control">
+          <label class="label" for="na_secondConvocationAt">
+            <span class="label-text font-medium">2ª convocatória</span>
+            <span class="label-text-alt text-base-content/50">opcional</span>
+          </label>
+          <input type="datetime-local" id="na_secondConvocationAt" name="secondConvocationAt"
+                 class="input input-bordered">
+        </div>
+      </div>
+
+      <div class="form-control">
+        <label class="label" for="na_location"><span class="label-text font-medium">Local</span></label>
+        <input type="text" id="na_location" name="location" maxlength="255"
+               class="input input-bordered" placeholder="Ex: Sala comum do 1º andar">
+      </div>
+
+      <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
+        <button type="button" class="btn btn-sm btn-ghost"
+                onclick="document.getElementById('modal_new_assembly').close()">Cancelar</button>
+        <button type="submit" class="btn btn-sm btn-primary">Agendar</button>
+      </div>
+    </form>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+{{ layout "partials/table_card.vto" { title: "Lista", count: assemblies.length, searchable: true } }}
+  <table class="table table-sm">
+    <thead>
+      <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+        <th class="pl-4">Data</th>
+        <th>Tipo</th>
+        <th>Estado</th>
+        <th>Nº Ata</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ if assemblies.length === 0 }}
+        <tr><td colspan="5" class="p-8 text-center text-base-content/50">Sem assembleias.</td></tr>
+      {{ else }}
+        {{ for a of assemblies }}
+          <tr class="hover:bg-base-200/30 border-t border-base-100 text-sm">
+            <td class="pl-4 font-bold tabular-nums" data-search>{{ a.scheduledAt |> formatDateTime }}</td>
+            <td>
+              {{ if a.type === "ordinary" }}
+                <span class="inline-flex items-center gap-1.5 text-xs font-medium text-info">
+                  <span class="inline-block w-1.5 h-1.5 rounded-full bg-info"></span> Ordinária
+                </span>
+              {{ else }}
+                <span class="inline-flex items-center gap-1.5 text-xs font-medium text-warning">
+                  <span class="inline-block w-1.5 h-1.5 rounded-full bg-warning"></span> Extraordinária
+                </span>
+              {{ /if }}
+            </td>
+            <td>
+              {{ if a.status === "held" }}
+                {{ include "partials/status_badge.vto" { label: "Realizada", tone: "success", size: "xs" } }}
+              {{ else if a.status === "cancelled" }}
+                {{ include "partials/status_badge.vto" { label: "Cancelada", tone: "error", size: "xs" } }}
+              {{ else if a.status === "draft" }}
+                {{ include "partials/status_badge.vto" { label: "Rascunho", tone: "info", size: "xs" } }}
+              {{ else }}
+                {{ include "partials/status_badge.vto" { label: "Convocada", tone: "warning", size: "xs" } }}
+              {{ /if }}
+            </td>
+            <td class="text-base-content/70" data-search>{{ a.minutesNumber ?? "" }}</td>
+            <td class="pr-4 text-right">
+              <a href="/admin/c/{{ currentCondominiumId }}/assembly/{{ a.id }}" class="link link-primary text-xs">abrir</a>
+            </td>
+          </tr>
+        {{ /for }}
+      {{ /if }}
+    </tbody>
+  </table>
+{{ /layout }}
+
+{{ /layout }}

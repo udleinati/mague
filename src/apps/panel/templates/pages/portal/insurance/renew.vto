@@ -1,0 +1,83 @@
+{{ layout "layouts/portal.vto" { title, section, condominium, unit, currentUser, currentPortalUnitId, currentCondominiumId } }}
+
+{{# Renovação pela própria fração (ADR 0016). Os dados
+   vêm do predecessor e as datas com +1 ano; o recibo é obrigatório, porque
+   presumir sem prova é do admin. Sem OCR: um recibo de prémio não tem
+   estrutura de apólice de onde extrair. #}}
+
+<div class="max-w-xl mx-auto space-y-6">
+  {{ include "partials/breadcrumbs.vto" {
+    items: [
+      { label: "Seguro", href: "/portal/c/" + currentCondominiumId + "/u/" + currentPortalUnitId + "/insurances" },
+      { label: "Renovar" }
+    ]
+  } }}
+
+  <div>
+    <h1 class="text-2xl font-bold">Renovar a apólice</h1>
+    <p class="text-sm text-base-content/60 mt-1">
+      Os dados vêm da apólice atual e as datas avançam um ano. Corrige o que
+      tiver mudado e anexa o recibo ou comprovativo da renovação.
+    </p>
+  </div>
+
+  <form method="post" enctype="multipart/form-data" class="space-y-4">
+    {{ include "partials/file_dropzone.vto" {
+      name: "file",
+      multiple: false,
+      accept: "application/pdf,image/jpeg,image/png,image/webp,image/heic",
+      helpText: "Recibo de prémio, ata adicional ou apólice nova - PDF ou imagem."
+    } }}
+
+    <div class="grid grid-cols-2 gap-3">
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text text-xs">Data de início <span class="text-error">*</span></span></label>
+        <input type="date" name="validFrom" required value="{{ renewFrom }}"
+               class="input input-sm input-bordered">
+      </div>
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text text-xs">Data de fim <span class="text-error">*</span></span></label>
+        <input type="date" name="validTo" required value="{{ renewTo }}"
+               class="input input-sm input-bordered">
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 gap-3">
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text text-xs">Número da apólice</span></label>
+        <input type="text" name="policyNumber" maxlength="60"
+               value="{{ policy.policyNumber ?? '' }}"
+               class="input input-sm input-bordered">
+      </div>
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text text-xs">Seguradora</span></label>
+        <input type="text" name="insurer" maxlength="80"
+               value="{{ policy.insurer ?? '' }}"
+               class="input input-sm input-bordered">
+      </div>
+    </div>
+
+    <div class="form-control">
+      <label class="label py-1"><span class="label-text text-xs">Capital segurado (€)</span></label>
+      <input type="text" name="coverageAmountEuros" inputmode="decimal" placeholder="0,00"
+             value="{{ if policy.coverageAmountCents }}{{ String(policy.coverageAmountCents / 100).replace('.', ',') }}{{ /if }}"
+             class="input input-sm input-bordered">
+    </div>
+
+    {{# O condómino é quem confirma estes dados (é o passo único), por isso tem
+       de ver que não são facto verificado - vieram do ano anterior. #}}
+    <p class="text-xs text-base-content/50">
+      Os campos acima foram copiados da apólice atual
+      {{ if policy.policyNumber }}({{ policy.policyNumber }}){{ /if }}.
+      Confere-os contra o documento antes de enviar - é o que fica registado.
+    </p>
+
+    <button type="submit" class="btn btn-primary w-full" data-upload-submit disabled>
+      Enviar renovação
+    </button>
+  </form>
+
+  <div class="text-center">
+    <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/insurances" class="text-sm link">Voltar</a>
+  </div>
+</div>

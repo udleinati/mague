@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="pt" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ title }} - Mague</title>
+    <link href="/app.css" rel="stylesheet">
+  </head>
+  <body class="bg-base-200 flex items-center justify-center min-h-screen p-6">
+    <div class="card w-full max-w-md bg-base-100 shadow-lg">
+      <div class="card-body text-center">
+        <a href="/" class="text-2xl font-black text-teal-600 mb-3 tracking-tighter">MAGUE</a>
+        <div class="text-5xl mb-2 text-base-content/30">🚫</div>
+        <h1 class="text-2xl font-bold mb-1">{{ heading ?? "Não encontrado" }}</h1>
+        <p class="text-sm text-base-content/60 mb-6">{{ subtitle ?? "Não conseguimos abrir esta página." }}</p>
+        <div class="flex items-center justify-center gap-2">
+          <a href="/" class="btn btn-sm btn-primary">Ir para a página inicial</a>
+          <a href="/logout" class="btn btn-sm btn-ghost">Sair</a>
+        </div>
+        {{ if attemptedPath }}
+          <p class="text-[10px] text-base-content/40 mt-6 font-mono">{{ attemptedPath }}</p>
+        {{ /if }}
+      </div>
+    </div>
+  </body>
+</html>

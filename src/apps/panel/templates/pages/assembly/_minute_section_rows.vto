@@ -1,0 +1,48 @@
+{{# Partial das rows do `<tbody>` "Texto da ata". POST /minute-section
+   (HX-Request) faz outerHTML swap de `#minute-section-tbody`. #}}
+<tbody id="minute-section-tbody">
+  {{ for m of [
+    { key: "intro", label: "Abertura", text: target.introduction },
+    { key: "conclusion", label: "Encerramento", text: target.conclusion }
+  ] }}
+    <tr class="border-t border-base-100">
+      <td class="pl-6 font-bold text-sm">{{ m.label }}</td>
+      <td>
+        {{ if m.text }}
+          <div class="text-sm text-base-content/70 line-clamp-2 max-w-2xl whitespace-pre-line">{{ m.text }}</div>
+        {{ else }}
+          <span class="text-sm italic text-base-content/40">Sem texto. {{ if canEdit }}Clica em editar para adicionar.{{ /if }}</span>
+        {{ /if }}
+      </td>
+      {{ if canEdit }}
+        <td class="pr-6 text-right">
+          <button type="button" class="btn btn-xs btn-ghost"
+                  data-section-key="{{ m.key }}"
+                  data-section-label="{{ m.label }}"
+                  data-section-text="{{ m.text ?? '' }}"
+                  onclick="openMinuteSectionModal(this)">
+            Editar
+          </button>
+        </td>
+      {{ /if }}
+    </tr>
+  {{ /for }}
+</tbody>
+
+{{# Toast OOB para #toast-container (auto-dismiss via JS global, admin.vto). #}}
+{{ if toast }}
+  <div id="toast-container" hx-swap-oob="beforeend">
+    <div class="rounded-lg bg-base-100 shadow-lg min-w-[260px]" data-auto-dismiss="4000">
+      <div class="relative overflow-hidden rounded-lg bg-success/10 border border-success/30 pl-4 pr-8 py-3 flex items-start gap-3">
+        <span class="text-success text-lg leading-none">✓</span>
+        <span class="text-sm font-medium text-base-content">{{ toast.message }}</span>
+        <button type="button"
+                class="absolute right-2 top-2 text-success opacity-50 hover:opacity-100 text-sm leading-none"
+                aria-label="Fechar"
+                data-toast-close>✕</button>
+        <div class="absolute bottom-0 left-0 h-0.5 bg-success opacity-60"
+             style="width: 0%" data-toast-progress></div>
+      </div>
+    </div>
+  </div>
+{{ /if }}

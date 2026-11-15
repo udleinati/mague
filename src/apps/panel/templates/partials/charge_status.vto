@@ -1,0 +1,6 @@
+{{# Badge de estado da cobrança, respeitando o cutoff de conciliação. NUNCA usar
+   `c.status === "overdue"` direto (gravado na criação, não atualizado; verdade =
+   view + cutoff). Regra em chargeStatusBadge (render.ts global). Ver ADR 0037.
+   Recebe: c (charge), cutoff (condominium.reconciledThroughDate), size? ("xs"|"sm"). #}}
+{{ set _b = chargeStatusBadge(c, cutoff) }}
+{{ include "partials/status_badge.vto" { label: _b.label, tone: _b.tone, size: size ?? "xs" } }}

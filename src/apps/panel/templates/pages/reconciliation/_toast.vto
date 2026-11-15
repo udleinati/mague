@@ -1,0 +1,20 @@
+{{# Toast OOB (beforeend em #toast-container) com auto-dismiss por JS (ver admin.vto).
+    Layered: outer sólido (bg-base-100) tapa a página; inner pastel transparente. #}}
+{{ set _t = toast.type === "error" ? { bg: "bg-error/10", border: "border-error/30", icon: "text-error", bar: "bg-error", glyph: "⚠" }
+         : toast.type === "warning" ? { bg: "bg-warning/10", border: "border-warning/30", icon: "text-warning", bar: "bg-warning", glyph: "⚠" }
+         : toast.type === "info" ? { bg: "bg-info/10", border: "border-info/30", icon: "text-info", bar: "bg-info", glyph: "ℹ" }
+         : { bg: "bg-success/10", border: "border-success/30", icon: "text-success", bar: "bg-success", glyph: "✓" } }}
+<div id="toast-container" hx-swap-oob="beforeend">
+  <div class="rounded-lg bg-base-100 shadow-lg min-w-[260px]" data-auto-dismiss="4000">
+    <div class="relative overflow-hidden rounded-lg {{ _t.bg }} border {{ _t.border }} pl-4 pr-8 py-3 flex items-start gap-3">
+      <span class="{{ _t.icon }} text-lg leading-none">{{ _t.glyph }}</span>
+      <span class="text-sm font-medium text-base-content">{{ toast.message }}</span>
+      <button type="button"
+              class="absolute right-2 top-2 {{ _t.icon }} opacity-50 hover:opacity-100 text-sm leading-none"
+              aria-label="Fechar"
+              data-toast-close>✕</button>
+      <div class="absolute bottom-0 left-0 h-0.5 {{ _t.bar }} opacity-60"
+           style="width: 0%" data-toast-progress></div>
+    </div>
+  </div>
+</div>

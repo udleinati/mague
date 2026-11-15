@@ -1,0 +1,175 @@
+{{ layout "partials/page_header.vto" {
+  title: "Recibos emitidos",
+  breadcrumbs: [
+    { label: "Painel", href: "/admin/c/" + currentCondominiumId + "/dashboard" },
+    { label: "Recibos" },
+  ]
+} }}
+  <a href="/admin/c/{{ currentCondominiumId }}/receipts/pending" class="btn btn-sm btn-primary shrink-0">
+    Pendentes →
+  </a>
+{{ /layout }}
+
+{{# KPIs #}}
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+  {{ set _totalAmountStr = stats.totalAmount |> formatMoney }}
+  {{ set _activeCaption = _totalAmountStr + " total" }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "primary", label: "Total", value: String(stats.total), caption: "recibos no filtro"
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "success", label: "Ativos", value: String(stats.active), caption: _activeCaption, highlightValue: true
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "error", label: "Anulados", value: String(stats.voided), caption: "mantêm número (audit)", highlightValue: stats.voided > 0
+  } }}
+  <div class="bg-gradient-to-br from-info/10 to-info/5 rounded-xl border border-info/20 p-5">
+    <div class="text-xs uppercase font-bold text-info/80 tracking-wider">Pendentes</div>
+    <div class="text-xl sm:text-2xl xl:text-3xl font-black mt-2">→</div>
+    <div class="text-xs text-base-content/60 mt-1">
+      <a href="/admin/c/{{ currentCondominiumId }}/receipts/pending" class="link link-info">Abrir fila</a>
+    </div>
+  </div>
+</div>
+
+{{# ─── Filtros: Ano | Fração | Estado ─────────────────────────────────
+   Form GET com hidden inputs + hx-get para swap em #receipts-fragment.
+   _yearQs preserva o ano nos links de estado/limpar ("Todos" = year= vazio). #}}
+{{ set _yearQs = filterYear === null ? "&year=" : ("&year=" + String(filterYear)) }}
+{{ set _baseQs = (filterUnitId ? ("&unitId=" + filterUnitId) : "") + _yearQs }}
+
+<div class="flex flex-wrap items-center gap-2 mb-4">
+  <form action="/admin/c/{{ currentCondominiumId }}/receipts" class="flex items-center gap-2">
+    <input type="hidden" name="voided" value="{{ filterVoided }}">
+    <span class="text-xs uppercase tracking-wider font-bold text-base-content/60">Ano</span>
+    <select name="year" class="select select-sm select-bordered"
+            hx-get="/admin/c/{{ currentCondominiumId }}/receipts"
+            hx-include="closest form"
+            hx-target="#receipts-fragment"
+            hx-swap="innerHTML"
+            hx-push-url="true"
+            hx-trigger="change">
+      <option value="" {{ if filterYear === null }}selected{{ /if }}>Todos</option>
+      {{ for y of availableYears }}
+        <option value="{{ String(y) }}" {{ if filterYear === y }}selected{{ /if }}>{{ String(y) }}</option>
+      {{ /for }}
+    </select>
+    <span class="text-xs uppercase tracking-wider font-bold text-base-content/60 ml-2">Fração</span>
+    <select name="unitId" class="select select-sm select-bordered"
+            hx-get="/admin/c/{{ currentCondominiumId }}/receipts"
+            hx-include="closest form"
+            hx-target="#receipts-fragment"
+            hx-swap="innerHTML"
+            hx-push-url="true"
+            hx-trigger="change">
+      <option value="" {{ if !filterUnitId }}selected{{ /if }}>Todas</option>
+      {{ for u of units }}
+        <option value="{{ u.id }}" {{ if u.id === filterUnitId }}selected{{ /if }}>{{ u.designation }}{{ if u.identifier }} - {{ u.identifier }}{{ /if }}</option>
+      {{ /for }}
+    </select>
+  </form>
+
+  <div class="divider divider-horizontal mx-1 h-8"></div>
+
+  {{# Tabs de estado: cada link preserva ano + unit nos params. #}}
+  <div class="tabs tabs-boxed bg-base-200/50">
+    <a href="/admin/c/{{ currentCondominiumId }}/receipts?voided=all{{ _baseQs }}"
+       hx-get="/admin/c/{{ currentCondominiumId }}/receipts?voided=all{{ _baseQs }}"
+       hx-target="#receipts-fragment" hx-swap="innerHTML" hx-push-url="true"
+       class="tab tab-sm {{ if filterVoided === 'all' }}tab-active{{ /if }}">Todos</a>
+    <a href="/admin/c/{{ currentCondominiumId }}/receipts?voided=false{{ _baseQs }}"
+       hx-get="/admin/c/{{ currentCondominiumId }}/receipts?voided=false{{ _baseQs }}"
+       hx-target="#receipts-fragment" hx-swap="innerHTML" hx-push-url="true"
+       class="tab tab-sm {{ if filterVoided === 'false' }}tab-active{{ /if }}">Ativos</a>
+    <a href="/admin/c/{{ currentCondominiumId }}/receipts?voided=true{{ _baseQs }}"
+       hx-get="/admin/c/{{ currentCondominiumId }}/receipts?voided=true{{ _baseQs }}"
+       hx-target="#receipts-fragment" hx-swap="innerHTML" hx-push-url="true"
+       class="tab tab-sm {{ if filterVoided === 'true' }}tab-active{{ /if }}">Anulados</a>
+  </div>
+
+  {{# Limpar filtros adicionais (mantém o ano): só com unit/voided ativos. #}}
+  {{ if filterUnitId || filterVoided !== 'all' }}
+    {{ set _clearUrl = "/admin/c/" + currentCondominiumId + "/receipts?voided=all" + _yearQs }}
+    <a href="{{ _clearUrl }}"
+       hx-get="{{ _clearUrl }}"
+       hx-target="#receipts-fragment" hx-swap="innerHTML" hx-push-url="true"
+       class="btn btn-sm btn-ghost ml-auto">Limpar filtros adicionais</a>
+  {{ /if }}
+</div>
+
+{{# Tabela #}}
+<div class="bg-base-100 rounded-xl border border-base-200 overflow-hidden shadow-sm">
+  {{ if receipts.length === 0 }}
+    <div class="p-12 text-center text-base-content/50">
+      Sem recibos para este filtro.
+    </div>
+  {{ else }}
+    <div class="table-scroll">
+      <table class="table table-sm w-full">
+        <thead>
+          <tr class="text-base-content/40 text-[10px] uppercase tracking-widest border-b border-base-200">
+            <th class="pl-4">Nº</th>
+            <th>Data emissão</th>
+            <th>Data pagamento</th>
+            <th>Fração</th>
+            <th>Recebido de</th>
+            <th class="text-right">Valor</th>
+            <th>Estado</th>
+            <th class="pr-4"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {{ for r of receipts }}
+            <tr class="border-t border-base-100 text-sm hover:bg-base-200/30 {{ if r.isVoided }}opacity-60{{ /if }}">
+              <td class="pl-4 font-mono text-xs font-semibold">{{ r.number }}</td>
+              <td class="text-xs text-base-content/70 whitespace-nowrap">{{ r.issuedAt |> formatDate }}</td>
+              <td class="text-xs text-base-content/70 whitespace-nowrap">{{ r.bankTxSnapshot.transactionDate |> formatDate }}</td>
+              <td>
+                <a href="/admin/c/{{ currentCondominiumId }}/units/{{ r.unitId }}" class="link link-hover">
+                  <span class="font-bold">{{ r.unitDesignation }}</span>{{ if r.unitIdentifier }}<span class="text-base-content/50 font-normal"> - {{ r.unitIdentifier }}</span>{{ /if }}
+                </a>
+              </td>
+              <td class="text-xs text-base-content/70 max-w-[200px] truncate">
+                {{ for rec of r.recipientsSnapshot }}
+                  {{ rec.name }}{{ if rec.nif }} <span class="text-base-content/40">({{ rec.nif }})</span>{{ /if }}{{ if !$last }}, {{ /if }}
+                {{ /for }}
+              </td>
+              <td class="text-right tabular-nums font-semibold whitespace-nowrap">
+                {{ r.amountCents |> formatMoney }}
+              </td>
+              <td>
+                {{ if r.isVoided }}
+                  {{ include "partials/status_badge.vto" { label: "Anulado", tone: "error", size: "xs" } }}
+                {{ else }}
+                  {{ include "partials/status_badge.vto" { label: "Ativo", tone: "success", size: "xs" } }}
+                {{ /if }}
+              </td>
+              <td class="pr-4 text-right whitespace-nowrap">
+                <div class="inline-flex items-center gap-4">
+                  {{ include "partials/action_link.vto" {
+                    kind: "view",
+                    href: "/admin/c/" + currentCondominiumId + "/receipts/" + r.id,
+                  } }}
+                  <a href="/admin/c/{{ currentCondominiumId }}/receipts/{{ r.id }}/pdf"
+                     target="_blank" rel="noopener"
+                     class="inline-flex items-center gap-1 link link-hover text-xs text-base-content/70 hover:text-base-content"
+                     title="Abrir PDF">
+                    <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/>
+                    </svg>
+                    PDF
+                  </a>
+                </div>
+              </td>
+            </tr>
+          {{ /for }}
+        </tbody>
+      </table>
+      {{ if pagination && pagination.totalPages > 1 }}
+        <div class="border-t border-base-200">
+          {{ include "partials/pagination.vto" { pagination } }}
+        </div>
+      {{ /if }}
+    </div>
+  {{ /if }}
+</div>

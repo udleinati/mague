@@ -1,0 +1,187 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+<div class="max-w-6xl">
+  {{ include "partials/page_header.vto" {
+    title: "Pré-visualização do import",
+    scale: "detail",
+    breadcrumbs: [
+      { label: "Frações", href: "/admin/c/" + currentCondominiumId + "/units" },
+      { label: "Importar" },
+    ],
+    meta: [
+      { value: filename, plain: true },
+    ]
+  } }}
+
+  <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 mb-6">
+    <div class="card bg-base-100 shadow-sm border border-base-200 p-4">
+      <div class="text-xs uppercase font-bold text-base-content/60 tracking-wider">Frações</div>
+      <div class="text-2xl font-bold mt-1">{{ String(summary.totalUnits) }}</div>
+      <div class="text-xs text-success mt-1">{{ String(summary.newUnits) }} novas</div>
+    </div>
+    <div class="card bg-base-100 shadow-sm border border-base-200 p-4">
+      <div class="text-xs uppercase font-bold text-base-content/60 tracking-wider">Ocupantes</div>
+      <div class="text-2xl font-bold mt-1">{{ String(summary.totalOccupants) }}</div>
+      <div class="text-xs text-success mt-1">{{ String(summary.newOccupants) }} novos</div>
+    </div>
+    <div class="card bg-base-100 shadow-sm border border-base-200 p-4">
+      <div class="text-xs uppercase font-bold text-base-content/60 tracking-wider">Vínculos</div>
+      <div class="text-2xl font-bold mt-1">{{ String(summary.totalLinks) }}</div>
+    </div>
+    <div class="card bg-base-100 shadow-sm border border-base-200 p-4">
+      <div class="text-xs uppercase font-bold text-base-content/60 tracking-wider">Duplicados</div>
+      <div class="text-2xl font-bold mt-1 text-base-content/50">{{ String(summary.totalUnits - summary.newUnits + summary.totalOccupants - summary.newOccupants) }}</div>
+      <div class="text-xs text-base-content/50 mt-1">serão ignorados</div>
+    </div>
+    <div class="card bg-base-100 shadow-sm border border-base-200 p-4">
+      <div class="text-xs uppercase font-bold text-base-content/60 tracking-wider">Avisos</div>
+      <div class="text-2xl font-bold mt-1 {{ if warnings.length > 0 }}text-warning{{ else }}text-base-content/50{{ /if }}">{{ String(warnings.length) }}</div>
+    </div>
+  </div>
+
+  {{ if warnings && warnings.length > 0 }}
+    <div class="rounded-lg bg-warning/10 border border-warning/30 px-4 py-3 flex items-start gap-3 mb-4">
+      <span class="text-warning text-lg leading-none">⚠</span>
+      <div class="text-sm text-warning flex-1">
+        <div class="font-semibold mb-1">Avisos do parser</div>
+        <ul class="list-disc list-inside text-xs">
+          {{ for w of warnings }}<li>{{ w }}</li>{{ /for }}
+        </ul>
+      </div>
+    </div>
+  {{ /if }}
+
+  <div class="bg-base-100 rounded-xl border border-base-200 overflow-hidden shadow-sm mb-4">
+    <div class="px-6 py-3 border-b border-base-200 text-sm font-semibold flex items-center justify-between">
+      <span>Frações e ocupantes</span>
+      <span class="text-xs font-normal text-base-content/50">Cada fração mostra os ocupantes que lhe estão associados neste ficheiro.</span>
+    </div>
+    <div class="table-scroll">
+    <table class="table table-sm">
+      <thead>
+        <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+          <th class="pl-6">Designação / Ocupante</th>
+          <th>Tipo / Relação</th>
+          <th class="text-right">Permilagem</th>
+          <th>Contacto</th>
+          <th>NIF</th>
+          <th>Identificação</th>
+          <th>Estado</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ if units.length === 0 }}
+          <tr><td colspan="7" class="p-4 text-center text-sm text-base-content/50">Nenhuma fração no ficheiro.</td></tr>
+        {{ else }}
+          {{ for u of units }}
+            <tr class="border-t border-base-200 text-sm bg-base-200/30 {{ if u.isDuplicate }}opacity-70{{ /if }}">
+              <td class="pl-6 font-bold">{{ u.designation }}</td>
+              <td class="text-xs text-base-content/70">{{ u.unitType }}</td>
+              <td class="text-right tabular-nums">{{ if u.permillage == null }}-{{ else }}{{ u.permillage |> formatPermillage }}{{ /if }}</td>
+              <td class="text-xs text-base-content/50">-</td>
+              <td class="text-xs text-base-content/50">-</td>
+              <td class="text-xs text-base-content/70 font-medium">
+                {{ u.identifier ?? "-" }}
+              </td>
+              <td>
+                {{ if u.isDuplicate }}
+                  <span class="inline-flex items-center gap-1.5 text-xs text-base-content/60"><span class="inline-block w-1.5 h-1.5 rounded-full bg-base-content/40"></span>Já existe</span>
+                {{ else }}
+                  <span class="inline-flex items-center gap-1.5 text-xs font-medium text-success"><span class="inline-block w-1.5 h-1.5 rounded-full bg-success"></span>Nova</span>
+                {{ /if }}
+              </td>
+            </tr>
+            {{ if u.occupants.length === 0 }}
+              <tr class="border-t border-base-100 text-xs text-base-content/40">
+                <td class="pl-12 italic" colspan="7">↳ Sem ocupantes associados</td>
+              </tr>
+            {{ else }}
+              {{ for occ of u.occupants }}
+                <tr class="border-t border-base-100 text-sm {{ if occ.isDuplicate }}opacity-70{{ /if }}">
+                  <td class="pl-12 text-base-content/80">
+                    <span class="text-base-content/30 mr-2">↳</span>{{ occ.name }}
+                  </td>
+                  <td>
+                    {{ if occ.relationshipType === "owner" }}
+                      <span class="inline-flex items-center gap-1.5 text-xs font-medium text-success"><span class="inline-block w-1.5 h-1.5 rounded-full bg-success"></span>Proprietário</span>
+                    {{ else if occ.relationshipType === "tenant" }}
+                      <span class="inline-flex items-center gap-1.5 text-xs font-medium text-warning"><span class="inline-block w-1.5 h-1.5 rounded-full bg-warning"></span>Inquilino</span>
+                    {{ else if occ.relationshipType === "resident" }}
+                      <span class="inline-flex items-center gap-1.5 text-xs font-medium text-info"><span class="inline-block w-1.5 h-1.5 rounded-full bg-info"></span>Residente</span>
+                    {{ else }}
+                      <span class="text-xs text-base-content/60">{{ occ.relationshipType }}</span>
+                    {{ /if }}
+                  </td>
+                  <td></td>
+                  <td class="text-xs text-base-content/70">
+                    {{ if occ.email }}{{ occ.email }}{{ /if }}{{ if occ.email && occ.phone }} · {{ /if }}{{ if occ.phone }}{{ occ.phone }}{{ /if }}{{ if !occ.email && !occ.phone }}-{{ /if }}
+                  </td>
+                  <td class="text-xs text-base-content/70">{{ occ.nif ?? "-" }}</td>
+                  <td></td>
+                  <td>
+                    {{ if occ.isDuplicate }}
+                      <span class="inline-flex items-center gap-1.5 text-xs text-base-content/60" title="Já existe como {{ occ.existingName ?? '-' }}"><span class="inline-block w-1.5 h-1.5 rounded-full bg-base-content/40"></span>Já existe</span>
+                    {{ else }}
+                      <span class="inline-flex items-center gap-1.5 text-xs font-medium text-success"><span class="inline-block w-1.5 h-1.5 rounded-full bg-success"></span>Novo</span>
+                    {{ /if }}
+                  </td>
+                </tr>
+              {{ /for }}
+            {{ /if }}
+          {{ /for }}
+        {{ /if }}
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <details class="bg-base-100 rounded-xl border border-base-200 overflow-hidden shadow-sm mb-6">
+    <summary class="px-6 py-3 text-sm font-semibold cursor-pointer hover:bg-base-200/30">
+      Ocupantes únicos detetados <span class="text-xs font-normal text-base-content/50">· {{ String(occupants.length) }} no ficheiro após dedup</span>
+    </summary>
+    <div class="table-scroll">
+    <table class="table table-sm">
+      <thead>
+        <tr class="text-base-content/40 text-[10px] uppercase tracking-widest border-t border-base-200">
+          <th class="pl-6">Nome</th>
+          <th>Email</th>
+          <th>NIF</th>
+          <th>Telefone</th>
+          <th>Estado</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ if occupants.length === 0 }}
+          <tr><td colspan="5" class="p-4 text-center text-sm text-base-content/50">Nenhum ocupante no ficheiro.</td></tr>
+        {{ else }}
+          {{ for o of occupants }}
+            <tr class="border-t border-base-100 text-sm {{ if o.isDuplicate }}opacity-60{{ /if }}">
+              <td class="pl-6 font-medium">{{ o.name }}</td>
+              <td class="text-xs text-base-content/70">{{ o.email ?? "" }}</td>
+              <td class="text-xs text-base-content/70">{{ o.nif ?? "" }}</td>
+              <td class="text-xs text-base-content/70">{{ o.phone ?? "" }}</td>
+              <td>
+                {{ if o.isDuplicate }}
+                  <span class="inline-flex items-center gap-1.5 text-xs text-base-content/60"><span class="inline-block w-1.5 h-1.5 rounded-full bg-base-content/40"></span>Já existe ({{ o.existingName ?? "-" }})</span>
+                {{ else }}
+                  <span class="inline-flex items-center gap-1.5 text-xs font-medium text-success"><span class="inline-block w-1.5 h-1.5 rounded-full bg-success"></span>Novo</span>
+                {{ /if }}
+              </td>
+            </tr>
+          {{ /for }}
+        {{ /if }}
+      </tbody>
+    </table>
+    </div>
+  </details>
+
+  <form method="post" action="/admin/c/{{ currentCondominiumId }}/units/import/commit">
+    <input type="hidden" name="payload_json" value='{{ JSON.stringify({ units: units.map((u) => ({ designation: u.designation, unitType: u.unitType, permillage: u.permillage, block: u.block, floor: u.floor, door: u.door, description: u.description })), occupants: occupants.map((o) => ({ name: o.name, email: o.email, phone: o.phone, nif: o.nif, type: o.type })), links }) }}'>
+    <div class="flex justify-between items-center">
+      <a href="/admin/c/{{ currentCondominiumId }}/units" class="btn btn-sm btn-ghost">Cancelar</a>
+      <button type="submit" class="btn btn-sm btn-primary">Confirmar e importar</button>
+    </div>
+  </form>
+</div>
+
+{{ /layout }}

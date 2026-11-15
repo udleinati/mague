@@ -1,0 +1,175 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+<div class="max-w-3xl">
+  {{# Header sem ações (ADR 0036): status mapeado ao tone mais próximo; o
+     toggle ativar/desactivar vive no corpo. #}}
+  {{ set _inspStatus = inspection.status === "inactive" ? { label: "Desactivada", tone: "muted" }
+    : inspection.status === "ok" ? { label: "Em ordem", tone: "success" }
+    : inspection.status === "due_soon" ? { label: "A vencer", tone: "warning" }
+    : inspection.status === "expired" ? { label: "Vencida", tone: "error" }
+    : null }}
+  {{ include "partials/page_header.vto" {
+    title: inspection.description,
+    scale: "detail",
+    code: inspection.code,
+    breadcrumbs: [
+      { label: "Inspeções", href: "/admin/c/" + currentCondominiumId + "/inspections" },
+      { label: inspection.description },
+    ],
+    status: _inspStatus,
+    meta: [
+      { value: categoryLabels[inspection.category] || inspection.category, plain: true },
+    ],
+  } }}
+
+  {{# ─── Toggle activate/deactivate ─── #}}
+  <div class="flex items-center justify-between bg-base-100 border border-base-200 rounded-xl px-5 py-4 mb-6">
+    <div>
+      <div class="text-sm font-semibold">{{ if inspection.isActive }}Inspeção ativa{{ else }}Inspeção desactivada{{ /if }}</div>
+      <div class="text-xs text-base-content/60 mt-0.5">
+        {{ if inspection.isActive }}
+          Conta para o badge de alertas no menu quando entra na janela de aviso ou vence.
+        {{ else }}
+          Não conta para o badge. Continua na lista mas em estado "desactivada".
+        {{ /if }}
+      </div>
+    </div>
+    {{ if inspection.isActive }}
+      <form method="post" action="{{ ('/inspections/' + inspection.id + '/deactivate') |> condoPath }}"
+            data-confirm-title="Desactivar inspeção?"
+            data-confirm-body="Deixa de contar para o badge de alertas. Pode ser reactivada a qualquer altura.">
+        <button type="submit" class="btn btn-sm btn-outline">Desactivar</button>
+      </form>
+    {{ else }}
+      <form method="post" action="{{ ('/inspections/' + inspection.id + '/activate') |> condoPath }}">
+        <button type="submit" class="btn btn-sm btn-primary">Ativar</button>
+      </form>
+    {{ /if }}
+  </div>
+
+  {{# ─── Form de edição ─── #}}
+  <form method="post" action="{{ ('/inspections/' + inspection.id) |> condoPath }}" class="space-y-4 bg-base-100 border border-base-200 rounded-xl p-6 mb-6">
+    <div class="form-control">
+      <label class="label" for="category"><span class="label-text font-medium">Categoria</span></label>
+      <select id="category" name="category" class="select select-bordered">
+        {{ for key, label of categoryLabels }}
+          <option value="{{ key }}" {{ if inspection.category === key }}selected{{ /if }}>{{ label }}</option>
+        {{ /for }}
+      </select>
+    </div>
+
+    <div class="form-control">
+      <label class="label" for="description"><span class="label-text font-medium">Descrição</span></label>
+      <input type="text" id="description" name="description" class="input input-bordered"
+             value="{{ inspection.description }}" required maxlength="500">
+    </div>
+
+    {{# Fornecedor: combobox pré-preenchido; hidden carrega o id, input é só visual. #}}
+    <div class="form-control relative" data-combobox>
+      <label class="label" for="supplier-search"><span class="label-text font-medium">Fornecedor</span></label>
+      <input type="text" id="supplier-search" data-combobox-search autocomplete="off"
+             placeholder="Pesquisar fornecedor..."
+             class="input input-bordered" value="{{ inspection.supplier ? inspection.supplier.name : '' }}">
+      <input type="hidden" name="supplierId" data-combobox-value value="{{ inspection.supplierId ?? '' }}">
+      <ul data-combobox-list class="hidden absolute top-full left-0 right-0 z-30 mt-1 max-h-72 overflow-y-auto bg-base-100 border border-base-200 rounded-lg shadow-lg py-1">
+        <li data-combobox-option data-id="" data-label="- sem fornecedor -" data-haystack="sem"
+            class="px-3 py-2 text-sm hover:bg-base-200 cursor-pointer text-base-content/60 italic whitespace-nowrap">
+          - sem fornecedor -
+        </li>
+        {{ for s of suppliers }}
+          <li data-combobox-option
+              data-id="{{ s.id }}"
+              data-label="{{ s.name }}"
+              data-haystack="{{ (s.name + ' ' + (s.nif ?? '')).toLowerCase() }}"
+              class="px-3 py-2 text-sm hover:bg-base-200 cursor-pointer whitespace-nowrap truncate"
+              title="{{ s.name }}{{ if s.nif }} · NIF {{ s.nif }}{{ /if }}">
+            <span class="font-semibold">{{ s.name }}</span>{{ if s.nif }}<span class="text-base-content/60"> · NIF {{ s.nif }}</span>{{ /if }}
+          </li>
+        {{ /for }}
+        <li data-combobox-empty class="hidden px-3 py-2 text-sm text-base-content/50 italic">Sem resultados.</li>
+      </ul>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div class="form-control">
+        <label class="label" for="lastDoneDate"><span class="label-text font-medium">Data da última inspeção</span></label>
+        <input type="date" id="lastDoneDate" name="lastDoneDate" class="input input-bordered" value="{{ inspection.lastDoneDate ?? '' }}">
+      </div>
+
+      <div class="form-control">
+        <label class="label" for="validUntil"><span class="label-text font-medium">Válida até</span></label>
+        <input type="date" id="validUntil" name="validUntil" class="input input-bordered" value="{{ inspection.validUntil }}" required>
+      </div>
+    </div>
+
+    <div class="form-control">
+      <label class="label" for="notifyDaysBefore"><span class="label-text font-medium">Avisar quantos dias antes?</span></label>
+      <input type="number" id="notifyDaysBefore" name="notifyDaysBefore" class="input input-bordered w-32"
+             min="0" max="365" value="{{ String(inspection.notifyDaysBefore) }}">
+    </div>
+
+    <div class="form-control">
+      <label class="label" for="notes"><span class="label-text font-medium">Notas</span></label>
+      <textarea id="notes" name="notes" class="textarea textarea-bordered" rows="3" maxlength="2000">{{ inspection.notes ?? '' }}</textarea>
+    </div>
+
+    <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
+      <button type="submit" class="btn btn-sm btn-primary">Guardar alterações</button>
+    </div>
+  </form>
+
+  {{# ─── Anexos ─── #}}
+  {{# `#inspection-attachments` é o swap target; hx-select extrai só esta seção
+     do show.vto, preservando scroll (ADR 0026 regra 1b). #}}
+  {{ set _inspectionAttachUrl = ('/inspections/' + inspection.id + '/attachments') |> condoPath }}
+  <div id="inspection-attachments" class="bg-base-100 border border-base-200 rounded-xl p-6 mb-6">
+    <h2 class="text-lg font-bold mb-3">Anexos <span class="text-sm font-normal text-base-content/50">· {{ String(inspection.attachments.length) }}</span></h2>
+
+    {{# Delete por anexo via HTMX (hxTarget+hxSelect): só esta seção re-renderiza. #}}
+    <div class="mb-4">
+      {{ include "partials/attachments_list.vto" {
+        attachments: inspection.attachments,
+        baseUrl: _inspectionAttachUrl,
+        layout: "list",
+        hxTarget: "#inspection-attachments",
+        hxSelect: "#inspection-attachments",
+      } }}
+    </div>
+
+    {{# Upload multi-ficheiro via dropzone + HTMX (preserve scroll). #}}
+    <form method="post"
+          action="{{ _inspectionAttachUrl }}"
+          hx-post="{{ _inspectionAttachUrl }}"
+          hx-target="#inspection-attachments"
+          hx-select="#inspection-attachments"
+          hx-swap="outerHTML show:no"
+          hx-encoding="multipart/form-data"
+          enctype="multipart/form-data"
+          class="space-y-3">
+      {{ include "partials/file_dropzone.vto" {
+        name: "file",
+        multiple: true,
+        helpText: "PDF, imagem, etc. - máx " + String(uploadMaxMb) + " MB por ficheiro · podes selecionar vários",
+      } }}
+      <div class="flex justify-end">
+        <button type="submit" class="btn btn-sm btn-primary gap-1.5" data-upload-submit disabled>
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/>
+          </svg>
+          Carregar
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{{# Zona perigosa - pattern canónico (ADR 0025). #}}
+{{ include "partials/danger_zone.vto" {
+  entityName: "inspeção",
+  entityLabel: inspection.description,
+  actionUrl: "/admin/c/" + currentCondominiumId + "/inspections/" + inspection.id + "/delete",
+  confirmBody: "Apaga a inspeção " + inspection.description + ". A linha desaparece da lista; o histórico fica preservado em audit log.",
+  currentUser,
+} }}
+
+{{ /layout }}

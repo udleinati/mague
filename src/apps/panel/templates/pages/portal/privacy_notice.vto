@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="pt" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ title }} · Mague</title>
+    <link href="/app.css" rel="stylesheet">
+  </head>
+  <body class="bg-base-200 min-h-screen py-8 px-4">
+    {{# Layout standalone (gate) - sem nav: o user ainda não tem acesso ao resto. #}}
+    <div class="max-w-2xl mx-auto">
+      <div class="text-center mb-6">
+        <h1 class="text-2xl sm:text-3xl font-black text-teal-600 tracking-tighter">MAGUE</h1>
+        <p class="text-sm text-base-content/60 mt-1">Portal do condómino</p>
+      </div>
+
+      <div class="card bg-base-100 shadow-lg">
+        <div class="card-body p-6 sm:p-8">
+          <h2 class="text-xl sm:text-2xl font-black mb-2">Aviso de privacidade</h2>
+          <p class="text-sm text-base-content/70 mb-6">
+            Bem-vindo ao portal do condomínio <strong>{{ condominium.name }}</strong>.
+            A administração é responsável pelo tratamento dos teus dados.
+          </p>
+
+          <div class="space-y-5 text-sm leading-relaxed text-base-content/80">
+            <div>
+              <h3 class="font-bold text-base text-base-content mb-1">O que tratamos e para quê</h3>
+              <p>
+                <strong>Nome, email, telefone, NIF, fração, histórico financeiro,
+                ocorrências e apólices</strong> - usados apenas para a gestão
+                corrente do condomínio (cobrança, conciliação, comunicações
+                legais, recibos, ocorrências, entre outras finalidades
+                necessárias à administração do condomínio). Base jurídica:
+                <strong>Lei n.º 8/2022 e contrato condominial - não consentimento</strong>.
+              </p>
+            </div>
+
+            <div>
+              <h3 class="font-bold text-base text-base-content mb-1">Quanto tempo guardamos</h3>
+              <p>
+                Dados financeiros: <strong>10 anos</strong> (Art. 40º do CIVA).
+                Restantes: <strong>enquanto fores condómino e mais 5 anos</strong>.
+              </p>
+            </div>
+
+            <div>
+              <h3 class="font-bold text-base text-base-content mb-1">Com quem partilhamos</h3>
+              <p>
+                Sem fins comerciais ou publicitários. Apenas: <strong>contabilista
+                certificado</strong>, <strong>Autoridade Tributária</strong>,
+                <strong>tribunal ou advogado</strong> em caso de litígio, e
+                <strong>outros condóminos</strong> em mapas de quotas em
+                assembleia (obrigatórios por lei).
+              </p>
+            </div>
+
+            <div>
+              <h3 class="font-bold text-base text-base-content mb-1">Os teus direitos</h3>
+              <ul class="list-disc list-outside pl-5 space-y-1">
+                <li>
+                  <strong>Acesso, rectificação e portabilidade</strong>: pede-nos por email.
+                </li>
+                <li>
+                  <strong>Apagamento e oposição</strong> são limitados (Arts. 17º nº3
+                  e 21º RGPD) - não podemos apagar dados necessários a obrigações
+                  legais (cobrança, contabilidade) enquanto essa necessidade durar.
+                </li>
+              </ul>
+            </div>
+
+          </div>
+
+          <div class="mt-6 pt-5 border-t border-base-200">
+            <form method="post"
+                  action="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/privacy-notice/accept"
+                  class="flex justify-end">
+              <button type="submit" class="btn btn-primary btn-md sm:btn-lg">
+                OK, entendi e prosseguir
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,172 @@
+{{# Combobox + chips para escolher múltiplas frações.
+
+   Params:
+     allUnits     - array de {id, designation, identifier?} (tipicamente `units`).
+     selectedIds  - array de unit IDs pré-selecionados (ex.: `target.units.map(u => u.id)`).
+     inputName    - nome do input hidden (default "unitIds[]") - submetido por form.
+
+   Pesquisa filtra por designação OU identifier (sem acentos); chips são inputs
+   hidden submetidos pelo form pai. Instâncias isoladas por `<div data-units-picker>`;
+   bootstrap idempotente (re-init só os sem flag `__upInit` após htmx swap). #}}
+
+{{ set _name = inputName ?? "unitIds[]" }}
+
+<div class="space-y-2" data-units-picker
+     data-input-name="{{ _name }}"
+     data-all-units='{{ JSON.stringify((allUnits ?? []).map((u) => ({ id: u.id, designation: u.designation, identifier: u.identifier ?? null }))) }}'
+     data-selected-ids='{{ JSON.stringify(selectedIds ?? []) }}'>
+  <div class="relative" data-up-combobox>
+    <input type="text" data-up-search autocomplete="off"
+           placeholder="Pesquisar fração por designação ou identifier…"
+           class="input input-sm input-bordered w-full">
+    <ul data-up-dropdown class="hidden absolute top-full left-0 right-0 z-30 mt-1 max-h-60 overflow-y-auto bg-base-100 border border-base-200 rounded-lg shadow-lg py-1"></ul>
+  </div>
+  <div data-up-chips class="flex flex-wrap gap-1.5 min-h-[40px] p-2 rounded bg-base-100 border border-base-200"></div>
+  <div data-up-hidden class="hidden"></div>
+</div>
+
+<script>
+  (function () {
+    if (window.__upInit) return;
+    window.__upInit = true;
+
+    function normalize(s) {
+      return (s || "").toString().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+    }
+
+    function init(root) {
+      if (root.__upBound) return;
+      root.__upBound = true;
+      const all = JSON.parse(root.getAttribute("data-all-units") || "[]");
+      let selected = JSON.parse(root.getAttribute("data-selected-ids") || "[]");
+      const inputName = root.getAttribute("data-input-name") || "unitIds[]";
+      const search = root.querySelector("[data-up-search]");
+      const dropdown = root.querySelector("[data-up-dropdown]");
+      const chips = root.querySelector("[data-up-chips]");
+      const hidden = root.querySelector("[data-up-hidden]");
+
+      const byId = new Map(all.map((u) => [u.id, u]));
+
+      function unitLabel(u) {
+        return u.designation + (u.identifier ? " - " + u.identifier : "");
+      }
+
+      function renderChips() {
+        chips.innerHTML = "";
+        hidden.innerHTML = "";
+        if (selected.length === 0) {
+          const empty = document.createElement("span");
+          empty.className = "text-xs text-base-content/40 italic py-1";
+          empty.textContent = "Sem frações associadas.";
+          chips.appendChild(empty);
+        }
+        selected.forEach((id) => {
+          const u = byId.get(id);
+          if (!u) return;
+          const chip = document.createElement("span");
+          chip.className = "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold";
+          const txt = document.createElement("span");
+          txt.textContent = unitLabel(u);
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "text-primary/60 hover:text-error font-bold leading-none";
+          btn.setAttribute("aria-label", "Remover " + u.designation);
+          btn.textContent = "×";
+          btn.addEventListener("click", () => {
+            selected = selected.filter((x) => x !== id);
+            renderChips();
+            renderDropdown();
+          });
+          chip.appendChild(txt);
+          chip.appendChild(btn);
+          chips.appendChild(chip);
+
+          const h = document.createElement("input");
+          h.type = "hidden";
+          h.name = inputName;
+          h.value = id;
+          hidden.appendChild(h);
+        });
+      }
+
+      function renderDropdown() {
+        const q = normalize(search.value);
+        const items = all
+          .filter((u) => !selected.includes(u.id))
+          .filter((u) => {
+            if (!q) return true;
+            const hay = normalize(u.designation + " " + (u.identifier || ""));
+            return hay.includes(q);
+          });
+        dropdown.innerHTML = "";
+        if (items.length === 0) {
+          const li = document.createElement("li");
+          li.className = "px-3 py-2 text-sm text-base-content/50 italic";
+          li.textContent = q
+            ? "Sem resultados."
+            : (all.length === selected.length
+                ? "Todas as frações já estão associadas."
+                : "Começa a escrever…");
+          dropdown.appendChild(li);
+        } else {
+          items.forEach((u) => {
+            const li = document.createElement("li");
+            li.className = "px-3 py-1.5 text-sm hover:bg-base-200 cursor-pointer";
+            const main = document.createElement("span");
+            main.className = "font-medium";
+            main.textContent = u.designation;
+            li.appendChild(main);
+            if (u.identifier) {
+              const sub = document.createElement("span");
+              sub.className = "text-base-content/50";
+              sub.textContent = " - " + u.identifier;
+              li.appendChild(sub);
+            }
+            li.addEventListener("mousedown", (e) => {
+              e.preventDefault(); // evita blur antes de processar
+              selected = [...selected, u.id];
+              search.value = "";
+              renderChips();
+              renderDropdown();
+              dropdown.classList.add("hidden");
+              search.focus();
+            });
+            dropdown.appendChild(li);
+          });
+        }
+      }
+
+      search.addEventListener("focus", () => {
+        renderDropdown();
+        dropdown.classList.remove("hidden");
+      });
+      search.addEventListener("input", () => {
+        renderDropdown();
+        dropdown.classList.remove("hidden");
+      });
+      search.addEventListener("blur", () => {
+        // Delay pequeno para o mousedown da opção processar antes do hide.
+        setTimeout(() => dropdown.classList.add("hidden"), 100);
+      });
+      search.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          dropdown.classList.add("hidden");
+          search.blur();
+        }
+      });
+
+      renderChips();
+      renderDropdown();
+    }
+
+    function initAll(rootEl) {
+      (rootEl || document).querySelectorAll("[data-units-picker]").forEach(init);
+    }
+
+    document.addEventListener("DOMContentLoaded", () => initAll(document));
+    document.body.addEventListener("htmx:afterSwap", (e) => initAll(e.target));
+    // Em algumas páginas o script só carrega depois do DOMContentLoaded
+    // (e.g. partial embebido no fim do template). Tenta logo:
+    if (document.readyState !== "loading") initAll(document);
+  })();
+</script>

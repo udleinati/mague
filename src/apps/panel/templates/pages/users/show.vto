@@ -1,0 +1,152 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId } }}
+
+<div class="max-w-5xl">
+  {{ layout "partials/page_header.vto" {
+    title: target.name,
+    scale: "detail",
+    breadcrumbs: [
+      { label: "Utilizadores", href: "/admin/c/" + currentCondominiumId + "/users" },
+      { label: target.name },
+    ],
+    status: target.isActive
+      ? { label: "Ativo", tone: "success" }
+      : { label: "Inactivo", tone: "muted" },
+    meta: [
+      target.isManager ? { value: "Administrador", tone: "warning" } : null,
+      target.email ? { value: target.email, plain: true } : null,
+    ]
+  } }}
+    <a href="/admin/c/{{ currentCondominiumId }}/users/{{ target.id }}/edit" class="btn btn-sm btn-primary">Editar</a>
+    {{# Ação destrutiva vive na Zona perigosa no fim da página (ADR 0025). #}}
+  {{ /layout }}
+  <div class="card bg-base-100 shadow-sm border border-base-200 overflow-hidden">
+    <div class="px-6 pt-5 pb-3 border-b border-base-200">
+      <h2 class="text-lg font-bold">Dados</h2>
+    </div>
+    <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div>
+        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Email</div>
+        <div class="font-medium">{{ target.email ?? "-" }}</div>
+      </div>
+      <div>
+        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Administrador deste condomínio</div>
+        <div class="font-medium">{{ if target.isManager }}Sim{{ else }}Não{{ /if }}</div>
+      </div>
+      <div class="md:col-span-2">
+        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Frações</div>
+        {{ if target.units && target.units.length > 0 }}
+          <div class="flex flex-wrap gap-1.5">
+            {{ for u of target.units }}
+              <a href="/admin/c/{{ currentCondominiumId }}/units/{{ u.unitId }}"
+                 class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-semibold tabular-nums bg-primary/10 text-primary hover:bg-primary/15 transition-colors">
+                {{ u.designation }}{{ if u.identifier }}<span class="font-normal opacity-70"> - {{ u.identifier }}</span>{{ /if }}
+                <span class="text-[10px] font-normal opacity-70">· {{ u.relationshipType === "owner" ? "Proprietário" : u.relationshipType === "tenant" ? "Inquilino" : "Residente" }}</span>
+              </a>
+            {{ /for }}
+          </div>
+        {{ else }}
+          <div class="font-medium text-base-content/40">-</div>
+        {{ /if }}
+      </div>
+      <div>
+        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">1.º acesso</div>
+        <div class="font-medium tabular-nums">{{ if target.firstLoginAt }}{{ target.firstLoginAt |> formatDate }}{{ else }}<span class="text-base-content/40">Nunca</span>{{ /if }}</div>
+      </div>
+      <div>
+        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Último acesso</div>
+        <div class="font-medium tabular-nums">{{ if target.lastLoginAt }}{{ target.lastLoginAt |> formatDate }}{{ else }}<span class="text-base-content/40">Nunca</span>{{ /if }}</div>
+      </div>
+      <div>
+        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Criado em</div>
+        <div class="font-medium tabular-nums">{{ target.createdAt |> formatDate }}</div>
+      </div>
+    </div>
+    <div class="px-6 pb-4 text-xs text-base-content/50">
+      NIF, telefone e dados pessoais vivem em <strong>Ocupante</strong> (per-condomínio).
+    </div>
+  </div>
+</div>
+
+{{# Cartão "Acesso": reset assistido de password. Região pequena e com id
+   próprio - o swap HTMX troca só isto (ADR 0026). A password temporária vive
+   apenas nesta renderização; um refresh faz o cartão voltar ao estado normal. #}}
+<div class="max-w-5xl mt-6" id="user-access">
+  <div class="card bg-base-100 shadow-sm border border-base-200 overflow-hidden">
+    <div class="px-6 pt-5 pb-3 border-b border-base-200">
+      <h2 class="text-lg font-bold">Acesso</h2>
+    </div>
+    <div class="p-6">
+      {{ if access && access.reset }}
+        {{# Estado pós-reset: a password só aparece aqui e não volta a aparecer. #}}
+        <div class="rounded-lg border border-success/30 bg-success/5 p-5">
+          <div class="text-xs uppercase tracking-wider font-bold text-success mb-3">Password temporária</div>
+          <div class="flex flex-wrap items-center gap-3">
+            <code class="px-4 py-2.5 rounded-md bg-base-200 text-2xl font-mono font-bold tracking-[0.3em] select-all"
+                  id="temp-password">{{ access.reset.temporaryPassword }}</code>
+            <button type="button" class="btn btn-sm btn-outline gap-1.5"
+                    onclick="var b=this,t=b.querySelector('[data-copy-label]');navigator.clipboard.writeText(document.getElementById('temp-password').textContent.trim()).then(function(){t.textContent='Copiado';setTimeout(function(){t.textContent='Copiar'},2000)})">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+              </svg>
+              <span data-copy-label>Copiar</span>
+            </button>
+          </div>
+          <p class="text-sm text-base-content/70 mt-4 leading-relaxed">
+            Entregue este código a <strong>{{ access.reset.name }}</strong> por telefone ou mensagem.
+            A password anterior deixou de funcionar e os convites por abrir foram invalidados.
+            <strong>Só aparece agora</strong> - se sair desta página sem a copiar, tem de repor outra vez.
+          </p>
+          <p class="text-sm text-base-content/70 mt-2 leading-relaxed">
+            Peça-lhe para a trocar em <em>A minha conta</em> depois de entrar: este código é curto
+            e serve para desbloquear o acesso, não para ficar.
+          </p>
+        </div>
+      {{ else if target.passwordResetRequiresSuper }}
+        <p class="text-sm text-base-content/70 leading-relaxed max-w-2xl">
+          Esta conta dá acesso a mais do que este condomínio. Só um super pode repor a password.
+        </p>
+      {{ else }}
+        {{ if access && access.error }}
+          <div class="alert alert-error mb-4 text-sm">{{ access.error }}</div>
+        {{ /if }}
+        <p class="text-sm text-base-content/70 leading-relaxed mb-4 max-w-2xl">
+          Gera uma password temporária de 6 caracteres para entregar
+          {{ if target.name }}a <strong>{{ target.name }}</strong>{{ else }}à pessoa{{ /if }}
+          por telefone ou mensagem. Use quando o email de recuperação não chega.
+          A password atual é <strong>substituída</strong> e os convites por abrir deixam de valer.
+        </p>
+        <form method="post"
+              action="/admin/c/{{ currentCondominiumId }}/users/{{ target.id }}/reset-password"
+              hx-post="/admin/c/{{ currentCondominiumId }}/users/{{ target.id }}/reset-password"
+              hx-target="#user-access"
+              hx-select="#user-access"
+              hx-swap="outerHTML show:no"
+              data-confirm-title="Repor a password de {{ target.name }}?"
+              data-confirm-body="A password atual é substituída e a pessoa deixa de conseguir entrar com ela. O código novo aparece uma única vez no ecrã, para lho entregar por fora."
+              data-confirm-ok="Repor password"
+              data-confirm-danger="true"
+              data-confirm-typed-match="CONFIRMO">
+          <button type="submit" class="btn btn-sm btn-warning gap-1.5">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/>
+            </svg>
+            Repor password
+          </button>
+        </form>
+      {{ /if }}
+    </div>
+  </div>
+</div>
+
+{{# Zona perigosa - pattern canónico (ADR 0025). Aqui "eliminar" é "remover
+   do condomínio": apaga as associações (admin/proprietário/inquilino) só
+   neste condomínio; o user continua a existir globalmente. #}}
+{{ include "partials/danger_zone.vto" {
+  entityName: "utilizador",
+  entityLabel: target.name,
+  actionUrl: "/admin/c/" + currentCondominiumId + "/users/" + target.id + "/delete",
+  confirmBody: "Apaga as associações de " + target.name + " neste condomínio (administrador, proprietário, inquilino). O utilizador continua a existir globalmente.",
+  currentUser,
+} }}
+
+{{ /layout }}

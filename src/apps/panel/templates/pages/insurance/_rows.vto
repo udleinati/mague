@@ -1,0 +1,440 @@
+{{# Partial: as 2 TRs de uma fração. Params: `u`, `currentCondominiumId`, `oob`.
+   Em modo oob ambas as TRs ganham hx-swap-oob; ações usam hx-post + hx-swap=none
+   e a UI atualiza-se só por este OOB swap. #}}
+{{ set _oobAttr = oob ? 'hx-swap-oob="outerHTML"' : '' }}
+
+<tr id="unit-summary-{{ u.unit.id }}"
+    class="hover:bg-base-200/30 border-t border-base-100 text-sm cursor-pointer"
+    data-policy-summary data-unit-id="{{ u.unit.id }}"
+    {{ _oobAttr }}>
+  <td class="pl-4 w-8">
+    <svg class="w-4 h-4 text-base-content/40 transition-transform" data-policy-chevron
+         fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+    </svg>
+  </td>
+  <td class="whitespace-nowrap" data-search>
+    <a href="/admin/c/{{ currentCondominiumId }}/units/{{ u.unit.id }}" class="link link-hover">
+      <span class="font-bold">{{ u.unit.designation }}</span>{{ if u.unit.identifier }}<span class="text-base-content/50 font-normal"> - {{ u.unit.identifier }}</span>{{ /if }}
+    </a>
+    {{ if !u.hasOccupantWithEmail }}
+      <span class="ml-2 inline-flex items-center gap-1 text-[10px]"
+            style="color:#854D0E">
+        <span class="inline-block w-1.5 h-1.5 rounded-full"
+              style="background-color:#854D0E"></span>
+        sem email
+      </span>
+    {{ /if }}
+  </td>
+  {{# Ocupantes ativos; view ordena owner > tenant > resident, depois nome. #}}
+  {{ set _occs = u.occupants ?? [] }}
+  {{ set _occNames = _occs.map((o) => o.name).join(", ") }}
+  <td class="text-xs text-base-content/70 max-w-[220px]" data-search>
+    {{ if _occs.length === 0 }}
+      <span class="text-base-content/30">-</span>
+    {{ else }}
+      <div class="truncate" title="{{ _occNames }}">{{ _occNames }}</div>
+    {{ /if }}
+  </td>
+  <td>
+    {{# Estado da FRAÇÃO (voz `unit`, masculino). Label e tom vêm do presenter -
+       ver `libs/insurance_status.ts`. #}}
+    {{ include "partials/status_badge.vto" { ...insuranceStatusBadge(u.aggregate, "unit"), size: "xs" } }}
+    {{ if u.policies && u.policies.length > 1 }}
+      <div class="text-[10px] text-base-content/50 mt-0.5">
+        {{ String(u.policies.length) }} apólices ·
+        {{ if u.counts.active }}{{ String(u.counts.active) }} ativa{{ if u.counts.active > 1 }}s{{ /if }}{{ /if }}
+        {{ if u.counts.pending_review }}{{ if u.counts.active }}, {{ /if }}{{ String(u.counts.pending_review) }} pendente{{ if u.counts.pending_review > 1 }}s{{ /if }}{{ /if }}
+        {{ if u.counts.rejected }}{{ if u.counts.active || u.counts.pending_review }}, {{ /if }}{{ String(u.counts.rejected) }} rejeitada{{ if u.counts.rejected > 1 }}s{{ /if }}{{ /if }}
+        {{ if u.counts.superseded }}{{ if u.counts.active || u.counts.pending_review || u.counts.rejected }}, {{ /if }}{{ String(u.counts.superseded) }} substituída{{ if u.counts.superseded > 1 }}s{{ /if }}{{ /if }}
+      </div>
+    {{ /if }}
+  </td>
+  <td class="tabular-nums whitespace-nowrap">
+    {{ if u.status.policy && u.status.policy.validTo }}
+      {{ u.status.policy.validTo |> formatDate }}
+    {{ else }}
+      <span class="text-base-content/30">-</span>
+    {{ /if }}
+  </td>
+  <td id="reminder-cell-{{ u.unit.id }}">
+    {{ if u.lastReminderAt }}
+      <span class="text-xs text-base-content/60">{{ u.lastReminderAt |> formatDate }}</span>
+      {{ if u.inCooldown }}
+        {{# Badge cooldown (ADR 0032): botão "lembrar" desativado; API devolve 422
+           COOLDOWN_ACTIVE se forçado. #}}
+        {{ set _left = u.cooldownUntil |> formatRemaining }}
+        <span class="tooltip tooltip-quick tooltip-left cursor-help ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-warning/10 text-warning"
+              data-tip="{{ if _left }}{{ _left }} - {{ /if }}reenvio a partir de {{ u.cooldownUntil |> formatDateTime }}">
+          em cooldown
+        </span>
+      {{ /if }}
+    {{ else if !u.lastRenewalEvidenceAt }}
+      <span class="text-base-content/30">-</span>
+    {{ /if }}
+    {{# Família de trigger própria (A8): o pedido de comprovativo da renovação
+       tem cooldown separado e não desativa o botão "Lembrar". #}}
+    {{ if u.lastRenewalEvidenceAt }}
+      <div class="text-[10px] text-base-content/50"
+           title="Pedido do comprovativo da renovação - conta noutro cooldown, não bloqueia o lembrete de seguro em falta">
+        comprovativo pedido {{ u.lastRenewalEvidenceAt |> formatDate }}
+      </div>
+    {{ /if }}
+  </td>
+  <td class="pr-4 text-right whitespace-nowrap">
+    <div class="inline-flex items-center justify-end gap-3">
+    {{# "Atualizar" sem entrar na fração: a ação vem do domínio (`unitUpdateAction`)
+       e abre o mesmo modal do detalhe; "Rever" só abre a linha de detalhe. #}}
+    {{ set _update = u.updateAction ?? null }}
+    {{ if _update && _update.kind === "review" }}
+      <button type="button" class="btn btn-xs btn-outline"
+              data-policy-expand data-unit-id="{{ u.unit.id }}"
+              title="Há uma apólice por rever - abre o detalhe">Rever</button>
+    {{ else if _update && _update.kind === "renew" }}
+      {{ set _renewEntry = (u.policies ?? []).find((e) => e.policy && e.policy.id === _update.policyId) }}
+      {{ if _renewEntry }}
+        <button type="button" class="btn btn-xs btn-outline"
+                data-renew-policy
+                data-renew-url="{{ ('/insurances/' + _renewEntry.policy.id + '/renew') |> condoPath }}"
+                data-valid-from="{{ _renewEntry.renewFrom ?? _renewEntry.policy.validTo }}"
+                data-valid-to="{{ _renewEntry.renewTo ?? '' }}"
+                data-policy-number="{{ _renewEntry.policy.policyNumber ?? '' }}"
+                data-insurer="{{ _renewEntry.policy.insurer ?? '' }}"
+                data-coverage-cents="{{ _renewEntry.policy.coverageAmountCents ?? '' }}"
+                title="Renovar com o documento entregue à administração">Atualizar</button>
+      {{ /if }}
+    {{ else if _update && _update.kind === "register" }}
+      <button type="button" class="btn btn-xs btn-outline"
+              data-create-policy
+              data-create-url="{{ ('/insurances/units/' + u.unit.id) |> condoPath }}"
+              data-unit-designation="{{ u.unit.designation }}"
+              title="Registar a apólice entregue à administração">Atualizar</button>
+    {{ /if }}
+    {{# `reminderTrigger` vem do domínio (`reminderTriggerFor`): null = nada a
+       pedir; "renewal_evidence" = a fração está coberta, falta o documento. #}}
+    {{ if u.reminderTrigger }}
+      {{ set _isEvidence = u.reminderTrigger === "renewal_evidence" }}
+      {{# Wrapper inline-flex items-center: centra o "ver" (link com ícone) e o
+         botão de envio na mesma linha, como no billing (Ver + Enviar). #}}
+      <div class="inline-flex items-center justify-end gap-3">
+        {{# "ver" = olho; abre o email num modal/iframe (mesma janela do billing).
+           Desativado sem occupant com email - igual ao "lembrar". #}}
+        <button type="button"
+                class="inline-flex items-center gap-1 link link-primary text-xs disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed"
+                onclick="openInsurancePreview('{{ ('/insurances/reminders/' + u.unit.id + '/preview') |> condoPath }}')"
+                {{ if !u.hasOccupantWithEmail }}disabled title="Esta fração não tem occupant com email"{{ else }}title="Ver email"{{ /if }}>
+          <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+          </svg>
+          Ver
+        </button>
+        {{# Botão (não link): igual ao "Enviar" do billing - btn btn-xs btn-primary.
+           daisyUI trata o estado disabled (sem email / em cooldown). #}}
+        <button type="button"
+                class="btn btn-xs btn-primary"
+                hx-post="{{ ('/insurances/reminders/' + u.unit.id) |> condoPath }}"
+                hx-swap="none"
+                hx-confirm="Email vai para todos os occupants ativos com email registado."
+                data-confirm-title="{{ if _isEvidence }}Pedir o comprovativo da renovação?{{ else }}Enviar lembrete?{{ /if }}"
+                data-confirm-body="{{ if _isEvidence }}A fração está coberta pela renovação; o email pede o documento que ainda falta.{{ else }}Email vai para todos os occupants ativos com email registado.{{ /if }}"
+                data-confirm-ok="Enviar"
+                {{ if !u.hasOccupantWithEmail }}disabled title="Esta fração não tem occupant com email"{{ else if u.inCooldown }}disabled{{ /if }}>
+          {{ if _isEvidence }}Pedir comprovativo{{ else }}Lembrar{{ /if }}
+        </button>
+      </div>
+    {{ /if }}
+    </div>
+  </td>
+</tr>
+<tr id="unit-detail-{{ u.unit.id }}"
+    class="hidden bg-base-200/20 border-t border-base-200"
+    data-policy-detail data-unit-id="{{ u.unit.id }}"
+    {{ _oobAttr }}>
+  <td colspan="7" class="px-4 py-5">
+    {{ if !u.policies || u.policies.length === 0 }}
+      <p class="text-sm text-base-content/50 italic">
+        Sem apólice submetida para esta fração.
+      </p>
+    {{ else }}
+      <div class="space-y-4">
+      {{ for policyEntry of u.policies }}
+        {{ set _policy = policyEntry.policy }}
+        {{ set _statusKind = policyEntry.kind }}
+        {{ set _approveUrl = ('/insurances/' + _policy.id + '/approve') |> condoPath }}
+        {{ set _rejectUrl  = ('/insurances/' + _policy.id + '/reject')  |> condoPath }}
+        {{ set _renewUrl   = ('/insurances/' + _policy.id + '/renew')   |> condoPath }}
+        {{ set _undoUrl    = ('/insurances/' + _policy.id + '/undo-renewal') |> condoPath }}
+        {{ set _reopenUrl  = ('/insurances/' + _policy.id + '/reopen')  |> condoPath }}
+        {{ set _deleteUrl  = ('/insurances/' + _policy.id + '/delete')  |> condoPath }}
+        {{# `id` ancora a linhagem: o link "renovação de" do sucessor salta para
+           o cartão do predecessor, que está nesta mesma linha expandida. #}}
+        <div id="policy-{{ _policy.id }}" class="rounded-box border border-base-200 bg-base-100 p-4">
+          <div class="flex items-start justify-between gap-3 mb-3 flex-wrap">
+            <div class="flex items-center gap-2 flex-wrap">
+              {{# Estado da APÓLICE (voz `policy`, feminino) - ver
+                 `libs/insurance_status.ts`. O sufixo de dias fica cá fora: é
+                 dado da apólice, não parte do estado. #}}
+              {{ include "partials/status_badge.vto" { ...insuranceStatusBadge(_statusKind, "policy"), size: "xs", variant: "pill" } }}
+              {{ if _statusKind === "active" || _statusKind === "expiring_soon" }}
+                <span class="text-xs text-base-content/40">{{ String(policyEntry.daysUntilExpiry) }}d</span>
+              {{ else if _statusKind === "expired" }}
+                <span class="text-xs text-base-content/40">há {{ String(policyEntry.daysOverdue) }}d</span>
+              {{ else if _statusKind === "superseded" }}
+                <span class="text-xs text-base-content/40">por nova vigência</span>
+              {{ /if }}
+              {{# Presumida sem comprovativo: a idade vem do domínio
+                 (`presumedEvidenceGap`) e agrava o badge ao fim da tolerância. #}}
+              {{ if _policy.presumedEvidence }}
+                {{ if _policy.presumedEvidence.overdue }}
+                  <span class="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-error/10 text-error"
+                        title="Renovação sem comprovativo há demasiado tempo. Pede o documento ao condómino.">
+                    presumida há {{ String(_policy.presumedEvidence.days) }}d
+                  </span>
+                {{ else }}
+                  <span class="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100"
+                        style="color:#854D0E"
+                        title="Apólice criada por renovação, ainda sem comprovativo.">
+                    presumida há {{ String(_policy.presumedEvidence.days) }}d
+                  </span>
+                {{ /if }}
+              {{ /if }}
+              {{# Documento entregue à administração fora do portal (ADR 0016).
+                 Lê `adminDocumented` do read-model - o template não
+                 recompõe a regra a partir de evidenceSource + nº de anexos. #}}
+              {{ if _policy.adminDocumented }}
+                <span class="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-info/10 text-info"
+                      title="Documento entregue à administração pela fração, fora do portal. Não é o comprovativo que a fração submete no portal.">
+                  documento da administração
+                </span>
+              {{ /if }}
+            </div>
+
+            {{# Ações da apólice: hx-post + hx-swap=none, atualizam via OOB. #}}
+            <div class="flex items-center gap-2 flex-wrap">
+              {{# `hx-confirm` dispara `htmx:confirm` (hook do modal); é só fallback,
+                 o modal lê `data-confirm-body` primeiro. #}}
+              {{# Editar só em pending_review (ADR 0016 + ADR 0019). #}}
+              {{ if _policy.can.edit }}
+                <button type="button" class="btn btn-xs btn-ghost"
+                        data-edit-policy
+                        data-policy-id="{{ _policy.id }}"
+                        data-valid-from="{{ _policy.validFrom }}"
+                        data-valid-to="{{ _policy.validTo }}"
+                        data-policy-number="{{ _policy.policyNumber ?? '' }}"
+                        data-insurer="{{ _policy.insurer ?? '' }}"
+                        data-coverage-cents="{{ _policy.coverageAmountCents ?? '' }}">
+                  editar
+                </button>
+              {{ /if }}
+              {{ if _statusKind === "awaiting_approval" }}
+                <form method="post" action="{{ _approveUrl }}"
+                      hx-post="{{ _approveUrl }}" hx-swap="none"
+                      hx-confirm="A apólice fica ativa."
+                      class="inline"
+                      data-confirm-title="Aprovar apólice?"
+                      data-confirm-body="A apólice fica ativa.">
+                  <button type="submit"
+                          class="btn btn-xs text-white bg-emerald-700 hover:bg-emerald-800 border-none">
+                    aprovar
+                  </button>
+                </form>
+                <form method="post" action="{{ _rejectUrl }}"
+                      hx-post="{{ _rejectUrl }}" hx-swap="none"
+                      hx-confirm="Rejeitar apólice"
+                      class="inline"
+                      data-confirm-title="Rejeitar apólice?"
+                      data-confirm-body="Indica a razão para o condómino saber porquê."
+                      data-confirm-prompt="reason"
+                      data-confirm-prompt-label="Razão da rejeição"
+                      data-confirm-prompt-placeholder="Escreve aqui ou escolhe uma opção acima…"
+                      data-confirm-prompt-options="Apólice vencida|Apólice não corresponde à fração|PDF ilegível ou incompleto|Dados inconsistentes com o condomínio"
+                      data-confirm-danger="true"
+                      data-confirm-ok="Rejeitar">
+                  <button type="submit" class="btn btn-xs btn-ghost text-error">rejeitar</button>
+                </form>
+              {{ /if }}
+              {{# Renovar: gate `canRenew` do domínio (ADR 0040). Abre o modal em
+                 vez de submeter - é lá que se decide se há documento e com que
+                 vigência, com o papel à frente (ADR 0019). #}}
+              {{ if _policy.can.renew }}
+                <button type="button" class="btn btn-xs btn-primary"
+                        data-renew-policy
+                        data-renew-url="{{ _renewUrl }}"
+                        data-valid-from="{{ policyEntry.renewFrom ?? _policy.validTo }}"
+                        data-valid-to="{{ policyEntry.renewTo ?? '' }}"
+                        data-policy-number="{{ _policy.policyNumber ?? '' }}"
+                        data-insurer="{{ _policy.insurer ?? '' }}"
+                        data-coverage-cents="{{ _policy.coverageAmountCents ?? '' }}">
+                  renovar
+                </button>
+              {{ /if }}
+              {{# Desfazer a renovação: só enquanto a presumida não tem comprovativo
+                 (gate `canUndoRenewal`). Devolve a apólice anterior a ativa. #}}
+              {{ if _policy.can.undoRenewal }}
+                <form method="post" action="{{ _undoUrl }}"
+                      hx-post="{{ _undoUrl }}" hx-swap="none"
+                      hx-confirm="Desfazer a renovação"
+                      class="inline"
+                      data-confirm-title="Desfazer a renovação?"
+                      data-confirm-body="Apaga esta renovação presumida e devolve a apólice anterior a ativa. Só é possível enquanto não houver comprovativo anexado."
+                      data-confirm-ok="Desfazer">
+                  <button type="submit" class="btn btn-xs btn-ghost">desfazer renovação</button>
+                </form>
+              {{ /if }}
+              {{# Reabrir → pending_review: recovery quando admin aprovou/rejeitou com erro. #}}
+              {{ if _policy.can.reopen }}
+                <form method="post" action="{{ _reopenUrl }}"
+                      hx-post="{{ _reopenUrl }}" hx-swap="none"
+                      hx-confirm="Reabrir apólice"
+                      class="inline"
+                      data-confirm-title="Reabrir apólice?"
+                      data-confirm-body="Volta a apólice para 'aguarda aprovação'. {{ if _statusKind === 'rejected_only' }}Limpa a rejeição. {{ else }}Limpa a aprovação anterior - a fração deixa de contar como coberta até nova aprovação. {{ /if }}O condómino pode então corrigir os dados via portal."
+                      data-confirm-ok="Reabrir">
+                  <button type="submit" class="btn btn-xs btn-ghost">reabrir</button>
+                </form>
+              {{ /if }}
+              {{# Eliminar (ADR 0025: palavra canónica ELIMINAR). Gate
+                 `canDeletePolicy`: cobertura viva saudável exige rejeitar primeiro. #}}
+              {{ if _policy.can.delete }}
+                <form method="post" action="{{ _deleteUrl }}"
+                      hx-post="{{ _deleteUrl }}" hx-swap="none"
+                      hx-confirm="Eliminar apólice"
+                      class="inline"
+                      data-confirm-title="Eliminar apólice?"
+                      data-confirm-body="Apaga os ficheiros e a submissão. Não é reversível."
+                      data-confirm-danger="true"
+                      data-confirm-typed-match="ELIMINAR">
+                  <button type="submit" class="btn btn-xs btn-ghost text-error">eliminar</button>
+                </form>
+              {{ /if }}
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-[1fr_minmax(0,360px)] gap-6">
+            <div>
+              <div class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                <div>
+                  <div class="text-[10px] uppercase tracking-wider text-base-content/50">Início</div>
+                  <div class="font-medium tabular-nums mt-0.5">{{ _policy.validFrom |> formatDate }}</div>
+                </div>
+                <div>
+                  <div class="text-[10px] uppercase tracking-wider text-base-content/50">Fim</div>
+                  <div class="font-medium tabular-nums mt-0.5">{{ _policy.validTo |> formatDate }}</div>
+                </div>
+                <div>
+                  <div class="text-[10px] uppercase tracking-wider text-base-content/50">Nº apólice</div>
+                  <div class="font-medium mt-0.5 break-all">
+                    {{ if _policy.policyNumber }}{{ _policy.policyNumber }}{{ else }}<span class="text-base-content/40 italic">-</span>{{ /if }}
+                  </div>
+                </div>
+                <div>
+                  <div class="text-[10px] uppercase tracking-wider text-base-content/50">Seguradora</div>
+                  <div class="font-medium mt-0.5">
+                    {{ if _policy.insurer }}{{ _policy.insurer }}{{ else }}<span class="text-base-content/40 italic">-</span>{{ /if }}
+                  </div>
+                </div>
+                {{# Capital: display-only; edição no modal (ADR 0016 + ADR 0019). #}}
+                <div>
+                  <div class="text-[10px] uppercase tracking-wider text-base-content/50">Capital segurado</div>
+                  <div class="font-medium tabular-nums mt-0.5">
+                    {{ if _policy.coverageAmountCents }}
+                      {{ _policy.coverageAmountCents |> formatMoney }}
+                    {{ else }}
+                      <span class="text-base-content/40 italic">-</span>
+                    {{ /if }}
+                  </div>
+                </div>
+                <div>
+                  <div class="text-[10px] uppercase tracking-wider text-base-content/50">Submetida em</div>
+                  <div class="font-medium tabular-nums mt-0.5">{{ _policy.createdAt |> formatDate }}</div>
+                </div>
+                {{# Linhagem (ADR 0040): de onde veio esta vigência. O dado já era
+                   gravado e projetado; faltava aparecer em algum lado. #}}
+                {{ if _policy.renewedFrom }}
+                  <div class="col-span-2">
+                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">Renovação de</div>
+                    <div class="font-medium mt-0.5">
+                      <a href="#policy-{{ _policy.renewedFrom.id }}" class="link link-hover">
+                        {{ if _policy.renewedFrom.policyNumber }}{{ _policy.renewedFrom.policyNumber }}{{ else }}apólice anterior{{ /if }}
+                      </a>
+                      <span class="text-base-content/50 tabular-nums text-xs">
+                        ({{ _policy.renewedFrom.validFrom |> formatDate }} - {{ _policy.renewedFrom.validTo |> formatDate }})
+                      </span>
+                    </div>
+                  </div>
+                {{ /if }}
+                {{ if _policy.confirmedAt || _policy.approvedAt || _policy.rejectedAt || _policy.presumedAt }}
+                  <div class="col-span-2 mt-1 text-[11px] text-base-content/60 flex flex-wrap gap-x-3 gap-y-1">
+                    {{ if _policy.confirmedAt }}<span>condómino confirmou {{ _policy.confirmedAt |> formatDate }}</span>{{ /if }}
+                    {{ if _policy.approvedAt }}<span>· admin aprovou {{ _policy.approvedAt |> formatDate }}</span>{{ /if }}
+                    {{ if _policy.rejectedAt }}<span class="text-error">· rejeitada {{ _policy.rejectedAt |> formatDate }}</span>{{ /if }}
+                    {{ if _policy.presumedAt }}<span style="color:#854D0E">· presumida desde {{ _policy.presumedAt |> formatDate }}</span>{{ /if }}
+                  </div>
+                {{ /if }}
+                {{ if _policy.rejectedReason }}
+                  <div class="col-span-2 mt-1 p-2 rounded-lg bg-error/5 border border-error/20 text-xs">
+                    <strong class="text-error/80">Razão da rejeição:</strong>
+                    <span class="text-base-content/80">{{ _policy.rejectedReason }}</span>
+                  </div>
+                {{ /if }}
+              </div>
+            </div>
+
+            <div>
+              <div class="text-[10px] uppercase font-bold text-base-content/50 tracking-wider mb-2">
+                Ficheiros ({{ String((_policy.attachments && _policy.attachments.length) || 0) }})
+              </div>
+              {{ set _attachments = _policy.attachments || [] }}
+              {{ if _attachments.length === 0 }}
+                <div class="rounded-box border border-dashed border-base-300 p-4 text-center text-xs text-base-content/50 italic">
+                  Sem ficheiros.
+                </div>
+              {{ /if }}
+              <div class="space-y-2">
+                {{ for att of _attachments }}
+                  {{ set _attUrl = ('/insurances/' + _policy.id + '/attachments/' + att.id) |> condoPath }}
+                  {{ set _attIsImage = att.mimeType === "image/jpeg" || att.mimeType === "image/png" || att.mimeType === "image/webp" || att.mimeType === "image/heic" }}
+                  <a href="{{ _attUrl }}" target="_blank" rel="noopener"
+                     class="flex items-center gap-2 p-2 rounded-box border border-base-200 bg-base-100 hover:bg-base-200/40">
+                    {{ if _attIsImage }}
+                      <div class="w-10 h-10 flex items-center justify-center rounded flex-shrink-0 bg-info/10 text-info text-[10px] font-bold">IMG</div>
+                    {{ else if att.mimeType === "application/pdf" }}
+                      <div class="w-10 h-10 flex items-center justify-center rounded flex-shrink-0 bg-error/10 text-error text-[10px] font-bold">PDF</div>
+                    {{ else }}
+                      <div class="w-10 h-10 flex items-center justify-center rounded flex-shrink-0 bg-base-200 text-base-content/40">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                      </div>
+                    {{ /if }}
+                    <div class="flex-1 min-w-0">
+                      <div class="text-xs font-medium truncate">{{ att.filename }}</div>
+                      <div class="text-[10px] text-base-content/40">{{ att.mimeType }}</div>
+                    </div>
+                    <span class="link link-primary text-xs flex-shrink-0">abrir ↗</span>
+                  </a>
+                {{ /for }}
+              </div>
+            </div>
+          </div>
+        </div>
+      {{ /for }}
+      </div>
+    {{ /if }}
+    {{# Registar de raiz o documento entregue à administração (D6: ficheiro
+       obrigatório). Só sem nada renovável nem por rever (`unitUpdateAction`) -
+       havendo apólice renovável, o caminho é renovar, que preserva a linhagem. #}}
+    {{ if u.updateAction && u.updateAction.kind === "register" }}
+      <div class="mt-4">
+        <button type="button" class="btn btn-xs btn-primary"
+                data-create-policy
+                data-create-url="{{ ('/insurances/units/' + u.unit.id) |> condoPath }}"
+                data-unit-designation="{{ u.unit.designation }}">
+          registar apólice
+        </button>
+        <span class="ml-2 text-[11px] text-base-content/50">
+          Documento entregue à administração fora do portal.
+        </span>
+      </div>
+    {{ /if }}
+  </td>
+</tr>

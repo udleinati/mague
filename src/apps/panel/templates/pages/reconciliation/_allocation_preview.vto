@@ -1,0 +1,66 @@
+{{# Preview (dry-run) da imputação automática por fração. Fonte: previewAllocation
+   na API (mesmo algoritmo do execute). `>` verde = quita total, amarelo = parcial,
+   sem marca = não tocada. Ver controllers/reconciliation.ts renderAllocationPreview. #}}
+{{ set typeLabels = {
+  quota: "Ordinária",
+  extraordinary_quota: "Extraordinária",
+  interest: "Juros",
+  refacturation: "Refaturação",
+  credit_balance: "Crédito",
+} }}
+{{ set toSettle = preview.charges.filter((c) => c.amountToSettle > 0) }}
+{{ set totalSettle = toSettle.reduce((s, c) => s + c.amountToSettle, 0) }}
+
+<div class="text-base-content/60 font-medium mb-1.5 flex flex-wrap items-baseline gap-x-2">
+  <span>Vai quitar {{ String(toSettle.length) }} cobrança(s)</span>
+  {{ if toSettle.length > 0 }}
+    <span class="text-base-content/40">·</span>
+    <span class="tabular-nums font-semibold text-base-content/80">{{ totalSettle |> formatMoney }}</span>
+  {{ /if }}
+  <span class="text-base-content/40 text-[10px]">(&gt; verde = total, amarelo = parcial)</span>
+</div>
+
+{{ if preview.charges.length === 0 }}
+  <p class="text-base-content/50 italic">
+    Sem cobranças elegíveis nesta fração para o filtro escolhido.
+    {{ if preview.remaining > 0 }}
+      Todo o valor ({{ preview.remaining |> formatMoney }}) fica em crédito à fração.
+    {{ /if }}
+  </p>
+{{ else }}
+  <ul class="space-y-1">
+    {{ for c of preview.charges }}
+      {{ set isFull = c.fill === "full" }}
+      {{ set isPartial = c.fill === "partial" }}
+      {{ set rowCls = isFull
+        ? "bg-success/15 border border-success/30"
+        : isPartial
+        ? "bg-warning/15 border border-warning/30"
+        : "border border-transparent" }}
+      {{ set chevronCls = isFull
+        ? "text-success"
+        : isPartial
+        ? "text-warning"
+        : "text-transparent" }}
+      <li class="flex flex-wrap items-baseline gap-x-2 px-2 py-1 rounded {{ rowCls }}">
+        <span class="font-bold {{ chevronCls }}" aria-hidden="true">&gt;</span>
+        <span class="font-mono text-[11px] tabular-nums text-base-content/70">{{ c.competencePeriod |> formatMonth }}</span>
+        <span class="text-[10px] uppercase tracking-wide text-base-content/50">{{ typeLabels[c.chargeType] ?? c.chargeType }}</span>
+        <span class="text-base-content/80 truncate flex-1">{{ c.description ?? "-" }}</span>
+        <span class="text-base-content/50">aberto:</span>
+        <span class="tabular-nums font-semibold">{{ c.openAmount |> formatMoney }}</span>
+        {{ if c.amountToSettle > 0 }}
+          <span class="tabular-nums font-bold {{ isFull ? 'text-success' : 'text-warning' }}">
+            {{ isFull ? "quita" : "parcial" }} {{ c.amountToSettle |> formatMoney }}
+          </span>
+        {{ /if }}
+      </li>
+    {{ /for }}
+  </ul>
+{{ /if }}
+
+{{ if preview.surplus > 0 && preview.charges.length > 0 }}
+  <div class="mt-2 pt-2 border-t border-base-200 text-[11px] text-info">
+    Excedente {{ preview.surplus |> formatMoney }} vai para crédito à fração.
+  </div>
+{{ /if }}

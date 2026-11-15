@@ -1,0 +1,20 @@
+{{# OOB swap: substitui a cell de ação da linha de pendentes pelo estado
+   "○ Ignorada · razão" com link "retomar". Mesmo padrão de
+   `_pending_action_emitted.vto`. #}}
+<td id="pending-action-{{ bankTransactionId }}-{{ unitId }}"
+    hx-swap-oob="outerHTML"
+    class="pr-4 text-right whitespace-nowrap">
+  <div class="inline-flex items-center gap-3">
+    <span class="inline-flex items-center gap-1.5 text-xs text-base-content/60">
+      <span class="inline-block w-1.5 h-1.5 rounded-full bg-base-content/40"></span> Ignorada{{ if reason }} <span class="text-base-content/40 italic">· {{ reason }}</span>{{ /if }}
+    </span>
+    <button type="button" class="link text-xs text-primary hover:underline"
+            hx-post="/admin/c/{{ currentCondominiumId }}/receipts/unskip"
+            hx-vals='{"bankTransactionId": "{{ bankTransactionId }}", "unitId": "{{ unitId }}"}'
+            hx-target="#pending-action-{{ bankTransactionId }}-{{ unitId }}"
+            hx-swap="none"
+            title="Retomar - volta a estar disponível para emitir">
+      retomar
+    </button>
+  </div>
+</td>

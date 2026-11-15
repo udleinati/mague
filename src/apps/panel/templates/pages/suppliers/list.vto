@@ -1,0 +1,333 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{ set withContact = suppliers.filter((s) => s.contactName || s.contactEmail).length }}
+
+{{ layout "partials/page_header.vto" { title: "Fornecedores" } }}
+  <button type="button" class="btn btn-sm btn-primary" onclick="openSupplierModal('create')">
+    + Novo fornecedor
+  </button>
+{{ /layout }}
+
+<div class="grid grid-cols-2 gap-3 sm:gap-4 mb-6">
+  {{ include "partials/kpi_card.vto" {
+    tone: "primary", label: "Fornecedores", value: String(suppliers.length), caption: "registados"
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "info", label: "Com contacto", value: String(withContact), caption: "email/telefone"
+  } }}
+</div>
+
+{{ layout "partials/table_card.vto" { title: "Lista de fornecedores", count: suppliers.length, searchable: true } }}
+  <table class="table table-sm">
+    <thead>
+      <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+        <th class="pl-4">Nome</th>
+        <th>NIF</th>
+        <th class="pr-4 text-right">Ações</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ if suppliers.length === 0 }}
+        <tr><td colspan="3" class="p-8 text-center text-base-content/50">Sem fornecedores.</td></tr>
+      {{ else }}
+        {{ for s of suppliers }}
+          <tr class="hover:bg-base-200/30 border-t border-base-100 text-sm align-top">
+            <td class="pl-4 pt-3 font-bold" data-search>{{ s.name }}</td>
+            <td class="pt-3 text-base-content/70" data-search>{{ s.nif ?? "-" }}</td>
+            <td class="pr-4 pt-2 text-right">
+              {{# Dados do fornecedor no wrapper - Ver/Editar leem-nos via closest. #}}
+              <div class="inline-flex items-center gap-4"
+                   data-supplier-actions
+                   data-supplier-id="{{ s.id }}"
+                   data-name="{{ s.name ?? '' }}"
+                   data-nif="{{ s.nif ?? '' }}"
+                   data-contact-name="{{ s.contactName ?? '' }}"
+                   data-contact-email="{{ s.contactEmail ?? '' }}"
+                   data-contact-phone="{{ s.contactPhone ?? '' }}"
+                   data-notes="{{ s.notes ?? '' }}"
+                   data-match-keywords="{{ JSON.stringify(s.matchKeywords ?? []) }}">
+                {{# Botões seguem o padrão visual do ADR 0022 (SVG + label). #}}
+                {{# Ver = link-primary (mesmo estilo do kind:"view" em action_link.vto). #}}
+                <button type="button"
+                        class="inline-flex items-center gap-1 link link-primary text-xs"
+                        title="Ver fornecedor"
+                        onclick="openSupplierViewModal(this.closest('[data-supplier-actions]'))">
+                  <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                  </svg>
+                  Ver
+                </button>
+                <button type="button"
+                        class="inline-flex items-center gap-1 link link-hover text-xs text-base-content/70 hover:text-base-content"
+                        title="Editar fornecedor"
+                        onclick="openSupplierModal('edit', this.closest('[data-supplier-actions]'))">
+                  <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/>
+                  </svg>
+                  Editar
+                </button>
+                <form method="post" action="/admin/c/{{ currentCondominiumId }}/suppliers/{{ s.id }}/delete" class="inline"
+                      data-confirm-title="Apagar fornecedor?"
+                      data-confirm-body="Queres mesmo apagar este fornecedor? As charges e despesas recorrentes associadas mantêm-se."
+                      data-confirm-ok="Apagar"
+                      data-confirm-danger="true">
+                  {{ include "partials/action_link.vto" { kind: "delete", asButton: true } }}
+                </form>
+              </div>
+            </td>
+          </tr>
+        {{ /for }}
+      {{ /if }}
+    </tbody>
+  </table>
+{{ /layout }}
+
+{{# ═════════ MODAL: Ver fornecedor (read-only) ═════════ #}}
+{{# Espelha o layout do modal de editar, mas só imprime os valores. #}}
+<dialog id="modal_supplier_view" class="modal">
+  <div class="modal-box max-w-2xl">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-lg mb-4 pr-8" id="modal_supplier_view_title">Fornecedor</h3>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-x-3 gap-y-4">
+      <div class="md:col-span-2">
+        <div class="label-text text-xs text-base-content/50 mb-1">Nome</div>
+        <div class="text-sm font-medium" id="view_name">-</div>
+      </div>
+      <div>
+        <div class="label-text text-xs text-base-content/50 mb-1">NIF</div>
+        <div class="text-sm" id="view_nif">-</div>
+      </div>
+      <div>
+        <div class="label-text text-xs text-base-content/50 mb-1">Contacto</div>
+        <div class="text-sm" id="view_contactName">-</div>
+      </div>
+      <div>
+        <div class="label-text text-xs text-base-content/50 mb-1">Email</div>
+        <div class="text-sm" id="view_contactEmail">-</div>
+      </div>
+      <div>
+        <div class="label-text text-xs text-base-content/50 mb-1">Telefone</div>
+        <div class="text-sm" id="view_contactPhone">-</div>
+      </div>
+      <div class="md:col-span-3">
+        <div class="label-text text-xs text-base-content/50 mb-1">Notas</div>
+        <div class="text-sm text-base-content/80 whitespace-pre-line leading-relaxed" id="view_notes">-</div>
+      </div>
+      <div class="md:col-span-3">
+        <div class="label-text text-xs text-base-content/50 mb-1">Palavras-chave para match automático</div>
+        <div class="flex flex-wrap gap-2 min-h-[24px]" id="view_keywords"></div>
+      </div>
+    </div>
+    <div class="mt-5 flex justify-end gap-2 pt-3 border-t border-base-200">
+      <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('modal_supplier_view').close()">Fechar</button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<script>
+  window.openSupplierViewModal = function (el) {
+    function set(id, val) {
+      document.getElementById(id).textContent = (val && val.trim()) ? val : "-";
+    }
+    var name = el.getAttribute("data-name") || "";
+    document.getElementById("modal_supplier_view_title").textContent = name || "Fornecedor";
+    set("view_name", name);
+    set("view_nif", el.getAttribute("data-nif"));
+    set("view_contactName", el.getAttribute("data-contact-name"));
+    set("view_contactEmail", el.getAttribute("data-contact-email"));
+    set("view_contactPhone", el.getAttribute("data-contact-phone"));
+    set("view_notes", el.getAttribute("data-notes"));
+
+    var kwWrap = document.getElementById("view_keywords");
+    kwWrap.innerHTML = "";
+    var kws = [];
+    try { var p = JSON.parse(el.getAttribute("data-match-keywords") || "[]"); if (Array.isArray(p)) kws = p; } catch (_) {}
+    if (!kws.length) {
+      var empty = document.createElement("span");
+      empty.className = "text-xs text-base-content/40 italic";
+      empty.textContent = "Sem palavras-chave.";
+      kwWrap.appendChild(empty);
+    } else {
+      kws.forEach(function (v) {
+        var span = document.createElement("span");
+        span.className = "inline-flex items-center px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium";
+        span.textContent = v;
+        kwWrap.appendChild(span);
+      });
+    }
+    document.getElementById("modal_supplier_view").showModal();
+  };
+</script>
+
+{{# ═════════ MODAL: Novo / Editar fornecedor ═════════ #}}
+{{# Um modal partilhado - o JS alterna action + pre-fill conforme o modo. #}}
+<dialog id="modal_supplier" class="modal">
+  <div class="modal-box max-w-2xl">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-lg mb-4" id="modal_supplier_title">Novo fornecedor</h3>
+    <form method="post" id="supplier_form" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div class="form-control md:col-span-2">
+        <label class="label py-1"><span class="label-text text-xs">Nome</span></label>
+        <input type="text" id="sup_name" name="name" class="input input-sm input-bordered" required>
+      </div>
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text text-xs">NIF</span></label>
+        <input type="text" id="sup_nif" name="nif" class="input input-sm input-bordered">
+      </div>
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text text-xs">Contacto</span></label>
+        <input type="text" id="sup_contactName" name="contactName" class="input input-sm input-bordered">
+      </div>
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text text-xs">Email</span></label>
+        <input type="email" id="sup_contactEmail" name="contactEmail" class="input input-sm input-bordered">
+      </div>
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text text-xs">Telefone</span></label>
+        <input type="text" id="sup_contactPhone" name="contactPhone" class="input input-sm input-bordered">
+      </div>
+      <div class="form-control md:col-span-3">
+        <label class="label py-1"><span class="label-text text-xs">Notas</span></label>
+        <textarea id="sup_notes" name="notes" rows="2" class="textarea textarea-bordered textarea-sm"></textarea>
+      </div>
+      {{# ─── Palavras-chave para match na conciliação ─── #}}
+      <div class="form-control md:col-span-3" data-sup-kw-card>
+        <label class="label py-1">
+          <span class="label-text text-xs">Palavras-chave para match automático</span>
+          <span class="label-text-alt text-[10px] text-base-content/50">match sem acentos, case-insensitive</span>
+        </label>
+        <div class="flex flex-wrap gap-2 min-h-[32px] mb-2" data-sup-kw-list>
+          <span data-sup-kw-empty class="text-xs text-base-content/40 italic py-1">
+            Sem palavras-chave.
+          </span>
+        </div>
+        <div class="flex gap-2">
+          <input type="text" data-sup-kw-input autocomplete="off"
+                 placeholder="Ex: ELETRICIDADE EDP"
+                 class="input input-sm input-bordered flex-1"
+                 maxlength="100">
+          <button type="button" data-sup-kw-add class="btn btn-sm btn-outline">+ Adicionar</button>
+        </div>
+        <input type="hidden" name="matchKeywords" id="sup_match_keywords" value="[]">
+      </div>
+      <div class="md:col-span-3 mt-2 flex justify-end gap-2 pt-2 border-t border-base-200">
+        <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('modal_supplier').close()">Cancelar</button>
+        <button type="submit" class="btn btn-sm btn-primary" id="supplier_submit">Adicionar fornecedor</button>
+      </div>
+    </form>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<script>
+  (function () {
+    var condoPrefix = "/admin/c/{{ currentCondominiumId }}/suppliers";
+    var modal = document.getElementById("modal_supplier");
+    var form = document.getElementById("supplier_form");
+    var title = document.getElementById("modal_supplier_title");
+    var submit = document.getElementById("supplier_submit");
+
+    // ── UI de tags para matchKeywords (partilhada por create/edit) ───────────
+    var kwCard = form.querySelector("[data-sup-kw-card]");
+    var kwList = kwCard.querySelector("[data-sup-kw-list]");
+    var kwEmpty = kwCard.querySelector("[data-sup-kw-empty]");
+    var kwInput = kwCard.querySelector("[data-sup-kw-input]");
+    var kwAdd  = kwCard.querySelector("[data-sup-kw-add]");
+    var kwHidden = document.getElementById("sup_match_keywords");
+
+    function kwRead() {
+      return Array.from(kwList.querySelectorAll("[data-sup-kw-tag]"))
+        .map(function (el) { return el.getAttribute("data-sup-kw-value") || ""; });
+    }
+    function kwSync() {
+      var list = kwRead();
+      kwHidden.value = JSON.stringify(list);
+      kwEmpty.classList.toggle("hidden", list.length > 0);
+    }
+    function kwMake(value) {
+      var span = document.createElement("span");
+      span.className = "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium";
+      span.setAttribute("data-sup-kw-tag", "");
+      span.setAttribute("data-sup-kw-value", value);
+      var text = document.createElement("span");
+      text.textContent = value;
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "text-primary/60 hover:text-error font-bold leading-none";
+      btn.setAttribute("data-sup-kw-remove", "");
+      btn.setAttribute("aria-label", "Remover");
+      btn.textContent = "×";
+      span.appendChild(text);
+      span.appendChild(btn);
+      return span;
+    }
+    function kwAddFromInput() {
+      var v = (kwInput.value || "").trim();
+      if (!v) return;
+      var existing = kwRead().map(function (x) { return x.toLowerCase(); });
+      if (existing.indexOf(v.toLowerCase()) < 0) {
+        kwList.insertBefore(kwMake(v), kwEmpty);
+      }
+      kwInput.value = "";
+      kwInput.focus();
+      kwSync();
+    }
+    function kwReset(initial) {
+      // Remove todas as tags mas preserva o span "vazio".
+      Array.from(kwList.querySelectorAll("[data-sup-kw-tag]")).forEach(function (el) { el.remove(); });
+      (initial || []).forEach(function (v) { kwList.insertBefore(kwMake(v), kwEmpty); });
+      kwSync();
+    }
+    kwAdd.addEventListener("click", kwAddFromInput);
+    kwInput.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); kwAddFromInput(); }
+    });
+    kwList.addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-sup-kw-remove]");
+      if (!btn) return;
+      var tag = btn.closest("[data-sup-kw-tag]");
+      if (tag) tag.remove();
+      kwSync();
+    });
+    form.addEventListener("submit", kwSync);
+
+    window.openSupplierModal = function (modeOrBtn, btn) {
+      // Suporta duas assinaturas:
+      //   openSupplierModal('create')       ← botão "+ Novo fornecedor"
+      //   openSupplierModal('edit', btn)    ← botão "Editar" da linha
+      //   openSupplierModal(btn)            ← back-compat (implica 'edit')
+      var mode, el;
+      if (modeOrBtn === "create") { mode = "create"; }
+      else if (modeOrBtn === "edit") { mode = "edit"; el = btn; }
+      else { mode = "edit"; el = modeOrBtn; }
+
+      form.reset();
+
+      if (mode === "create") {
+        title.textContent = "Novo fornecedor";
+        submit.textContent = "Adicionar fornecedor";
+        form.action = condoPrefix;
+        kwReset([]);
+      } else {
+        title.textContent = "Editar fornecedor";
+        submit.textContent = "Guardar alterações";
+        form.action = condoPrefix + "/" + el.getAttribute("data-supplier-id") + "/update";
+        document.getElementById("sup_name").value = el.getAttribute("data-name") || "";
+        document.getElementById("sup_nif").value = el.getAttribute("data-nif") || "";
+        document.getElementById("sup_contactName").value = el.getAttribute("data-contact-name") || "";
+        document.getElementById("sup_contactEmail").value = el.getAttribute("data-contact-email") || "";
+        document.getElementById("sup_contactPhone").value = el.getAttribute("data-contact-phone") || "";
+        document.getElementById("sup_notes").value = el.getAttribute("data-notes") || "";
+        var kwJson = el.getAttribute("data-match-keywords") || "[]";
+        var kws = [];
+        try { var p = JSON.parse(kwJson); if (Array.isArray(p)) kws = p; } catch (_) {}
+        kwReset(kws);
+      }
+      modal.showModal();
+    };
+  })();
+</script>
+
+{{ /layout }}

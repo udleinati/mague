@@ -1,0 +1,377 @@
+{{ layout "layouts/portal.vto" { title, section, condominium, unit, currentUser, currentPortalUnitId, currentCondominiumId } }}
+
+{{ set typeLabels = {
+  quota: "Quota",
+  extraordinary_quota: "Quota extraordinária",
+  interest: "Juros",
+  refacturation: "Refaturação",
+  credit_balance: "Crédito",
+  supplier_service: "Serviço",
+  opening_balance_debit: "Saldo anterior"
+} }}
+{{# Cutoff de conciliação - driver da decisão "vencida" em todos os
+   componentes que mostram per-charge status. Sem cutoff, nada é
+   "vencida" (consistente com o KPI "Em atraso" que fica zerado). #}}
+{{ set cutoff = condominium.reconciledThroughDate ?? null }}
+
+{{# Apólice precisa de ação do utilizador? `awaiting_approval` está pendente
+   do admin, não conta; os outros estados não-active precisam de algo do condómino. #}}
+{{ set insurancePending = insuranceStatus && insuranceStatus.kind !== "active"
+  && insuranceStatus.kind !== "awaiting_approval" }}
+
+{{# Banner NIF em falta - o NIF vive em occupant
+   (per-condo). `currentPortalOccupant.nif` vem do ALS via render.ts. #}}
+{{ if currentPortalOccupant && !currentPortalOccupant.nif }}
+  <div class="mb-4 rounded-lg bg-warning/10 border border-warning/30 px-4 py-3 flex items-center gap-3">
+    <span class="text-warning text-lg leading-none">⚠</span>
+    <div class="flex-1 text-sm font-semibold text-base-content">O teu NIF está em falta</div>
+    <button type="button" class="btn btn-xs btn-warning shrink-0"
+            onclick="document.getElementById('modal_set_nif').showModal()">Preencher</button>
+  </div>
+{{ /if }}
+
+{{# ─── Saudação + estado financeiro destacado (hero) ─────────────────────
+   Frase única "estás bem" / "tens X em dívida". Cor pelo netCents. #}}
+<div class="mb-6">
+  <p class="text-sm sm:text-base text-base-content/60">Olá, <strong class="text-base-content/90">{{ greetingName }}</strong></p>
+  <h1 class="text-2xl sm:text-3xl md:text-4xl font-black mt-1 mb-3 leading-tight break-words">
+    {{# Hierarquia: atraso > apólice > crédito > tudo em dia. Nunca dizer "tudo
+       em dia" com apólice pendente (confundia o utilizador). #}}
+    {{ if stats.overdueCents > 0 && insurancePending }}
+      Tens <span class="text-error">{{ stats.overdueCents |> formatMoney }}</span> em atraso · falta a apólice
+    {{ else if stats.overdueCents > 0 }}
+      Tens <span class="text-error">{{ stats.overdueCents |> formatMoney }}</span> em atraso
+    {{ else if insurancePending }}
+      Pagamentos em dia <span class="text-base-content/40">·</span> <span style="color:#854D0E">falta a apólice</span>
+    {{ else if stats.creditCents > 0 }}
+      Estás em dia · <span class="text-info">{{ stats.creditCents |> formatMoney }} de crédito</span>
+    {{ else }}
+      Tudo em dia <span class="text-success">✓</span>
+    {{ /if }}
+  </h1>
+  {{ if stats.overdueCents > 0 }}
+    <p class="text-sm text-base-content/60">
+      Há cobranças vencidas que ainda não foram pagas. Vê a lista abaixo.
+    </p>
+  {{ else if stats.futureDebtCents > 0 }}
+    <p class="text-sm text-base-content/60">
+      Tens <strong>{{ stats.futureDebtCents |> formatMoney }}</strong> em quotas lançadas a vencer no futuro próximo.
+    </p>
+  {{ /if }}
+  {{# Cutoff de conciliação - até quando o admin processou pagamentos (senão um pagamento recente parece "perdido"). #}}
+  {{ if condominium.reconciledThroughDate }}
+    <p class="text-xs text-base-content/50 mt-2 inline-flex items-center gap-1.5">
+      <svg class="w-3.5 h-3.5 opacity-60" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm.75-13a.75.75 0 00-1.5 0v5c0 .2.08.39.22.53l3 3a.75.75 0 101.06-1.06L10.75 9.69V5z" clip-rule="evenodd"/></svg>
+      Conciliação efetuada até <strong class="text-base-content/70">{{ condominium.reconciledThroughDate |> formatDate }}</strong> · pagamentos posteriores podem ainda não estar visíveis
+    </p>
+  {{ /if }}
+</div>
+
+{{# ─── Seguro de habitação (promovido para o topo, após o hero) ──────────
+   Só quando há ação (`insurancePending`); `awaiting_approval` não aparece aqui.
+   Título em `text-base-content` (legível em ambos os temas); a intenção (warning/error/info) fica no ícone/borda/fundo/botão. #}}
+{{ if insuranceStatus && insuranceStatus.kind !== "active" }}
+  {{ set _uploadHref = "/portal/c/" + currentCondominiumId + "/u/" + currentPortalUnitId + "/insurances/upload" }}
+  {{ set _confirmHref = "/portal/c/" + currentCondominiumId + "/u/" + currentPortalUnitId + "/insurances/" + (insuranceStatus.policy ? insuranceStatus.policy.id : "") + "/confirm" }}
+  {{ if insuranceStatus.kind === "expiring_soon" }}
+    <div class="mb-6 rounded-xl border border-warning/40 bg-warning/10 px-5 py-4">
+      <div class="flex items-start gap-3">
+        <span class="text-warning text-xl leading-none mt-0.5">⚠</span>
+        <div class="flex-1 min-w-0">
+          <div class="text-base font-bold text-base-content">Seguro a expirar em {{ String(insuranceStatus.daysUntilExpiry) }} dias</div>
+          <div class="text-sm text-base-content/70 mt-0.5">Cobertura termina a {{ insuranceStatus.policy.validTo |> formatDate }}. Submete a renovação antes da expiração.</div>
+          <div class="mt-3">
+            <a href="{{ _uploadHref }}" class="btn btn-sm btn-warning">Submeter renovação</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  {{ else if insuranceStatus.kind === "expired" }}
+    <div class="mb-6 rounded-xl border border-error/40 bg-error/10 px-5 py-4">
+      <div class="flex items-start gap-3">
+        <span class="text-error text-xl leading-none mt-0.5">⚠</span>
+        <div class="flex-1 min-w-0">
+          <div class="text-base font-bold text-base-content">Seguro vencido há {{ String(insuranceStatus.daysOverdue) }} dias</div>
+          <div class="text-sm text-base-content/70 mt-0.5">A fração pode estar sem cobertura. Submete uma apólice nova quanto antes.</div>
+          <div class="mt-3">
+            <a href="{{ _uploadHref }}" class="btn btn-sm btn-error">Submeter apólice</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  {{ else if insuranceStatus.kind === "awaiting_confirmation" }}
+    <div class="mb-6 rounded-xl border border-info/40 bg-info/10 px-5 py-4">
+      <div class="flex items-start gap-3">
+        <span class="text-info text-xl leading-none mt-0.5">●</span>
+        <div class="flex-1 min-w-0">
+          <div class="text-base font-bold text-base-content">Apólice por confirmar</div>
+          <div class="text-sm text-base-content/70 mt-0.5">Já fizeste o upload do PDF - falta confirmar os dados.</div>
+          <div class="mt-3">
+            <a href="{{ _confirmHref }}" class="btn btn-sm btn-info">Confirmar dados</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  {{ else if insuranceStatus.kind === "awaiting_approval" }}
+    <div class="mb-6 rounded-xl border border-info/30 bg-info/5 px-5 py-4">
+      <div class="flex items-start gap-3">
+        <span class="text-info text-xl leading-none mt-0.5">●</span>
+        <div class="flex-1 min-w-0">
+          <div class="text-base font-bold text-base-content">Apólice em revisão pela administração</div>
+          <div class="text-sm text-base-content/70 mt-0.5">Recebes confirmação assim que for aprovada.</div>
+        </div>
+      </div>
+    </div>
+  {{ else if insuranceStatus.kind === "rejected_only" }}
+    <div class="mb-6 rounded-xl border border-error/40 bg-error/10 px-5 py-4">
+      <div class="flex items-start gap-3">
+        <span class="text-error text-xl leading-none mt-0.5">⚠</span>
+        <div class="flex-1 min-w-0">
+          <div class="text-base font-bold text-base-content">Última apólice rejeitada</div>
+          {{ if insuranceStatus.policy.rejectedReason }}
+            <div class="text-sm text-base-content/70 mt-0.5">Razão: <em>{{ insuranceStatus.policy.rejectedReason }}</em></div>
+          {{ /if }}
+          <div class="mt-3">
+            <a href="{{ _uploadHref }}" class="btn btn-sm btn-error">Submeter nova apólice</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  {{ else }}
+    {{# never_submitted - alerta para submissão. #}}
+    <div class="mb-6 rounded-xl border border-warning/40 bg-warning/10 px-5 py-4">
+      <div class="flex items-start gap-3">
+        <span class="text-warning text-xl leading-none mt-0.5">⚠</span>
+        <div class="flex-1 min-w-0">
+          <div class="text-base font-bold text-base-content">Sem apólice de seguro registada</div>
+          <div class="text-sm text-base-content/70 mt-0.5">Para garantir cobertura submete o PDF da apólice multirriscos da fração.</div>
+          <div class="mt-3">
+            <a href="{{ _uploadHref }}" class="btn btn-sm btn-warning">Submeter apólice</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  {{ /if }}
+{{ /if }}
+
+{{# ─── Próxima assembleia ──────────────────────────────────────────────── #}}
+{{ if upcomingAssembly }}
+  {{ set _daysToAssembly = Math.ceil((Date.parse(upcomingAssembly.scheduledAt) - Date.parse(today)) / 86400000) }}
+  <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/assemblies"
+     class="block mb-6 bg-gradient-to-br from-primary/10 to-primary/5 rounded-xl border border-primary/30 p-5 sm:p-6 hover:border-primary/50 hover:shadow-md transition-shadow no-underline">
+    <div class="flex items-start justify-between gap-4">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-baseline gap-2 flex-wrap">
+          <span class="text-xs uppercase font-bold text-primary tracking-wider">Próxima assembleia</span>
+          {{ if _daysToAssembly === 0 }}
+            <span class="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-primary text-primary-content">Hoje</span>
+          {{ else if _daysToAssembly === 1 }}
+            <span class="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-primary text-primary-content">Amanhã</span>
+          {{ else if _daysToAssembly > 0 && _daysToAssembly <= 7 }}
+            <span class="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-primary/20 text-primary">em {{ String(_daysToAssembly) }} dias</span>
+          {{ /if }}
+        </div>
+        <div class="text-2xl sm:text-3xl font-black mt-2">
+          {{ upcomingAssembly.scheduledAt |> formatDate }}
+        </div>
+        <div class="text-sm text-base-content/70 mt-1">
+          {{ if upcomingAssembly.type === "ordinary" }}Assembleia ordinária{{ else }}Assembleia extraordinária{{ /if }}
+          {{ if upcomingAssembly.location }} · {{ upcomingAssembly.location }}{{ /if }}
+        </div>
+      </div>
+      <div class="flex flex-col items-end gap-2 shrink-0">
+        <span class="text-3xl sm:text-4xl">📅</span>
+        <span class="text-xs text-primary font-medium hidden sm:inline">Ver detalhes →</span>
+      </div>
+    </div>
+  </a>
+{{ /if }}
+
+{{# ─── KPIs ────────────────────────────────────────────────────────────
+   Mobile: 2 cols (3.º faz col-span-2); md+: 3 cols. Fontes responsivas para valores grandes não cortarem. #}}
+<div class="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4 mb-8">
+  <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-4 sm:p-5
+              {{ if stats.overdueCents > 0 }}ring-1 ring-error/40{{ /if }}">
+    <div class="text-[10px] sm:text-xs uppercase font-bold tracking-wider {{ if stats.overdueCents > 0 }}text-error/80{{ else }}text-base-content/40{{ /if }}">Em atraso</div>
+    <div class="text-xl sm:text-2xl xl:text-3xl font-black mt-2 tabular-nums whitespace-nowrap {{ if stats.overdueCents > 0 }}text-error/90{{ else }}text-base-content/30{{ /if }}">
+      {{ stats.overdueCents |> formatMoney }}
+    </div>
+    <div class="text-[10px] sm:text-xs text-base-content/50 mt-1">
+      {{ if stats.overdueCents > 0 }}cobranças vencidas{{ else }}sem atrasos{{ /if }}
+    </div>
+  </div>
+
+  <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-4 sm:p-5">
+    {{# Futuras em emerald (não success) - quotas dentro do prazo são "OK mas com peso". #}}
+    <div class="text-[10px] sm:text-xs uppercase font-bold text-emerald-500 tracking-wider">Futuras</div>
+    <div class="text-xl sm:text-2xl xl:text-3xl font-black mt-2 tabular-nums whitespace-nowrap {{ if stats.futureDebtCents > 0 }}text-emerald-500{{ else }}text-base-content/30{{ /if }}">
+      {{ stats.futureDebtCents |> formatMoney }}
+    </div>
+    <div class="text-[10px] sm:text-xs text-base-content/50 mt-1">a vencer ainda dentro do prazo</div>
+  </div>
+
+  {{# Crédito disponível - em mobile ocupa linha inteira (col-span-2). #}}
+  <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-4 sm:p-5 col-span-2 md:col-span-1">
+    <div class="text-[10px] sm:text-xs uppercase font-bold text-info/80 tracking-wider">Crédito</div>
+    <div class="text-xl sm:text-2xl xl:text-3xl font-black mt-2 tabular-nums whitespace-nowrap {{ if stats.creditCents > 0 }}text-info/90{{ else }}text-base-content/30{{ /if }}">
+      {{ stats.creditCents |> formatMoney }}
+    </div>
+    <div class="text-[10px] sm:text-xs text-base-content/50 mt-1">disponível na sua conta</div>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+  {{# ─── Próximas cobranças ──────────────────────────────────────────── #}}
+  <section class="bg-base-100 rounded-xl border border-base-200 shadow-sm overflow-hidden">
+    <div class="px-5 py-3 border-b border-base-200 flex items-center justify-between">
+      <h2 class="text-sm font-bold">Próximas cobranças</h2>
+      <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/charges" class="text-xs text-primary hover:underline">ver todas →</a>
+    </div>
+    {{ if upcomingCharges.length === 0 }}
+      <div class="p-8 text-center text-sm text-base-content/50">
+        Sem cobranças em aberto. <span class="text-success">Tudo em dia ✓</span>
+      </div>
+    {{ else }}
+      <ul class="divide-y divide-base-200">
+        {{ for c of upcomingCharges }}
+          <li class="px-5 py-3 flex items-center justify-between gap-3">
+            <div class="min-w-0 flex-1">
+              <div class="text-sm font-medium truncate" title="{{ c.description }}">{{ c.description }}</div>
+              <div class="text-xs text-base-content/50 mt-0.5 flex items-center gap-2 flex-wrap">
+                {{ if c.competencePeriod }}<span>{{ c.competencePeriod |> formatMonth }}</span>{{ /if }}
+                {{ if c.dueDate }}<span class="text-base-content/40">·</span><span>venc. {{ c.dueDate |> formatDate }}</span>{{ /if }}
+                {{# "Vencida" usa o cutoff (igual à view + lista cobranças); #}}
+                {{# "Parcial" continua a vir do status DB (foi registado um pagamento parcial). #}}
+                {{ set _isOverdue = (c.status !== "paid")
+                                   && (c.status !== "cancelled")
+                                   && (Number(c.openAmount ?? 0) > 0)
+                                   && c.dueDate
+                                   && cutoff
+                                   && c.dueDate <= cutoff }}
+                {{ if _isOverdue }}
+                  <span class="text-base-content/40">·</span>
+                  <span class="inline-flex items-center gap-1 text-error/80 font-semibold">
+                    <span class="inline-block w-1.5 h-1.5 rounded-full bg-error"></span> Vencida
+                  </span>
+                {{ else if c.status === "partial" }}
+                  <span class="text-base-content/40">·</span>
+                  <span class="inline-flex items-center gap-1 text-info font-semibold">
+                    <span class="inline-block w-1.5 h-1.5 rounded-full bg-info"></span> Parcial
+                  </span>
+                {{ /if }}
+              </div>
+            </div>
+            <div class="text-right tabular-nums">
+              <div class="text-sm font-bold">{{ c.openAmount |> formatMoney }}</div>
+              {{ if c.openAmount !== c.originalAmount }}
+                <div class="text-[10px] text-base-content/40">de {{ c.originalAmount |> formatMoney }}</div>
+              {{ /if }}
+            </div>
+          </li>
+        {{ /for }}
+      </ul>
+    {{ /if }}
+  </section>
+
+  {{# ─── Últimos pagamentos ──────────────────────────────────────────────
+     Agrupado por transação bancária (1 linha = 1 movimento). Total é
+     `totalAllocated` (o que tocou esta fração), não `bankAmount` da tx -
+     em pagamentos partilhados divergem. Limit 10 (ver portal.ts). #}}
+  <section class="bg-base-100 rounded-xl border border-base-200 shadow-sm overflow-hidden">
+    <div class="px-5 py-3 border-b border-base-200">
+      <h2 class="text-sm font-bold">Últimos pagamentos</h2>
+    </div>
+    {{ if recentBankPayments.length === 0 }}
+      <div class="p-8 text-center text-sm text-base-content/50">
+        Ainda sem pagamentos registados.
+      </div>
+    {{ else }}
+      {{# max-h + overflow-y-auto: scroll dentro do card, não empurra o dashboard. #}}
+      <div class="max-h-[28rem] sm:max-h-[34rem] overflow-y-auto">
+        <ul class="divide-y divide-base-200">
+          {{ for bk of recentBankPayments }}
+            <li class="px-5 py-3 flex items-baseline justify-between gap-3">
+              <div class="flex items-baseline gap-2 min-w-0 flex-1">
+                <span class="text-sm font-semibold tabular-nums whitespace-nowrap shrink-0">{{ bk.transactionDate |> formatDate }}</span>
+                {{ if bk.description }}
+                  <span class="text-xs text-base-content/60 truncate min-w-0" title="{{ bk.description }}">{{ bk.description }}</span>
+                {{ /if }}
+              </div>
+              <div class="text-sm font-bold tabular-nums text-success/80 whitespace-nowrap shrink-0">
+                {{ bk.totalAllocated |> formatMoney }}
+              </div>
+            </li>
+          {{ /for }}
+        </ul>
+      </div>
+      {{# Footer com CTA para o extrato - até 10 cabem aqui, o resto está em /extrato. #}}
+      <div class="px-5 py-2.5 border-t border-base-200 bg-base-200/30">
+        <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/statement"
+           class="text-xs text-primary hover:underline font-medium inline-flex items-center gap-1">
+          Ver extrato completo
+          <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M7.05 4.95a.75.75 0 011.06 0l4.5 4.5a.75.75 0 010 1.06l-4.5 4.5a.75.75 0 11-1.06-1.06L11.0 10 7.05 6.06a.75.75 0 010-1.06z" clip-rule="evenodd"/></svg>
+        </a>
+      </div>
+    {{ /if }}
+  </section>
+</div>
+
+{{# ─── Inspeções obrigatórias visíveis ao condómino ─────────────────────
+   Inspeções marcadas como `is_required` pelo admin. #}}
+{{ if requiredInspections.length > 0 }}
+  {{ set _categoryLabels = {
+    fire_extinguisher: "Extintores",
+    fire_detection: "Detecção de incêndio",
+    elevator: "Elevador",
+    gas: "Gás",
+    electricity: "Instalação elétrica",
+    lightning_rod: "Pára-raios",
+    hvac: "AVAC",
+    pool: "Piscina",
+    antenna: "Antena",
+    other: "Outros"
+  } }}
+  <section class="mb-8 bg-base-100 rounded-xl border border-base-200 shadow-sm overflow-hidden">
+    <div class="px-5 py-3 border-b border-base-200">
+      <h2 class="text-sm font-bold">Inspeções do condomínio</h2>
+      <p class="text-xs text-base-content/60 mt-0.5">
+        Inspeções obrigatórias acompanhadas pela administração.
+      </p>
+    </div>
+    <ul class="divide-y divide-base-200">
+      {{ for ins of requiredInspections }}
+        <li class="px-5 py-3 flex items-center justify-between gap-3">
+          <div class="min-w-0 flex-1">
+            <div class="text-sm font-medium">
+              <span class="text-xs uppercase tracking-wider text-base-content/50 font-semibold mr-2">
+                {{ _categoryLabels[ins.category] ?? ins.category }}
+              </span>
+              {{ ins.description }}
+            </div>
+            <div class="text-xs text-base-content/50 mt-0.5">
+              Próxima inspeção: <strong class="text-base-content/70 tabular-nums">{{ ins.validUntil |> formatDate }}</strong>
+              {{ if ins.lastDoneDate }} · última {{ ins.lastDoneDate |> formatDate }}{{ /if }}
+            </div>
+          </div>
+          <div class="shrink-0">
+            {{ if ins.status === "ok" }}
+              <span class="inline-flex items-center gap-1.5 text-xs font-medium text-success">
+                <span class="inline-block w-1.5 h-1.5 rounded-full bg-success"></span>Em dia
+              </span>
+            {{ else if ins.status === "due_soon" }}
+              <span class="inline-flex items-center gap-1.5 text-xs font-medium text-warning">
+                <span class="inline-block w-1.5 h-1.5 rounded-full bg-warning"></span>A vencer
+              </span>
+            {{ else if ins.status === "expired" }}
+              <span class="inline-flex items-center gap-1.5 text-xs font-medium text-error">
+                <span class="inline-block w-1.5 h-1.5 rounded-full bg-error"></span>Vencida
+              </span>
+            {{ /if }}
+          </div>
+        </li>
+      {{ /for }}
+    </ul>
+  </section>
+{{ /if }}
+
+{{ /layout }}

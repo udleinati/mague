@@ -1,0 +1,67 @@
+# Override file que limita os recursos do Postgres para SIMULAR uma BD lenta.
+# Útil para identificar queries que parecem rápidas em dev (com a tua máquina
+# bem dimensionada) mas que se tornam gargalos em produção mais modesta.
+#
+# Uso:
+#   # Activar (CPU lenta + pouca RAM):
+#   docker compose -f docker-compose.yml -f docker-compose.slow-db.yml up -d
+#
+#   # Voltar ao normal (sem limites):
+#   docker compose down && docker compose up -d
+#
+# O ficheiro principal (docker-compose.yml) fica intocado e o git não
+# regista mudanças no ambiente "normal".
+#
+# Configuração actual: 0.25 CPU + 64MB RAM. Isto é o EXTREMO - estamos a
+# correr Postgres num "Raspberry Pi de pobre". A `shared_buffers` default
+# é 128MB, pelo que sem o override do `command:` abaixo o container nem
+# arranca. Tudo o que tocar disco vai sentir-se imediatamente.
+#
+# Para ajustar:
+#   cpus: '0.10'   → MUITO lento (debug extremo)
+#   cpus: '0.25'   → lento (default deste ficheiro)
+#   cpus: '0.50'   → moderado
+#   cpus: '1.00'   → 1 core inteiro
+#
+#   mem_limit: 64m   → mínimo possível com shared_buffers=16MB (este ficheiro)
+#   mem_limit: 128m  → ainda apertado, mas sem precisar de override
+#   mem_limit: 256m  → confortável; perto do default
+#
+# Notas:
+#  - `cpus` e `mem_limit` são o formato Compose "legacy" - funciona em
+#    `docker compose up` standalone (não exige swarm/k8s).
+#  - `memswap_limit` igual ao `mem_limit` desactiva swap (mais determinístico
+#    do que deixar o kernel decidir).
+#  - O `command:` override força o Postgres a arrancar com parâmetros
+#    minimalistas. Sem isto, o init do PG tenta alocar shared_buffers=128MB
+#    (default) e o container morre com OOM antes de aceitar conexões.
+
+services:
+  db:
+    cpus: "0.25"
+    mem_limit: 64m
+    memswap_limit: 64m
+    # Parâmetros minimalistas do Postgres para caber em 64MB de RAM:
+    #   - shared_buffers=16MB     (default 128MB) → buffer pool minúsculo
+    #   - max_connections=20      (default 100)   → menos overhead por conn
+    #   - work_mem=512kB          (default 4MB)   → sorts/hashes spillam para disco rápido
+    #   - maintenance_work_mem=8MB (default 64MB) → VACUUM/CREATE INDEX lentos
+    #   - effective_cache_size=32MB (default 4GB) → optimizer assume que tem pouca RAM
+    #   - dynamic_shared_memory_type=posix → portátil
+    # Estes valores fazem com que praticamente qualquer query que toque
+    # mais de uma página tenha de bater no disco - é exactamente o que
+    # queremos para detectar gargalos.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=16MB
+      - -c
+      - max_connections=20
+      - -c
+      - work_mem=512kB
+      - -c
+      - maintenance_work_mem=8MB
+      - -c
+      - effective_cache_size=32MB
+      - -c
+      - dynamic_shared_memory_type=posix

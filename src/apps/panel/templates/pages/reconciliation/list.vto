@@ -1,0 +1,504 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{ set reconciled = transactions.filter((t) => t.status === "reconciled").length }}
+{{ set pending = transactions.filter((t) => t.status !== "reconciled" && t.status !== "ignored").length }}
+{{ set totalIn = transactions.filter((t) => Number(t.amount) > 0).reduce((s, t) => s + Number(t.amount), 0) }}
+{{ set totalOut = transactions.filter((t) => Number(t.amount) < 0).reduce((s, t) => s + Math.abs(Number(t.amount)), 0) }}
+
+{{ layout "partials/page_header.vto" { title: "Conciliação" } }}
+  {{# A importação vive em Contas bancárias (é por conta); este CTA só lá leva. #}}
+  <a href="/admin/c/{{ currentCondominiumId }}/bank-accounts"
+     class="btn btn-sm btn-outline shrink-0"
+     title="A importação é feita por conta - abre Contas bancárias para escolher">
+    Importar extrato →
+  </a>
+{{ /layout }}
+
+{{# Cutoff de conciliação - driver da view v_unit_balance e do banner do portal.
+   Três estados: (a) em dia = linha discreta, (b) atrasado e (c) nunca definido = banner vermelho. #}}
+<div class="-mt-4 mb-6">
+    {{ if condominium.reconciledThroughDate }}
+      {{ if condominium.reconciledThroughDate < today }}
+        {{# (b) Atrasado - banner vermelho com dias decorridos. #}}
+        {{ set daysBehind = Math.floor((Date.parse(today) - Date.parse(condominium.reconciledThroughDate)) / 86400000) }}
+        <div class="mt-3 rounded-xl border-2 border-error bg-error/10 px-4 py-3 shadow-sm">
+          <div class="flex items-start gap-3">
+            <svg class="w-7 h-7 text-error shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+              <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/>
+            </svg>
+            <div class="flex-1 min-w-0">
+              <div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <span class="text-base sm:text-lg font-bold text-error">Cutoff de conciliação desatualizado</span>
+                <span class="text-xs uppercase tracking-wider font-bold text-error-content px-2 py-0.5 rounded-md bg-error">
+                  {{ String(daysBehind) }} {{ daysBehind === 1 ? "dia" : "dias" }} atrás
+                </span>
+              </div>
+              <p class="text-sm text-base-content/80 mt-1">
+                Última conciliação até <strong class="text-base-content">{{ condominium.reconciledThroughDate |> formatDate }}</strong>.
+                Avança o cutoff para hoje (<strong class="text-base-content">{{ today |> formatDate }}</strong>) depois de processares o extrato recente - caso contrário, quotas vencidas após essa data não contam como atrasadas no portal.
+              </p>
+              <div class="mt-2">
+                <button type="button" class="btn btn-sm btn-error" onclick="document.getElementById('cutoff_modal').showModal()">
+                  Atualizar cutoff agora
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      {{ else }}
+        {{# (a) Em dia - linha discreta. #}}
+        <div class="mt-2 text-sm">
+          <span class="text-base-content/60">Conciliação efetuada até</span>
+          <strong class="text-base-content/90">{{ condominium.reconciledThroughDate |> formatDate }}</strong>
+          <span class="inline-flex items-center gap-1 ml-1 text-xs text-success/80 align-middle">
+            <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.7 5.3a1 1 0 010 1.4l-7.5 7.5a1 1 0 01-1.4 0L3.3 9.7a1 1 0 011.4-1.4L8.5 12l6.8-6.8a1 1 0 011.4 0z"/></svg>
+            em dia
+          </span>
+          <button type="button" class="link link-primary text-xs ml-1" onclick="document.getElementById('cutoff_modal').showModal()">alterar</button>
+        </div>
+      {{ /if }}
+    {{ else }}
+      {{# (c) Nunca definido. Sem cutoff, v_unit_balance dá overdue_debt_cents = 0
+         para tudo: dívidas reais ficam escondidas, daí o banner vermelho. #}}
+      <div class="mt-3 rounded-xl border-2 border-error bg-error/10 px-4 py-3 shadow-sm">
+        <div class="flex items-start gap-3">
+          <svg class="w-7 h-7 text-error shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+            <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/>
+          </svg>
+          <div class="flex-1 min-w-0">
+            <div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <span class="text-base sm:text-lg font-bold text-error">Cutoff de conciliação nunca definido</span>
+              <span class="text-xs uppercase tracking-wider font-bold text-error-content px-2 py-0.5 rounded-md bg-error">
+                Atenção
+              </span>
+            </div>
+            <p class="text-sm text-base-content/80 mt-1">
+              Sem cutoff, <strong class="text-base-content">nenhuma quota é considerada atrasada</strong> - o portal dos condóminos mostra tudo "em dia" mesmo havendo dívidas reais.
+              Define o cutoff para a data até onde já processaste o extrato bancário (tipicamente <strong class="text-base-content">hoje</strong>, se acabaste de conciliar).
+            </p>
+            <div class="mt-2">
+              <button type="button" class="btn btn-sm btn-error" onclick="document.getElementById('cutoff_modal').showModal()">
+                Definir cutoff agora
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    {{ /if }}
+</div>
+
+{{# Modal cutoff. Cutoff = "fechei o extrato até esta data": aberto antes conta
+   como atrasado (via view); depois fica "futuro". #}}
+<dialog id="cutoff_modal" class="modal">
+  <div class="modal-box max-w-md">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-lg mb-2">Definir cutoff de conciliação</h3>
+    <p class="text-sm text-base-content/60 mb-4">
+      Indica a data até à qual já processaste o extrato bancário. Quotas em aberto com vencimento <strong>até esta data</strong> passam a contar como <strong>atrasadas</strong> (no portal do condómino e nos KPIs). Quotas vencidas <em>depois</em> ficam "futuras" - assumimos que o pagamento ainda pode chegar.
+    </p>
+    <form method="post" action="/admin/c/{{ currentCondominiumId }}/reconciliation/cutoff" class="space-y-3">
+      <div class="form-control">
+        <label class="label py-1" for="cutoff_date"><span class="label-text text-xs font-medium">Data</span></label>
+        <div class="flex items-center gap-2">
+          <input type="date" id="cutoff_date" name="reconciledThroughDate" class="input input-sm input-bordered"
+                 value="{{ condominium.reconciledThroughDate ?? '' }}" required>
+          <button type="button" class="btn btn-xs btn-ghost" onclick="setCutoffDate(0)">Hoje</button>
+          <button type="button" class="btn btn-xs btn-ghost" onclick="setCutoffDate(-1)">Ontem</button>
+        </div>
+      </div>
+      <div class="flex justify-between items-center pt-2 border-t border-base-200">
+        {{ if condominium.reconciledThroughDate }}
+          <button type="button" class="btn btn-xs btn-ghost text-error" onclick="document.getElementById('cutoff_clear_form').submit()">Limpar cutoff</button>
+        {{ else }}
+          <span></span>
+        {{ /if }}
+        <div class="flex gap-2">
+          <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('cutoff_modal').close()">Cancelar</button>
+          <button type="submit" class="btn btn-sm btn-primary">Guardar</button>
+        </div>
+      </div>
+    </form>
+    {{# Form auxiliar para limpar (POST data vazia + _clear). #}}
+    <form id="cutoff_clear_form" method="post" action="/admin/c/{{ currentCondominiumId }}/reconciliation/cutoff" class="hidden">
+      <input type="hidden" name="reconciledThroughDate" value="">
+      <input type="hidden" name="_clear" value="1">
+    </form>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+<script>
+  function setCutoffDate(offsetDays) {
+    var d = new Date();
+    d.setDate(d.getDate() + offsetDays);
+    var iso = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    document.getElementById("cutoff_date").value = iso;
+  }
+</script>
+  {{ set _totalInValue = totalIn |> formatMoney }}
+  {{ set _totalOutValue = totalOut |> formatMoney }}
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+  {{ include "partials/kpi_card.vto" {
+    tone: "primary", label: "Movimentos", value: String(transactions.length), caption: String(reconciled) + " conciliados"
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "warning", label: "Pendentes", value: String(pending), caption: "por conciliar", highlightValue: true
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "success", label: "Entradas", value: _totalInValue, caption: "créditos", highlightValue: true
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "error", label: "Saídas", value: _totalOutValue, caption: "débitos", highlightValue: true
+  } }}
+</div>
+
+{{# Wrapper HTMX re-renderizado pelos filtros. Ver controllers/reconciliation.ts (reconciliationFragment). #}}
+<div id="reconciliation-fragment">
+  {{ include "pages/reconciliation/_list_fragment.vto" }}
+</div>
+
+{{# Placeholder único do modal, preenchido on-demand (DOM inicial pequeno).
+   `hx-on::after-swap` corre no placeholder (target do swap), não no botão. #}}
+<div id="modal_tx_placeholder"
+     hx-on::after-swap="var d=this.querySelector('dialog');if(d){window.setupComboboxes&&window.setupComboboxes(d);d.showModal();}"></div>
+
+<script>
+(function () {
+  document.addEventListener('click', function (e) {
+    var tab = e.target.closest('[data-tx-tab]');
+    if (!tab) return;
+    e.preventDefault();
+    var txId = tab.dataset.txId;
+    var mode = tab.dataset.txTab;
+    document.querySelectorAll('[data-tx-tab][data-tx-id="' + txId + '"]').forEach(function (t) {
+      t.classList.toggle('tab-active', t === tab);
+    });
+    document.querySelectorAll('[data-tx-panel][data-tx-id="' + txId + '"]').forEach(function (p) {
+      p.classList.toggle('hidden', p.dataset.txPanel !== mode);
+    });
+  });
+
+  // Filtro da tab Manual: pode ser por fração (entradas) ou por fornecedor
+  // (saídas). Esconde rows de checkbox que não batem e desmarca as escondidas.
+  document.addEventListener('change', function (e) {
+    var filter = e.target.closest('[data-manual-filter]');
+    if (!filter) return;
+    var txId = filter.dataset.txId;
+    var value = filter.value;
+    var scope = filter.dataset.manualFilterScope; // "unit" ou "supplier"
+    var rowAttr = scope === 'supplier' ? 'supplierId' : 'unitId';
+    var list = document.querySelector('[data-manual-charge-list][data-tx-id="' + txId + '"]');
+    if (!list) return;
+    var anyVisible = false;
+    list.querySelectorAll('[data-manual-charge-row]').forEach(function (row) {
+      var ok = !value || row.dataset[rowAttr] === value;
+      row.classList.toggle('hidden', !ok);
+      if (ok) { anyVisible = true; return; }
+      var cb = row.querySelector('[data-manual-charge]');
+      if (cb) cb.checked = false;
+    });
+    var empty = list.querySelector('[data-manual-charge-empty]');
+    if (empty) empty.classList.toggle('hidden', anyVisible);
+    recomputeManualSummary(txId);
+  });
+
+  // Ao selecionar fração (tab "Fração" ou filtro da tab "Manual"), mostra a
+  // lista de ocupantes para ajudar a cruzar com o nome da transferência
+  // bancária. Usa os ocupantes serializados em `data-occupants` no <li> do
+  // combobox - sem fetch extra.
+  var relLabels = { owner: 'Proprietário', tenant: 'Inquilino', resident: 'Residente' };
+  var statusLabels = { open: 'Aberta', partial: 'Parcial', overdue: 'Vencida' };
+  var statusColors = { open: 'text-base-content/60', partial: 'text-warning', overdue: 'text-error' };
+  function escHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[c];
+    });
+  }
+  function formatCents(cents) {
+    // Formato PT "1.234,56 €" - espelha o filtro `formatMoney` do server.
+    var n = Number(cents || 0);
+    var neg = n < 0;
+    n = Math.abs(n);
+    var eur = Math.trunc(n / 100);
+    var cts = String(n % 100).padStart(2, '0');
+    var eurStr = eur.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    return (neg ? '-' : '') + eurStr + ',' + cts + ' €';
+  }
+  document.addEventListener('change', function (e) {
+    var hidden = e.target;
+    if (!hidden || !hidden.dataset || !hidden.dataset.txUnitSelect) return;
+    var kind = hidden.dataset.txUnitSelect; // "picker" ou "filter"
+    var txId = hidden.dataset.txId;
+    var block = document.querySelector('[data-tx-occupants="' + kind + '"][data-tx-id="' + txId + '"]');
+    if (!block) return;
+    var list = block.querySelector('[data-tx-occupants-list]');
+    if (!hidden.value) {
+      block.classList.add('hidden');
+      if (list) list.innerHTML = '';
+      if (kind === 'picker') refreshAllocPreview(txId);
+      return;
+    }
+    var combobox = hidden.closest('[data-combobox]');
+    var opt = combobox && combobox.querySelector('[data-combobox-option][data-id="' + hidden.value + '"]');
+    if (!opt) { block.classList.add('hidden'); return; }
+    var occupants = [];
+    try { occupants = JSON.parse(opt.dataset.occupants || '[]'); } catch (_) {}
+    block.classList.remove('hidden');
+    if (!occupants.length) {
+      list.innerHTML = '<li class="text-base-content/40 italic">sem ocupantes registados</li>';
+    } else {
+      list.innerHTML = occupants.map(function (o) {
+        var name = escHtml(o.name);
+        var email = escHtml(o.email);
+        var phone = escHtml(o.phone);
+        var rel = relLabels[o.relationshipType] || o.relationshipType;
+        var parts = ['<span class="font-semibold">' + name + '</span>',
+                     '<span class="text-base-content/50">· ' + rel + '</span>'];
+        if (email) parts.push('<span class="text-base-content/50">· ' + email + '</span>');
+        if (phone) parts.push('<span class="text-base-content/50">· ' + phone + '</span>');
+        return '<li class="flex flex-wrap items-center gap-x-2">' + parts.join('') + '</li>';
+      }).join('');
+    }
+
+    if (kind === 'picker') refreshAllocPreview(txId);
+  });
+
+  // Preview (dry-run) da imputação por fração: recalcula no servidor (algoritmo
+  // real, todas as cobranças, filtro de tipo) ao escolher fração ou mudar o
+  // filtro. htmx.ajax injeta o fragmento _allocation_preview.vto.
+  function refreshAllocPreview(txId) {
+    var container = document.getElementById('alloc-preview-' + txId);
+    if (!container) return;
+    var unitHidden = document.querySelector('[data-tx-unit-select="picker"][data-tx-id="' + txId + '"]');
+    var unitId = unitHidden ? unitHidden.value : '';
+    if (!unitId) { container.classList.add('hidden'); container.innerHTML = ''; return; }
+    var filterEl = document.querySelector('[data-alloc-filter][data-tx-id="' + txId + '"]:checked');
+    var filter = filterEl ? filterEl.value : 'all';
+    var url = '/admin/c/{{ currentCondominiumId }}/reconciliation/tx/' + encodeURIComponent(txId)
+      + '/allocation-preview?unitId=' + encodeURIComponent(unitId)
+      + '&chargeTypeFilter=' + encodeURIComponent(filter);
+    container.classList.remove('hidden');
+    if (typeof htmx !== 'undefined' && htmx.ajax) {
+      htmx.ajax('GET', url, { target: container, swap: 'innerHTML' });
+    }
+  }
+
+  // Mudar o filtro de tipo (segmentado) recarrega o preview.
+  document.addEventListener('change', function (e) {
+    var radio = e.target.closest('[data-alloc-filter]');
+    if (!radio) return;
+    refreshAllocPreview(radio.dataset.txId);
+  });
+
+  // Handler equivalente para o combobox de fornecedor (tab Fornecedor).
+  // Popula o hint de faturas pendentes (payable/debit) ao selecionar.
+  function formatDatePt(iso) {
+    if (!iso || iso.length < 10) return '-';
+    return iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(0, 4);
+  }
+  document.addEventListener('change', function (e) {
+    var hidden = e.target;
+    if (!hidden || !hidden.dataset || !hidden.dataset.txSupplierSelect) return;
+    var kind = hidden.dataset.txSupplierSelect; // "picker"
+    var txId = hidden.dataset.txId;
+    var chBlock = document.querySelector('[data-tx-supplier-charges="' + kind + '"][data-tx-id="' + txId + '"]');
+    if (!chBlock) return;
+    var chList = chBlock.querySelector('[data-tx-supplier-charges-list]');
+    if (!hidden.value) {
+      chBlock.classList.add('hidden');
+      if (chList) chList.innerHTML = '';
+      return;
+    }
+    var combobox = hidden.closest('[data-combobox]');
+    var opt = combobox && combobox.querySelector('[data-combobox-option][data-id="' + hidden.value + '"]');
+    if (!opt) { chBlock.classList.add('hidden'); return; }
+    var charges = [];
+    try { charges = JSON.parse(opt.dataset.openCharges || '[]'); } catch (_) {}
+    chBlock.classList.remove('hidden');
+    if (!charges.length) {
+      chList.innerHTML = '<li class="text-success italic">Sem faturas em aberto - este fornecedor está em dia.</li>';
+      return;
+    }
+    var txAmount = Math.abs(Number(chBlock.dataset.txAmount || 0));
+    chList.innerHTML = charges.map(function (c) {
+      var date = escHtml(formatDatePt(c.dueDate || c.issueDate));
+      var desc = escHtml(c.description || '');
+      var statusKey = c.status || 'open';
+      var statusLabel = statusLabels[statusKey] || statusKey;
+      var statusColor = statusColors[statusKey] || 'text-base-content/60';
+      var matches = Number(c.openAmount) === txAmount;
+      var rowCls = matches
+        ? 'flex flex-wrap items-baseline gap-x-2 px-2 py-1 rounded bg-success/15 border border-success/30'
+        : 'flex flex-wrap items-baseline gap-x-2';
+      return '<li class="' + rowCls + '">'
+        + '<span class="font-mono text-[11px] tabular-nums text-base-content/70">' + date + '</span>'
+        + '<span class="text-[10px] uppercase tracking-wide ' + statusColor + '">' + statusLabel + '</span>'
+        + '<span class="text-base-content/80 truncate flex-1">' + desc + '</span>'
+        + '<span class="text-base-content/50">aberto:</span>'
+        + '<span class="tabular-nums font-semibold">' + escHtml(formatCents(c.openAmount)) + '</span>'
+        + (c.openAmount !== c.originalAmount
+            ? '<span class="text-[10px] text-base-content/40">de ' + escHtml(formatCents(c.originalAmount)) + '</span>'
+            : '')
+        + (matches ? '<span class="text-[10px] font-bold uppercase text-success ml-1">✓ bate</span>' : '')
+        + '</li>';
+    }).join('');
+  });
+
+  // ── Tab "Devolução fornecedor" ───────────────────────────────────────────
+  // Ao escolher fornecedor no combobox da tab Devolução, pinta a lista das
+  // despesas recentes desse fornecedor (não só as em aberto - também pagas e
+  // parciais, para o admin identificar o pagamento original). Cada <li> é
+  // clicável e: 1) regista a charge id no <input name="sourceChargeId">; 2)
+  // pré-preenche a descrição se ainda estiver vazia.
+  document.addEventListener('change', function (e) {
+    var hidden = e.target;
+    if (!hidden || !hidden.dataset || !hidden.dataset.txRefundSupplier) return;
+    var txId = hidden.dataset.txId;
+    var chBlock = document.querySelector('[data-tx-refund-charges="picker"][data-tx-id="' + txId + '"]');
+    if (!chBlock) return;
+    var chList = chBlock.querySelector('[data-tx-refund-charges-list]');
+    var sourceField = document.querySelector('[data-tx-refund-source="picker"][data-tx-id="' + txId + '"]');
+    if (sourceField) sourceField.value = '';
+    if (!hidden.value) {
+      chBlock.classList.add('hidden');
+      if (chList) chList.innerHTML = '';
+      return;
+    }
+    var combobox = hidden.closest('[data-combobox]');
+    var opt = combobox && combobox.querySelector('[data-combobox-option][data-id="' + hidden.value + '"]');
+    if (!opt) { chBlock.classList.add('hidden'); return; }
+    var charges = [];
+    try { charges = JSON.parse(opt.dataset.recentPayables || '[]'); } catch (_) {}
+    chBlock.classList.remove('hidden');
+    if (!charges.length) {
+      chList.innerHTML = '<li class="text-base-content/50 italic">Sem despesas recentes deste fornecedor.</li>';
+      return;
+    }
+    chList.innerHTML = charges.map(function (c) {
+      var date = escHtml(formatDatePt(c.issueDate || c.dueDate));
+      var desc = escHtml(c.description || '');
+      var statusKey = c.status || 'open';
+      // Status labels para devoluções (inclui 'paid' que não está no map de cima).
+      var refundStatusLabels = { open: 'Aberta', partial: 'Parcial', overdue: 'Vencida', paid: 'Paga' };
+      var refundStatusColors = { open: 'text-base-content/60', partial: 'text-warning', overdue: 'text-error', paid: 'text-success' };
+      var statusLabel = refundStatusLabels[statusKey] || statusKey;
+      var statusColor = refundStatusColors[statusKey] || 'text-base-content/60';
+      return '<li data-charge-id="' + escHtml(c.id) + '" '
+        + 'data-charge-desc="' + escHtml(c.description || '') + '" '
+        + 'class="flex flex-wrap items-baseline gap-x-2 px-2 py-1 rounded hover:bg-base-200 cursor-pointer">'
+        + '<span class="font-mono text-[11px] tabular-nums text-base-content/70">' + date + '</span>'
+        + '<span class="text-[10px] uppercase tracking-wide ' + statusColor + '">' + statusLabel + '</span>'
+        + '<span class="text-base-content/80 truncate flex-1">' + desc + '</span>'
+        + '<span class="tabular-nums font-semibold">' + escHtml(formatCents(c.originalAmount)) + '</span>'
+        + '</li>';
+    }).join('');
+  });
+
+  // Click na <li> da lista de despesas recentes - seleciona a sourceChargeId
+  // + pré-preenche descrição quando ainda estiver vazia.
+  document.addEventListener('click', function (e) {
+    var li = e.target.closest('[data-tx-refund-charges-list] li[data-charge-id]');
+    if (!li) return;
+    var block = li.closest('[data-tx-refund-charges]');
+    if (!block) return;
+    var txId = block.dataset.txId;
+    var sourceField = document.querySelector('[data-tx-refund-source="picker"][data-tx-id="' + txId + '"]');
+    if (sourceField) sourceField.value = li.dataset.chargeId || '';
+    var descField = document.querySelector('[data-tx-refund-description][data-tx-id="' + txId + '"]');
+    if (descField && !descField.value) {
+      descField.value = 'Devolução: ' + (li.dataset.chargeDesc || '');
+    }
+    // Highlight visual do row escolhido.
+    block.querySelectorAll('li[data-charge-id]').forEach(function (other) {
+      other.classList.toggle('bg-primary/10', other === li);
+      other.classList.toggle('border', other === li);
+      other.classList.toggle('border-primary/40', other === li);
+    });
+  });
+
+  // Resumo vivo da tab Manual: a soma das charges marcadas abate o "falta
+  // conciliar". A alocação real é greedy pela ordem da lista (server-side);
+  // aqui só se espelha o total: alocado = min(soma, por alocar).
+  function recomputeManualSummary(txId) {
+    var form = document.querySelector('[data-tx-panel="manual"][data-tx-id="' + txId + '"]');
+    if (!form) return;
+    var summary = form.querySelector('[data-manual-summary]');
+    if (!summary) return;
+    var base = Number(summary.dataset.txUnallocated || 0);
+    var checked = Array.prototype.slice.call(form.querySelectorAll('[data-manual-charge]:checked'));
+    var sum = checked.reduce(function (s, cb) { return s + Number(cb.dataset.openAmount || 0); }, 0);
+    var allocated = Math.min(sum, base);
+    var remaining = base - allocated;
+
+    summary.querySelector('[data-summary-count]').textContent = String(checked.length);
+    summary.querySelector('[data-summary-selected]').textContent = formatCents(allocated);
+    var remainingEl = summary.querySelector('[data-summary-remaining]');
+    remainingEl.textContent = formatCents(remaining) + (remaining === 0 && checked.length ? ' ✓' : '');
+    remainingEl.classList.toggle('text-success', remaining === 0 && checked.length > 0);
+    remainingEl.classList.toggle('text-warning', remaining > 0 && checked.length > 0);
+
+    var noteText = '';
+    if (sum > base) {
+      noteText = 'As charges selecionadas excedem o movimento em ' + formatCents(sum - base)
+        + ' - a última fica liquidada parcialmente.';
+    }
+    // Atalho de ajuste: exatamente 1 charge payable não-refaturação com valor ≠ movimento.
+    var showAdjust = false;
+    if (checked.length === 1) {
+      var cb = checked[0];
+      var open = Number(cb.dataset.openAmount || 0);
+      var isPayable = cb.dataset.kind === 'payable' && cb.dataset.nature === 'debit';
+      var isRefact = cb.dataset.chargeType === 'refacturation';
+      if (open !== base && isPayable && !isRefact) {
+        showAdjust = true;
+        noteText = 'Charge ' + formatCents(open) + ' vs movimento ' + formatCents(base)
+          + '. "Ajustar + Conciliar" alinha o valor da charge com o extrato e concilia; o ledger emite o delta.';
+      }
+    }
+    var adjustBtn = form.querySelector('[data-manual-adjust]');
+    if (adjustBtn) adjustBtn.classList.toggle('hidden', !showAdjust);
+    var note = summary.querySelector('[data-summary-note]');
+    if (note) {
+      note.textContent = noteText;
+      note.classList.toggle('hidden', !noteText);
+    }
+    var submitBtn = form.querySelector('[data-manual-submit]');
+    if (submitBtn) submitBtn.disabled = checked.length === 0;
+  }
+
+  document.addEventListener('change', function (e) {
+    var cb = e.target.closest('[data-manual-charge]');
+    if (!cb) return;
+    recomputeManualSummary(cb.dataset.txId);
+  });
+
+  // Click no "Ajustar + Conciliar": preenche os hidden (chargeId + amount em
+  // euros), muda o action do form e submete.
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-manual-adjust]');
+    if (!btn) return;
+    e.preventDefault();
+    var txId = btn.dataset.txId;
+    var form = document.querySelector('[data-tx-panel="manual"][data-tx-id="' + txId + '"]');
+    if (!form) return;
+    var checked = form.querySelector('[data-manual-charge]:checked');
+    var summary = form.querySelector('[data-manual-summary]');
+    if (!checked || !summary) return;
+    var base = Number(summary.dataset.txUnallocated || 0);
+    form.querySelector('[data-manual-adjust-charge]').value = checked.value;
+    form.querySelector('[data-manual-adjust-amount]').value = (base / 100).toFixed(2);
+    form.setAttribute('hx-post', btn.dataset.action);
+    if (typeof htmx !== 'undefined' && htmx.process) htmx.process(form);
+    form.requestSubmit();
+    // Restaurar o action default para o próximo ciclo.
+    setTimeout(function () {
+      form.setAttribute('hx-post', '/admin/c/{{ currentCondominiumId }}/reconciliation/reconcile');
+      if (typeof htmx !== 'undefined' && htmx.process) htmx.process(form);
+    }, 100);
+  });
+
+  // Auto-dismiss + barra de progresso dos toasts vivem no layout global
+  // admin.vto - esta página não precisa de mais código aqui.
+})();
+</script>
+
+{{ /layout }}

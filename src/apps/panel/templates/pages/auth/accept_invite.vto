@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="pt" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Aceitar convite - Mague</title>
+    <link href="/app.css" rel="stylesheet">
+  </head>
+  <body class="bg-base-200 flex items-center justify-center min-h-screen">
+    <div class="card w-full max-w-md bg-base-100 shadow-lg">
+      <div class="card-body">
+        <h1 class="text-3xl font-black text-teal-600 mb-1 tracking-tighter">MAGUE</h1>
+
+        {{ if error }}
+          <div class="mt-4">
+            {{ include "partials/alert.vto" { type: "error", message: error } }}
+          </div>
+          <div class="mt-6 text-center">
+            <a href="/login" class="text-sm text-base-content/60 hover:text-primary">← Voltar ao login</a>
+          </div>
+        {{ else }}
+          <p class="text-base-content/70 mb-6 text-sm">
+            Olá <strong class="text-base-content">{{ user.name }}</strong> - define a tua password para entrar no portal.
+          </p>
+
+          {{ if flash }}
+            <div class="mb-4">
+              {{ include "partials/alert.vto" { type: flash.type, message: flash.message } }}
+            </div>
+          {{ /if }}
+
+          <form method="post" action="/accept-invite" class="space-y-4" data-pw-form>
+            <input type="hidden" name="token" value="{{ token }}">
+            {{ if next }}<input type="hidden" name="next" value="{{ next }}">{{ /if }}
+            <div class="form-control">
+              <label class="label" for="password">
+                <span class="label-text">Nova password</span>
+                <span class="label-text-alt text-base-content/50">mín. 8 caracteres</span>
+              </label>
+              <input type="password" id="password" name="password" class="input input-bordered" required minlength="8" autofocus autocomplete="new-password">
+            </div>
+            <div class="form-control">
+              <label class="label" for="confirm"><span class="label-text">Confirmar password</span></label>
+              <input type="password" id="confirm" name="confirm" class="input input-bordered" required minlength="8" autocomplete="new-password">
+              <label class="label py-0"><span class="label-text-alt text-error hidden" data-pw-mismatch>As passwords não coincidem.</span></label>
+            </div>
+            <button type="submit" class="btn btn-primary w-full">Definir password e entrar</button>
+          </form>
+          <p class="text-[11px] text-base-content/40 mt-4 text-center">
+            Convite válido até {{ expiresAt }}
+          </p>
+
+          <script>
+            // Validação client-side: só permite submit se passwords coincidirem.
+            (function () {
+              var f = document.querySelector("[data-pw-form]");
+              if (!f) return;
+              var p = f.querySelector('[name="password"]');
+              var c = f.querySelector('[name="confirm"]');
+              var msg = f.querySelector('[data-pw-mismatch]');
+              function check() {
+                if (c.value && c.value !== p.value) {
+                  c.setCustomValidity("As passwords não coincidem.");
+                  msg.classList.remove("hidden");
+                } else {
+                  c.setCustomValidity("");
+                  msg.classList.add("hidden");
+                }
+              }
+              p.addEventListener("input", check);
+              c.addEventListener("input", check);
+            })();
+          </script>
+        {{ /if }}
+      </div>
+    </div>
+  </body>
+</html>

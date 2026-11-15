@@ -1,0 +1,175 @@
+{{# PDF do MODELO DE PROCURAÇÃO (Art. 1431.º nº 5 CC; convocation_pdf.ts → Chromium
+   headless → A4). Redação varia por natureza jurídica (`recipient.personType`):
+   singular ("Eu, [Nome], NIF...") vs collective ("A [Empresa], NIPC..."). Fração já
+   formatada via `unitLabel`. Preview = placeholders; envio = destinatário real (NIF
+   só se existir, senão linha em branco). CSS inline, sem dependências externas.
+
+   Dados esperados:
+     • condominium  - { name, fiscalNumber?, address? }
+     • assembly     - { type, scheduledAt, secondConvocationAt?, location }
+     • recipient    - { mode?, name?, nif?, personType?, unitLabel? }; `mode "blank"`
+                      ignora os restantes (tudo em branco); preview = campos a null
+     • generatedAt  - string ISO (timestamp da geração - rodapé)
+#}}
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<title>Procuração - {{ condominium.name }}</title>
+{{# Mesma fonte dos recibos (coerência); fonte do sistema, fallback sans-serif
+    cobre Chromium sem Helvetica Neue/Arial. #}}
+<style>
+  @page { size: A4; margin: 25mm 20mm 22mm 25mm; }
+  * { box-sizing: border-box; }
+  html, body {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 11.5pt;
+    line-height: 1.7;
+    color: #1a1a1a;
+    margin: 0;
+    padding: 0;
+    font-feature-settings: "kern" 1, "liga" 1;
+  }
+  .doc-meta {
+    text-align: center;
+    color: #555;
+    font-size: 9pt;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 24pt;
+  }
+  h1 {
+    font-size: 18pt;
+    font-weight: bold;
+    text-align: center;
+    margin: 0 0 18pt 0;
+    letter-spacing: 0.02em;
+  }
+  .header-block {
+    margin-bottom: 22pt;
+    padding-bottom: 12pt;
+    border-bottom: 0.5pt solid #ccc;
+    text-align: center;
+  }
+  .header-block .condo { font-size: 13pt; font-weight: bold; margin-bottom: 2pt; }
+  .header-block .condo-meta { font-size: 9pt; color: #666; }
+  .body-text { text-align: justify; margin: 0 0 14pt 0; }
+  .body-text .fill { font-weight: bold; }
+  .blank {
+    display: inline-block;
+    min-width: 220pt;
+    border-bottom: 0.5pt solid #1a1a1a;
+  }
+  .blank.short { min-width: 120pt; }
+  .nif-blank {
+    display: inline-block;
+    min-width: 70pt;
+    border-bottom: 0.5pt solid #1a1a1a;
+  }
+  .fields { margin-top: 34pt; }
+  .fields .field { margin-bottom: 18pt; }
+  .fields .flabel {
+    display: inline-block;
+    width: 80pt;
+    color: #555;
+    font-size: 9.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .note {
+    margin-top: 28pt;
+    font-size: 9pt;
+    color: #777;
+    font-style: italic;
+    text-align: justify;
+  }
+  .footer-note {
+    margin-top: 28pt;
+    padding-top: 8pt;
+    border-top: 0.5pt solid #ccc;
+    font-size: 8pt;
+    color: #888;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<div class="doc-meta">Modelo de Procuração</div>
+
+<div class="header-block">
+  <div class="condo">{{ condominium.name }}</div>
+  {{ if condominium.fiscalNumber }}
+    <div class="condo-meta">NIF {{ condominium.fiscalNumber }}{{ if condominium.address }} · {{ condominium.address }}{{ /if }}</div>
+  {{ else if condominium.address }}
+    <div class="condo-meta">{{ condominium.address }}</div>
+  {{ /if }}
+</div>
+
+<h1>Procuração</h1>
+
+{{# Três redações por `recipient.mode` + `personType` (ADR 0034): "blank" (residente,
+   tudo em branco para um proprietário assinar), collective ("A [Empresa], NIPC..."),
+   singular/preview ("Eu, [Nome], NIF..."; placeholders quando null). #}}
+{{ set isBlank = recipient.mode === "blank" }}
+{{ set isCollective = recipient.personType === "collective" }}
+<div class="body-text">
+  {{ if isBlank }}
+    Eu, <span class="blank"></span>, NIF <span class="nif-blank"></span>, relativo à fração
+    <span class="blank short"></span> do condomínio
+    {{ condominium.name }}, declaro nomear como meu representante na assembleia de condóminos
+    {{ if assembly.type === "ordinary" }}ordinária{{ else }}extraordinária{{ /if }}, a realizar em
+    {{ assembly.scheduledAt |> formatDateTime }}{{ if assembly.secondConvocationAt }} (ou em
+    {{ assembly.secondConvocationAt |> formatDateTime }}, em 2.ª convocatória){{ /if }}{{ if assembly.location }},
+    em {{ assembly.location }}{{ /if }}, o(a) Sr.(a)
+    <span class="blank"></span>,
+    conferindo-lhe poderes para deliberar e votar em meu nome sobre todos os pontos da ordem do dia.
+  {{ else if isCollective }}
+    A <span class="fill">{{ recipient.name ?? "[Pessoa coletiva]" }}</span>, NIPC
+    {{ if recipient.nif }}<span class="fill">{{ recipient.nif }}</span>{{ else }}<span class="nif-blank"></span>{{ /if }},
+    na qualidade de proprietária da fração
+    <span class="fill">{{ recipient.unitLabel ?? "[Fração]" }}</span> do condomínio
+    {{ condominium.name }}, declara nomear como sua representante na assembleia de condóminos
+    {{ if assembly.type === "ordinary" }}ordinária{{ else }}extraordinária{{ /if }}, a realizar em
+    {{ assembly.scheduledAt |> formatDateTime }}{{ if assembly.secondConvocationAt }} (ou em
+    {{ assembly.secondConvocationAt |> formatDateTime }}, em 2.ª convocatória){{ /if }}{{ if assembly.location }},
+    em {{ assembly.location }}{{ /if }}, o(a) Sr.(a)
+    <span class="blank"></span>,
+    conferindo-lhe poderes para deliberar e votar em seu nome sobre todos os pontos da ordem do dia.
+  {{ else }}
+    Eu, <span class="fill">{{ recipient.name ?? "[Nome do condómino]" }}</span>, NIF
+    {{ if recipient.nif }}<span class="fill">{{ recipient.nif }}</span>{{ else }}<span class="nif-blank"></span>{{ /if }}, relativo à fração
+    <span class="fill">{{ recipient.unitLabel ?? "[Fração]" }}</span> do condomínio
+    {{ condominium.name }}, declaro nomear como meu representante na assembleia de condóminos
+    {{ if assembly.type === "ordinary" }}ordinária{{ else }}extraordinária{{ /if }}, a realizar em
+    {{ assembly.scheduledAt |> formatDateTime }}{{ if assembly.secondConvocationAt }} (ou em
+    {{ assembly.secondConvocationAt |> formatDateTime }}, em 2.ª convocatória){{ /if }}{{ if assembly.location }},
+    em {{ assembly.location }}{{ /if }}, o(a) Sr.(a)
+    <span class="blank"></span>,
+    conferindo-lhe poderes para deliberar e votar em meu nome sobre todos os pontos da ordem do dia.
+  {{ /if }}
+</div>
+
+<div class="fields">
+  <div class="field">
+    <span class="flabel">Data</span>
+    <span class="blank short"></span>
+  </div>
+  <div class="field">
+    <span class="flabel">Assinatura</span>
+    <span class="blank"></span>
+  </div>
+</div>
+
+<div class="note">
+  Um condómino pode fazer-se representar por outro condómino ou por terceiro,
+  mediante procuração escrita (Art. 1431.º nº 5 do Código Civil). Entregue este
+  documento preenchido e assinado conforme indicado na convocatória.
+</div>
+
+<div class="footer-note">
+  Documento gerado em {{ generatedAt |> formatDate }} · {{ condominium.name }}
+</div>
+
+</body>
+</html>

@@ -1,0 +1,133 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{ set globalCount = categories.filter((c) => c.isGlobal).length }}
+{{ set customCount = categories.length - globalCount }}
+{{ set active = categories.filter((c) => c.isActive).length }}
+
+{{ set typeLabels = { asset: "Ativo", liability: "Passivo", equity: "Capital próprio", revenue: "Receita", expense: "Despesa" } }}
+
+{{ include "partials/page_header.vto" { title: "Plano de contas" } }}
+
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+  {{ include "partials/kpi_card.vto" {
+    tone: "primary", label: "Contas", value: String(categories.length), caption: String(active) + " ativas"
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "info", label: "Globais", value: String(globalCount), caption: "partilhadas · só leitura"
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "success", label: "Customizadas", value: String(customCount), caption: "deste condomínio"
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "neutral", label: "Inactivas", value: String(categories.length - active), caption: "arquivadas"
+  } }}
+</div>
+
+<details class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-4 mb-6">
+  <summary class="cursor-pointer text-sm font-semibold">+ Nova conta</summary>
+  <form method="post" action="/admin/c/{{ currentCondominiumId }}/expense-categories" class="grid grid-cols-1 md:grid-cols-4 gap-3 mt-4">
+    <div class="form-control md:col-span-2">
+      <label class="label py-1" for="new_name"><span class="label-text text-xs">Nome *</span></label>
+      <input type="text" id="new_name" name="name" required placeholder="Ex: Limpeza, Elevador, Eletricidade" class="input input-sm input-bordered">
+    </div>
+    <div class="form-control">
+      <label class="label py-1" for="new_code"><span class="label-text text-xs">Código (auto se vazio)</span></label>
+      <input type="text" id="new_code" name="code" maxlength="20" placeholder="Ex: 62111" class="input input-sm input-bordered uppercase">
+    </div>
+    <div class="form-control">
+      <label class="label py-1" for="new_type"><span class="label-text text-xs">Tipo *</span></label>
+      <select id="new_type" name="type" class="select select-sm select-bordered">
+        <option value="expense" selected>Despesa</option>
+        <option value="revenue">Receita</option>
+        <option value="asset">Ativo</option>
+        <option value="liability">Passivo</option>
+        <option value="equity">Capital próprio</option>
+      </select>
+    </div>
+    <div class="form-control">
+      <label class="label py-1" for="new_parent"><span class="label-text text-xs">Conta-pai (código)</span></label>
+      <input type="text" id="new_parent" name="parentCode" maxlength="20" placeholder="-" class="input input-sm input-bordered uppercase">
+    </div>
+    <div class="form-control md:col-span-3">
+      <label class="label py-1" for="new_desc"><span class="label-text text-xs">Descrição</span></label>
+      <input type="text" id="new_desc" name="description" placeholder="Notas opcionais" class="input input-sm input-bordered">
+    </div>
+    <div class="md:col-span-4 mt-2">
+      <button type="submit" class="btn btn-sm btn-primary">Criar</button>
+      <span class="text-xs text-base-content/60 ml-3">
+        Sugestões: Limpeza · Elevador · Eletricidade Comum · Água Comum · Seguro · Manutenção · Administração · Outros
+      </span>
+    </div>
+  </form>
+</details>
+
+{{ layout "partials/table_card.vto" { title: "Lista", count: categories.length, searchable: true } }}
+  <table class="table table-sm">
+    <thead>
+      <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+        <th class="pl-4">Código</th>
+        <th>Nome</th>
+        <th>Tipo</th>
+        <th>Pai</th>
+        <th>Origem</th>
+        <th>Descrição</th>
+        <th>Estado</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ if categories.length === 0 }}
+        <tr><td colspan="8" class="p-8 text-center text-base-content/50">Sem contas.</td></tr>
+      {{ else }}
+        {{ for cat of categories }}
+          <tr class="hover:bg-base-200/30 border-t border-base-100 text-sm {{ if cat.isGlobal }}bg-info/[0.03]{{ /if }}">
+            <td class="pl-4 font-mono text-xs font-semibold" data-search>{{ cat.code }}</td>
+            <td class="font-bold" data-search>{{ cat.name }}</td>
+            <td class="text-base-content/70" data-search>{{ typeLabels[cat.type] ?? cat.type }}</td>
+            <td class="font-mono text-xs text-base-content/60" data-search>{{ cat.parentCode ?? "-" }}</td>
+            <td>
+              {{ if cat.isGlobal }}
+                <span class="inline-flex items-center gap-1.5 text-xs font-medium text-info" title="Conta global - partilhada entre condomínios, só leitura">
+                  <span class="inline-block w-1.5 h-1.5 rounded-full bg-info"></span> Global
+                </span>
+              {{ else }}
+                <span class="inline-flex items-center gap-1.5 text-xs text-base-content/70">
+                  <span class="inline-block w-1.5 h-1.5 rounded-full bg-base-content/40"></span> Custom
+                </span>
+              {{ /if }}
+            </td>
+            <td class="text-xs text-base-content/60 max-w-[240px] truncate" data-search title="{{ cat.description ?? '' }}">{{ cat.description ?? "-" }}</td>
+            <td>
+              {{ if cat.isActive }}
+                {{ include "partials/status_badge.vto" { label: "Ativa", tone: "success", size: "xs" } }}
+              {{ else }}
+                {{ include "partials/status_badge.vto" { label: "Inactiva", tone: "muted", size: "xs" } }}
+              {{ /if }}
+            </td>
+            <td class="pr-4 text-right">
+              {{ if cat.isGlobal }}
+                <span class="text-xs text-base-content/40" title="Globais não podem ser editadas">-</span>
+              {{ else }}
+                <div class="inline-flex items-center gap-4">
+                  {{ include "partials/action_link.vto" {
+                    kind: "edit",
+                    href: "/admin/c/" + currentCondominiumId + "/expense-categories/" + cat.id + "/edit",
+                  } }}
+                  <form method="post" action="/admin/c/{{ currentCondominiumId }}/expense-categories/{{ cat.id }}/delete" class="inline"
+                        data-confirm-title="Apagar categoria?"
+                        data-confirm-body="Queres mesmo apagar esta categoria do plano de contas?"
+                        data-confirm-ok="Apagar"
+                        data-confirm-danger="true">
+                    {{ include "partials/action_link.vto" { kind: "delete", asButton: true } }}
+                  </form>
+                </div>
+              {{ /if }}
+            </td>
+          </tr>
+        {{ /for }}
+      {{ /if }}
+    </tbody>
+  </table>
+{{ /layout }}
+
+{{ /layout }}

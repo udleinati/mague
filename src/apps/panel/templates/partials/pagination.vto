@@ -1,0 +1,36 @@
+{{# Footer de paginação. `pagination` = saída de `buildPaginationMeta` (ver charges.ts):
+   { page, perPage, total, totalPages, start, end, hasPrev, hasNext, prevQs, nextQs,
+     firstQs, lastQs, pageLinks: [{ kind: "page", num, qs, isCurrent } | { kind: "ellipsis" }] }.
+   Os Qs preservam os filtros ativos. Não renderiza nada se falsy ou totalPages <= 1,
+   logo pode incluir-se incondicionalmente. #}}
+{{ if pagination && pagination.totalPages > 1 }}
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 border-base-200 text-sm">
+    <div class="text-base-content/60 text-xs sm:text-sm">
+      A mostrar <strong class="text-base-content/80">{{ String(pagination.start) }}–{{ String(pagination.end) }}</strong>
+      de <strong class="text-base-content/80">{{ String(pagination.total) }}</strong>
+    </div>
+    <div class="flex items-center gap-1 flex-wrap justify-center sm:justify-end">
+      {{ if pagination.hasPrev }}
+        <a href="?{{ pagination.prevQs }}" class="btn btn-xs btn-ghost" title="Página anterior">←</a>
+      {{ else }}
+        <span class="btn btn-xs btn-ghost btn-disabled opacity-30">←</span>
+      {{ /if }}
+      {{ for link of pagination.pageLinks }}
+        {{ if link.kind === "page" }}
+          {{ if link.isCurrent }}
+            <span class="btn btn-xs btn-primary pointer-events-none">{{ String(link.num) }}</span>
+          {{ else }}
+            <a href="?{{ link.qs }}" class="btn btn-xs btn-ghost">{{ String(link.num) }}</a>
+          {{ /if }}
+        {{ else }}
+          <span class="px-1 text-base-content/40">…</span>
+        {{ /if }}
+      {{ /for }}
+      {{ if pagination.hasNext }}
+        <a href="?{{ pagination.nextQs }}" class="btn btn-xs btn-ghost" title="Próxima página">→</a>
+      {{ else }}
+        <span class="btn btn-xs btn-ghost btn-disabled opacity-30">→</span>
+      {{ /if }}
+    </div>
+  </div>
+{{ /if }}

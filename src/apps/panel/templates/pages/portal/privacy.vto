@@ -1,0 +1,77 @@
+{{ layout "layouts/portal.vto" { title, section, condominium, unit, currentUser, currentPortalUnitId, currentCondominiumId } }}
+
+{{# Consulta read-only da política (Art. 12º RGPD). O gate inicial é o
+   `privacy_notice.vto`; aqui é só reconsulta, sem form/CTA. #}}
+
+<div class="max-w-3xl mx-auto">
+  <div class="mb-6">
+    <h1 class="text-2xl sm:text-3xl font-black">Aviso de privacidade</h1>
+    <p class="text-sm text-base-content/60 mt-1">
+      Informação sobre o tratamento dos teus dados no portal do condomínio
+      <strong>{{ condominium.name }}</strong>.
+    </p>
+  </div>
+
+  <div class="card bg-base-100 shadow-sm border border-base-200">
+    <div class="card-body p-6 sm:p-8">
+      <div class="space-y-5 text-sm leading-relaxed text-base-content/80">
+        <div>
+          <h2 class="font-bold text-base text-base-content mb-1">O que tratamos e para quê</h2>
+          <p>
+            <strong>Nome, email, telefone, NIF, fração, histórico financeiro,
+            ocorrências e apólices</strong> - usados apenas para a gestão
+            corrente do condomínio (cobrança, conciliação, comunicações
+            legais, recibos, ocorrências, entre outras finalidades
+            necessárias à administração do condomínio). Base jurídica:
+            <strong>Lei n.º 8/2022 e contrato condominial - não consentimento</strong>.
+          </p>
+        </div>
+
+        <div>
+          <h2 class="font-bold text-base text-base-content mb-1">Quanto tempo guardamos</h2>
+          <p>
+            Dados financeiros: <strong>10 anos</strong> (Art. 40º do CIVA).
+            Restantes: <strong>enquanto fores condómino e mais 5 anos</strong>.
+          </p>
+        </div>
+
+        <div>
+          <h2 class="font-bold text-base text-base-content mb-1">Com quem partilhamos</h2>
+          <p>
+            Sem fins comerciais ou publicitários. Apenas: <strong>contabilista
+            certificado</strong>, <strong>Autoridade Tributária</strong>,
+            <strong>tribunal ou advogado</strong> em caso de litígio, e
+            <strong>outros condóminos</strong> em mapas de quotas em
+            assembleia (obrigatórios por lei).
+          </p>
+        </div>
+
+        <div>
+          <h2 class="font-bold text-base text-base-content mb-1">Os teus direitos</h2>
+          <ul class="list-disc list-outside pl-5 space-y-1">
+            <li>
+              <strong>Acesso, rectificação e portabilidade</strong>: pede-nos por email.
+            </li>
+            <li>
+              <strong>Apagamento e oposição</strong> são limitados (Arts. 17º nº3
+              e 21º RGPD) - não podemos apagar dados necessários a obrigações
+              legais (cobrança, contabilidade) enquanto essa necessidade durar.
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      {{# Selo de confirmação de leitura (via `/privacy-notice`) - sem ação. #}}
+      {{ if currentUser.termsAcknowledgedAt }}
+        <div class="mt-6 pt-5 border-t border-base-200 text-xs text-base-content/50 inline-flex items-center gap-1.5">
+          <svg class="w-3.5 h-3.5 text-success" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+          </svg>
+          Confirmaste a leitura em <strong class="text-base-content/70">{{ currentUser.termsAcknowledgedAt |> formatDate }}</strong>.
+        </div>
+      {{ /if }}
+    </div>
+  </div>
+</div>
+
+{{ /layout }}

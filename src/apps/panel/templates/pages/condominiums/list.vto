@@ -1,0 +1,71 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{ set active = condominiums.filter((c) => c.isActive).length }}
+
+{{ layout "partials/page_header.vto" { title: "Condomínios" } }}
+  <a href="/admin/c/{{ currentCondominiumId }}/condominiums/new" class="btn btn-sm btn-primary">+ Novo condomínio</a>
+{{ /layout }}
+
+<div class="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-6">
+  {{ include "partials/kpi_card.vto" {
+    tone: "primary", label: "Condomínios", value: String(condominiums.length), caption: "na plataforma"
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "success", label: "Ativos", value: String(active), caption: "a operar"
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "neutral", label: "Inactivos", value: String(condominiums.length - active), caption: "arquivados"
+  } }}
+</div>
+
+{{ layout "partials/table_card.vto" { title: "Lista de condomínios", count: condominiums.length, searchable: true } }}
+  <table class="table table-sm">
+    <thead>
+      <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+        <th class="pl-4">Nome</th>
+        <th>Email</th>
+        <th>NIF</th>
+        <th>Cidade</th>
+        <th>Cobrança</th>
+        <th>Estado</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ if condominiums.length === 0 }}
+        <tr><td colspan="7" class="p-8 text-center text-base-content/50">Nenhum condomínio encontrado.</td></tr>
+      {{ else }}
+        {{ for condo of condominiums }}
+          <tr class="hover:bg-base-200/30 border-t border-base-100 text-sm">
+            <td class="pl-4 font-bold" data-search>{{ condo.name }}</td>
+            <td class="text-base-content/70 text-xs" data-search>{{ condo.email ?? "" }}</td>
+            <td class="text-base-content/70" data-search>{{ condo.fiscalNumber ?? "" }}</td>
+            <td class="text-base-content/70" data-search>{{ condo.city ?? "" }}</td>
+            <td class="text-base-content/70">Dia {{ condo.quotaDayOfMonth }}</td>
+            <td>
+              {{ if condo.isActive }}
+                {{ include "partials/status_badge.vto" { label: "Ativo", tone: "success", size: "xs" } }}
+              {{ else }}
+                {{ include "partials/status_badge.vto" { label: "Inactivo", tone: "muted", size: "xs" } }}
+              {{ /if }}
+            </td>
+            <td class="pr-4 text-right whitespace-nowrap">
+              <div class="inline-flex items-center gap-4">
+                {{ include "partials/action_link.vto" {
+                  kind: "view",
+                  href: "/admin/c/" + currentCondominiumId + "/condominiums/" + condo.id,
+                } }}
+                {{ include "partials/action_link.vto" {
+                  kind: "edit",
+                  href: "/admin/c/" + currentCondominiumId + "/condominiums/" + condo.id + "/edit",
+                } }}
+              </div>
+            </td>
+          </tr>
+        {{ /for }}
+      {{ /if }}
+    </tbody>
+  </table>
+{{ /layout }}
+
+{{ /layout }}

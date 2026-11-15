@@ -1,0 +1,340 @@
+{{ layout "layouts/portal.vto" { title, section, condominium, unit, currentUser, currentPortalUnitId, currentCondominiumId } }}
+
+{{ set typeLabels = { quota: "Quota", extraordinary_quota: "Quota extra", interest: "Juros", refacturation: "Refaturação", credit_balance: "Crédito", supplier_service: "Serviço", opening_balance_debit: "Saldo anterior", credit_adjustment: "Ajuste de crédito" } }}
+{{ set settlementTypeLabels = { bank_reconciliation: "Conciliação bancária", manual: "Liquidação manual", credit_balance: "Crédito de saldo", auto_offset: "Compensação automática" } }}
+{{ set totalOpen = charges.reduce((s, c) => s + Number(c.openAmount || 0), 0) }}
+{{ set totalIssued = charges.reduce((s, c) => s + Number(c.originalAmount || 0), 0) }}
+{{ set totalPaid = charges.reduce((s, c) => s + Number(c.settledAmount || 0), 0) }}
+{{# Cutoff de conciliação - passa ao partial `charge_status` para que ele
+   decida "vencida" pela mesma regra da view v_unit_balance. #}}
+{{ set cutoff = condominium.reconciledThroughDate ?? null }}
+{{# Contadores por estado - "Vencido" via `isChargeOverdue` (ADR 0037). Vencido
+   tem precedência: daí o `!isChargeOverdue` nos filtros de parcial/aberto. #}}
+{{ set paidCount = charges.filter((c) => c.status === "paid").length }}
+{{ set overdueCharges = charges.filter((c) => isChargeOverdue(c, cutoff)) }}
+{{ set overdueCount = overdueCharges.length }}
+{{ set totalOverdue = overdueCharges.reduce((s, c) => s + Number(c.openAmount || 0), 0) }}
+{{ set partialCount = charges.filter((c) => c.status === "partial" && !isChargeOverdue(c, cutoff)).length }}
+{{ set openCount = charges.filter((c) => c.status !== "paid" && c.status !== "cancelled" && c.status !== "partial" && !isChargeOverdue(c, cutoff)).length }}
+
+<div class="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 mb-4">
+  <div>
+    <h1 class="text-2xl sm:text-3xl font-black">Cobranças</h1>
+    <div class="text-sm text-base-content/60 mt-1">
+      {{ String(charges.length) }} {{ if filterYear }}lançamentos em {{ String(filterYear) }}{{ else }}lançamentos no total{{ /if }} · <strong class="text-base-content/90">{{ totalOpen |> formatMoney }}</strong> em aberto
+    </div>
+  </div>
+  {{# Indicador "Última conciliação". Amber explícito (não `bg-warning`) para não variar entre temas. #}}
+  <div class="inline-flex items-center gap-1.5 text-xs rounded-md bg-amber-100 border border-amber-200 text-amber-900 px-2.5 py-1 mt-1 sm:mt-2">
+    <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    <span>
+      Última conciliação:
+      {{ if cutoff }}
+        <strong class="tabular-nums font-semibold">{{ cutoff |> formatDate }}</strong>
+      {{ else }}
+        <strong class="font-semibold">não definida</strong>
+      {{ /if }}
+    </span>
+    {{# Tooltip daisyUI. `tooltip-left` evita clipping no canto direito; `before:max-w-xs` impede o texto de esticar a página. #}}
+    <span class="tooltip tooltip-left cursor-help before:max-w-xs before:whitespace-normal before:text-xs before:content-[attr(data-tip)]"
+          data-tip="Os pagamentos feitos posteriores a esta data ainda não foram contabilizados.">
+      <svg class="w-3.5 h-3.5 shrink-0 opacity-70" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"/>
+      </svg>
+    </span>
+  </div>
+</div>
+
+{{# Filtro por ano + chips por estado + expandir/recolher. Submete por GET (select dispara `form.submit()`). #}}
+<div class="flex items-center gap-3 flex-wrap mb-4">
+  {{ if availableYears && availableYears.length > 0 }}
+    <form method="get" class="flex items-center gap-2">
+      <label for="filter_year" class="text-xs uppercase tracking-wider font-bold text-base-content/60">Ano</label>
+      <select id="filter_year" name="year" class="select select-sm select-bordered"
+              onchange="this.form.submit()">
+        <option value="" {{ if filterYear === null }}selected{{ /if }}>Todos</option>
+        {{ for y of availableYears }}
+          <option value="{{ String(y) }}" {{ if filterYear === y }}selected{{ /if }}>{{ String(y) }}</option>
+        {{ /for }}
+      </select>
+      <noscript><button type="submit" class="btn btn-sm">Aplicar</button></noscript>
+    </form>
+  {{ /if }}
+
+  {{# Chips por estado - só os com contagem > 0; cores espelham os badges da listagem. #}}
+  {{ if charges.length > 0 }}
+    <div class="flex items-center gap-3 flex-wrap text-xs">
+      {{ if openCount > 0 }}
+        <span class="inline-flex items-center gap-1.5 text-base-content/70 font-medium">
+          <span class="inline-block w-1.5 h-1.5 rounded-full bg-base-content/40"></span>
+          <span class="tabular-nums">{{ String(openCount) }}</span> em aberto
+        </span>
+      {{ /if }}
+      {{ if overdueCount > 0 }}
+        <span class="inline-flex items-center gap-1.5 text-error font-medium">
+          <span class="inline-block w-1.5 h-1.5 rounded-full bg-error"></span>
+          <span class="tabular-nums">{{ String(overdueCount) }}</span> vencido{{ overdueCount === 1 ? "" : "s" }}
+        </span>
+      {{ /if }}
+      {{ if partialCount > 0 }}
+        <span class="inline-flex items-center gap-1.5 text-warning font-medium">
+          <span class="inline-block w-1.5 h-1.5 rounded-full bg-warning"></span>
+          <span class="tabular-nums">{{ String(partialCount) }}</span> parcial{{ partialCount === 1 ? "" : "s" }}
+        </span>
+      {{ /if }}
+      {{ if paidCount > 0 }}
+        <span class="inline-flex items-center gap-1.5 text-success font-medium">
+          <span class="inline-block w-1.5 h-1.5 rounded-full bg-success"></span>
+          <span class="tabular-nums">{{ String(paidCount) }}</span> pago{{ paidCount === 1 ? "" : "s" }}
+        </span>
+      {{ /if }}
+    </div>
+
+    <button type="button" data-charges-toggle class="btn btn-xs btn-ghost gap-1 ml-auto" data-state="closed">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+      </svg>
+      <span data-toggle-label>Expandir tudo</span>
+    </button>
+  {{ /if }}
+</div>
+
+{{# ─── Pagar quotas ─────────────────────────────────────────────────────
+   IBAN das contas com `is_quota_payment`. Só aparece se admin configurou ≥1. #}}
+{{ if quotaAccounts && quotaAccounts.length > 0 }}
+  <section class="bg-base-100 rounded-xl border border-base-200 shadow-sm overflow-hidden mb-6">
+    <div class="px-5 py-3 border-b border-base-200">
+      <h2 class="text-sm font-bold flex items-center gap-2">
+        <span>💳</span>
+        <span>IBAN para transferência</span>
+      </h2>
+    </div>
+    <ul class="divide-y divide-base-200">
+      {{ for a of quotaAccounts }}
+        <li class="px-5 py-4">
+          <div class="flex items-start justify-between gap-3 flex-wrap">
+            <div class="min-w-0 flex-1">
+              {{ if a.accountHolder }}
+                <div class="text-xs text-base-content/50 uppercase font-bold tracking-wider">Titular</div>
+                <div class="text-sm font-medium">{{ a.accountHolder }}</div>
+              {{ /if }}
+              <div class="text-xs text-base-content/50 uppercase font-bold tracking-wider mt-2">IBAN · {{ a.bankName }}</div>
+              <div class="text-base font-mono mt-0.5 select-all break-all" data-iban-display>{{ a.iban }}</div>
+            </div>
+            <button type="button"
+                    class="btn btn-sm btn-primary shrink-0"
+                    data-copy-iban="{{ a.iban }}">
+              <span data-copy-label>📋 Copiar IBAN</span>
+            </button>
+          </div>
+        </li>
+      {{ /for }}
+    </ul>
+  </section>
+
+  <script>
+    // Copia o IBAN para a área de transferência. Feedback visual: só troca
+    // o label do botão durante 2s ("✓ Copiado"); mantemos btn-primary (azul)
+    // para evitar btn-success com text contrast partido em light theme.
+    document.addEventListener("click", function (e) {
+      var btn = e.target instanceof Element ? e.target.closest("[data-copy-iban]") : null;
+      if (!btn) return;
+      e.preventDefault();
+      var iban = btn.getAttribute("data-copy-iban") || "";
+      var label = btn.querySelector("[data-copy-label]");
+      var original = label ? label.textContent : "";
+      function flash(msg) {
+        if (!label) return;
+        label.textContent = msg;
+        setTimeout(function () { label.textContent = original; }, 2000);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(iban).then(function () {
+          flash("✓ Copiado");
+        }).catch(function () { flash("✗ Falhou"); });
+      } else {
+        // Fallback: seleciona o IBAN no <div data-iban-display> mais próximo.
+        var display = btn.closest("li").querySelector("[data-iban-display]");
+        if (display) {
+          var range = document.createRange();
+          range.selectNodeContents(display);
+          var sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+          flash("Seleciona e Cmd+C");
+        } else {
+          flash("✗ Falhou");
+        }
+      }
+    });
+  </script>
+{{ /if }}
+
+{{ if charges.length === 0 }}
+  <div class="bg-base-100 rounded-xl border border-base-200 p-12 text-center">
+    <div class="text-5xl mb-3 opacity-30">💸</div>
+    {{ if totalCharges === 0 }}
+      <p class="text-base-content/60">Ainda não tens cobranças registadas.</p>
+    {{ else }}
+      <p class="text-base-content/60">Sem cobranças para o ano {{ String(filterYear) }}.</p>
+      <p class="text-xs text-base-content/40 mt-2">Escolhe outro ano ou "Todos" para veres tudo.</p>
+    {{ /if }}
+  </div>
+{{ else }}
+  {{# ─── Lista de cobranças (colapsível) ───────────────────────────────
+     Cada cobrança é um <details>: summary compacto, expandido mostra os
+     settlements. Padrão alinhado com `statement.vto`. #}}
+  <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm overflow-hidden" data-charges-scope>
+    {{# Cabeçalho alinhado com a linha de dados - 1ª coluna (24px) é o placeholder do chevron. #}}
+    <div class="hidden md:grid grid-cols-[24px_64px_70px_1fr_65px_65px_72px_82px_70px] gap-3 px-4 py-2.5 border-b border-base-200 bg-base-200/50 text-base-content/70 text-[10px] uppercase tracking-widest font-semibold">
+      <div></div>
+      <div class="inline-flex items-center gap-1">
+        <span>Comp.</span>
+        <span class="tooltip tooltip-bottom normal-case tracking-normal cursor-help"
+              data-tip="Competência">
+          <svg class="w-3 h-3 opacity-60" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"/>
+          </svg>
+        </span>
+      </div>
+      <div>Tipo</div>
+      <div>Descrição</div>
+      <div class="text-right">Valor</div>
+      <div class="text-right">Pago</div>
+      <div class="text-right">Em aberto</div>
+      <div>Vencimento</div>
+      <div>Estado</div>
+    </div>
+    <div class="divide-y divide-base-200">
+      {{ for c of charges }}
+        {{ set hasPayments = c.settlements && c.settlements.length > 0 }}
+        <details class="group" data-charge-row>
+          <summary class="cursor-pointer list-none px-4 py-3 hover:bg-base-200/40 transition-colors
+                          grid grid-cols-[24px_1fr_auto] md:grid-cols-[24px_64px_70px_1fr_65px_65px_72px_82px_70px]
+                          gap-3 items-center text-sm">
+            {{# Chevron - opacity reduzida (mas clicável) para charges sem settlements. #}}
+            <svg class="w-3 h-3 text-base-content/40 transition-transform group-open:rotate-90 {{ if !hasPayments }}opacity-30{{ /if }}" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+            </svg>
+
+            {{# Mobile: descrição + valor na 1ª linha, meta (com vencimento) na 2ª. #}}
+            <div class="md:hidden min-w-0">
+              <div class="font-medium leading-snug line-clamp-2">{{ c.description ?? "-" }}</div>
+              <div class="text-xs text-base-content/60 flex items-center gap-1.5 flex-wrap mt-1">
+                {{ if c.competencePeriod }}<span class="tabular-nums">{{ c.competencePeriod }}</span><span class="text-base-content/30">·</span>{{ /if }}
+                {{ if c.dueDate }}<span class="tabular-nums">venc. {{ c.dueDate |> formatDate }}</span><span class="text-base-content/30">·</span>{{ /if }}
+                <span>{{ typeLabels[c.chargeType] ?? c.chargeType }}</span>
+                <span class="text-base-content/30">·</span>
+                {{ include "partials/charge_status.vto" { c, cutoff } }}
+              </div>
+            </div>
+            <div class="md:hidden text-sm font-bold tabular-nums whitespace-nowrap shrink-0
+                        {{ if c.status === 'paid' }}text-success/80{{ else if c.openAmount > 0 && c.nature === 'debit' }}text-info{{ /if }}">
+              {{ if c.status === "paid" }}{{ c.originalAmount |> formatMoney }}{{ else }}{{ c.openAmount |> formatMoney }}{{ /if }}
+            </div>
+
+            {{# Desktop: 8 colunas alinhadas com o cabeçalho. #}}
+            <div class="hidden md:block text-base-content/70 whitespace-nowrap tabular-nums text-xs">{{ c.competencePeriod ?? "-" }}</div>
+            <div class="hidden md:block text-xs text-base-content/60 whitespace-nowrap">{{ typeLabels[c.chargeType] ?? c.chargeType }}</div>
+            <div class="hidden md:block min-w-0 truncate font-medium" title="{{ c.description ?? '' }}">{{ c.description ?? "-" }}</div>
+            <div class="hidden md:block text-right tabular-nums whitespace-nowrap">{{ c.originalAmount |> formatMoney }}</div>
+            <div class="hidden md:block text-right tabular-nums whitespace-nowrap text-success/80">{{ c.settledAmount |> formatMoney }}</div>
+            <div class="hidden md:block text-right tabular-nums whitespace-nowrap font-semibold {{ if c.openAmount > 0 && c.nature === 'debit' }}text-info{{ /if }}">{{ c.openAmount |> formatMoney }}</div>
+            <div class="hidden md:block text-base-content/70 whitespace-nowrap tabular-nums text-xs">
+              {{ if c.dueDate }}{{ c.dueDate |> formatDate }}{{ else }}<span class="text-base-content/30">-</span>{{ /if }}
+            </div>
+            <div class="hidden md:block text-xs whitespace-nowrap">{{ include "partials/charge_status.vto" { c, cutoff } }}</div>
+          </summary>
+
+          {{# Conteúdo expandido - pagamentos da cobrança. #}}
+          <div class="px-4 pb-4 pt-1 bg-base-200/20 border-t border-base-200/60">
+            <div class="ml-7 md:ml-9">
+              <div class="text-[10px] uppercase tracking-wider font-bold text-base-content/50 mb-2">
+                {{ if hasPayments }}
+                  Pagamentos · {{ String(c.settlements.length) }}
+                {{ else }}
+                  Pagamentos
+                {{ /if }}
+              </div>
+              {{ if hasPayments }}
+                <ul class="space-y-1.5">
+                  {{ for s of c.settlements }}
+                    <li class="flex items-baseline gap-3 text-xs flex-wrap">
+                      <span class="text-success/80 shrink-0">↳</span>
+                      <span class="font-semibold tabular-nums whitespace-nowrap text-base-content/80 w-24 shrink-0">{{ s.date |> formatDate }}</span>
+                      <span class="tabular-nums font-semibold whitespace-nowrap text-success/90 w-24 shrink-0 text-right">{{ s.amount |> formatMoney }}</span>
+                      <span class="text-base-content/60 truncate flex-1 min-w-0">
+                        {{ if s.bankTransaction && s.bankTransaction.description }}
+                          {{ s.bankTransaction.description }}
+                        {{ else }}
+                          {{ settlementTypeLabels[s.settlementType] ?? s.settlementType }}
+                        {{ /if }}
+                      </span>
+                    </li>
+                  {{ /for }}
+                </ul>
+              {{ else }}
+                <p class="text-xs text-base-content/50 italic">
+                  {{ if c.status === "paid" }}
+                    Liquidação registada antes do extrato bancário ser importado.
+                  {{ else if c.status === "cancelled" }}
+                    Cobrança cancelada - sem pagamentos.
+                  {{ else }}
+                    Sem pagamentos registados.
+                  {{ /if }}
+                </p>
+              {{ /if }}
+            </div>
+          </div>
+        </details>
+      {{ /for }}
+    </div>
+    {{# Rodapé com totais agregados. #}}
+    <div class="border-t border-base-200 px-4 py-3 bg-base-200/30 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-xs text-base-content/70">
+      <div>
+        <strong class="text-base-content/90 tabular-nums">{{ String(charges.length) }}</strong>
+        {{ charges.length === 1 ? "registo" : "registos" }}
+        <span class="text-base-content/30 mx-1">·</span>
+        <strong class="text-base-content/90 tabular-nums">{{ totalIssued |> formatMoney }}</strong>
+        total lançado
+      </div>
+      <div>
+        <strong class="text-success tabular-nums">{{ totalPaid |> formatMoney }}</strong>
+        pagos
+        <span class="text-base-content/30 mx-1">·</span>
+        <strong class="text-info tabular-nums">{{ totalOpen |> formatMoney }}</strong>
+        em aberto
+        {{# `totalOverdue` ⊆ `totalOpen` - só mostra quando > 0. #}}
+        {{ if totalOverdue > 0 }}
+          <span class="text-base-content/30 mx-1">·</span>
+          <strong class="text-error tabular-nums">{{ totalOverdue |> formatMoney }}</strong>
+          vencido{{ overdueCount === 1 ? "" : "s" }}
+        {{ /if }}
+      </div>
+    </div>
+  </div>
+{{ /if }}
+
+<script>
+  // Expandir/recolher todas as cobranças em lote. O botão vive fora do
+  // `data-charges-scope` (na barra de filtros) - pesquisamos os dois
+  // separadamente no document.
+  (function () {
+    var btn = document.querySelector("[data-charges-toggle]");
+    var scope = document.querySelector("[data-charges-scope]");
+    if (!btn || !scope) return;
+    var label = btn.querySelector("[data-toggle-label]");
+    btn.addEventListener("click", function () {
+      var willOpen = btn.dataset.state === "closed";
+      scope.querySelectorAll("details[data-charge-row]").forEach(function (d) {
+        d.open = willOpen;
+      });
+      btn.dataset.state = willOpen ? "open" : "closed";
+      if (label) label.textContent = willOpen ? "Recolher tudo" : "Expandir tudo";
+    });
+  })();
+</script>
+
+{{ /layout }}

@@ -1,0 +1,31 @@
+# Override file que activa DEBUG_SQL=1 nos containers api e panel.
+#
+# Quando ligado, cada query SQL é impressa em stderr (visível em
+# `docker logs mague-api -f`) com:
+#   • SQL bruto + params
+#   • tempo decorrido
+#   • número de rows retornadas
+#
+# Combinação típica: usar com slow-db para detectar queries lentas:
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f docker-compose.slow-db.yml \
+#     -f docker-compose.debug-sql.yml \
+#     up -d
+#   docker logs -f mague-api
+#
+# Ou só com seed maximum (sem slow-db) para perceber o que cada listagem
+# faz na BD:
+#   docker compose -f docker-compose.yml -f docker-compose.debug-sql.yml up -d
+#
+# Para desligar: voltar a `docker compose up -d` (sem o -f).
+
+services:
+  api:
+    environment:
+      DEBUG_SQL: "1"
+  panel:
+    # O panel não corre queries directamente (vai pela API), mas se
+    # alguma chamada interna ler da DB futuramente, fica preparado.
+    environment:
+      DEBUG_SQL: "1"

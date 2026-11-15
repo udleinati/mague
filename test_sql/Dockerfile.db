@@ -1,0 +1,9 @@
+FROM postgres:18.3-alpine
+
+RUN apk add --no-cache --virtual .build-deps build-base git perl make \
+ && git clone --depth 1 https://github.com/theory/pgtap.git /tmp/pgtap \
+ && cd /tmp/pgtap \
+ && make \
+ && make install \
+ && apk del .build-deps \
+ && rm -rf /tmp/pgtap

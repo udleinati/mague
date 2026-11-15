@@ -1,0 +1,23 @@
+{{# Estilos do corpo do orçamento, escopados em `.orc-doc` para serem partilhados
+   pelo PDF do orçamento (budget.vto) e pelos anexos da ata (assembly_minutes.vto)
+   sem colidir com o CSS de cada documento. Incluir 1x no <head> de cada um.
+   Marcação correspondente: partials/budget_body.vto. #}}
+<style>
+  .orc-doc { font-size: 10.5pt; line-height: 1.45; color: #1a1a1a; }
+  .orc-doc h1 { font-size: 17pt; margin: 0 0 7px 0; }
+  .orc-doc .subtitle { font-size: 10.5pt; color: #555; margin-bottom: 10px; }
+  .orc-doc .badges { margin: 8px 0 18px; font-size: 9pt; }
+  .orc-doc .badges span { display: inline-block; border: 1px solid #ccc; border-radius: 4px; padding: 2px 8px; margin-right: 6px; color: #444; }
+  .orc-doc h2 { font-size: 9pt; text-transform: uppercase; letter-spacing: 0.6px; color: #666; border-bottom: 1px solid #ddd; padding-bottom: 4px; margin: 22px 0 8px; }
+  .orc-doc table { width: 100%; border-collapse: collapse; }
+  .orc-doc th { text-align: left; font-size: 8pt; text-transform: uppercase; letter-spacing: 0.4px; color: #666; border-bottom: 1px solid #ddd; padding: 6px 4px; font-weight: 600; }
+  .orc-doc td { padding: 6px 4px; border-bottom: 1px solid #f0f0f0; font-size: 10pt; }
+  .orc-doc .amount { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .orc-doc .code { font-family: "SF Mono", Menlo, monospace; font-size: 8.5pt; color: #777; }
+  .orc-doc .muted { color: #888; }
+  /* Totais como linha de tbody (a footer group repetir-se-ia em cada página no print). */
+  .orc-doc tr.totrow td { border-top: 2px solid #1a1a1a; border-bottom: none; font-weight: bold; padding-top: 8px; }
+  .orc-doc .totbox { margin: 18px 0 0 auto; width: 320px; page-break-inside: avoid; }
+  .orc-doc .totbox .r { display: flex; justify-content: space-between; padding: 4px 0; font-size: 10pt; }
+  .orc-doc .totbox .r.grand { border-top: 2px solid #1a1a1a; margin-top: 4px; padding-top: 6px; font-weight: bold; font-size: 11pt; }
+</style>

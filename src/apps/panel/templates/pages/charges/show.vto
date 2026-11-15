@@ -1,0 +1,708 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+<div class="max-w-5xl">
+  {{# Refaturar: qualquer payable ativa; bloqueado em cancelled e já-refaturações. #}}
+  {{ set canRefacture = charge.kind === "payable"
+                      && charge.chargeType !== "refacturation"
+                      && charge.status !== "cancelled" }}
+  {{# Editar: só em estados editáveis (open/overdue) sem settlements. #}}
+  {{ set canEdit = (charge.status === "open" || charge.status === "overdue") && Number(charge.settledAmount ?? 0) === 0 }}
+  {{ set _listHref = "/admin/c/" + currentCondominiumId + "/charges?kind=" + charge.kind }}
+  {{ set _competence = charge.competencePeriod |> formatMonth }}
+  {{# Estado efetivo via cutoff de conciliação, nunca charge.status gravado (ADR 0037). #}}
+  {{ set _statusBadge = chargeStatusBadge(charge, condominium.reconciledThroughDate ?? null) }}
+
+  {{# Header canónico (ADR 0036). Método de pagamento só aparece em DD ou TA. #}}
+  {{ layout "partials/page_header.vto" {
+    title: charge.description,
+    scale: "detail",
+    breadcrumbs: [
+      { label: charge.kind === "payable" ? "Despesas" : "Quotas", href: _listHref },
+      { label: charge.description },
+    ],
+    code: charge.code,
+    codeTone: charge.kind === "payable" ? "info" : "success",
+    status: _statusBadge,
+    meta: [
+      { value: charge.chargeType, plain: true },
+      { value: charge.kind === "payable" ? "A pagar" : "A receber", plain: true },
+      charge.paymentMethod === "direct_debit" ? { label: "Pagamento", value: "Débito Direto", tone: "info" } : null,
+      charge.paymentMethod === "auto_transfer" ? { label: "Pagamento", value: "Transferência Automática", tone: "success" } : null,
+      charge.competencePeriod ? { label: "Competência", value: _competence } : null,
+      supplierLabel ? { label: "Fornecedor", value: supplierLabel } : null,
+      accountLabel ? { label: "Categoria", value: accountLabel } : null,
+      unitLabel ? { label: "Fração", value: unitLabel, href: charge.unitId ? ("/admin/c/" + currentCondominiumId + "/units/" + charge.unitId) : null } : null,
+      charge.invoiceNumber ? { value: "Fatura " + charge.invoiceNumber, plain: true } : null,
+    ]
+  } }}
+    {{ if canEdit }}
+      <button type="button" onclick="document.getElementById('edit_charge_modal').showModal()" class="btn btn-sm">Editar</button>
+    {{ /if }}
+    {{ if canRefacture && refacturable > 0 }}
+      <button type="button" onclick="document.getElementById('refact_modal').showModal()" class="btn btn-sm btn-primary">Refaturar</button>
+    {{ /if }}
+  {{ /layout }}
+
+  {{# nature='credit' (devolução/nota de crédito): valores com sinal negativo e labels próprias. #}}
+  {{ set _isCreditCharge = charge.nature === "credit" }}
+  {{ set _sign = _isCreditCharge ? -1 : 1 }}
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+    <div class="card bg-base-100 shadow-sm border border-base-200 p-5">
+      <div class="text-xs uppercase font-bold text-base-content/60 tracking-wider">Valor original</div>
+      <div class="text-xl sm:text-2xl xl:text-3xl font-bold mt-2 whitespace-nowrap {{ if _isCreditCharge }}text-error{{ /if }}">{{ (_sign * charge.originalAmount) |> formatMoney }}</div>
+      <div class="text-xs text-base-content/50 mt-1">{{ charge.issueDate }}</div>
+      {{ if fcrAmountCents > 0 }}
+        <div class="text-xs text-base-content/60 mt-2 pt-2 border-t border-base-200">
+          inclui <strong>{{ fcrAmountCents |> formatMoney }}</strong> de FCR
+          <span class="text-base-content/40">({{ Math.round(fcrAmountCents * 100 / charge.originalAmount) }}%)</span>
+        </div>
+      {{ /if }}
+    </div>
+    <div class="card bg-base-100 shadow-sm border border-base-200 p-5">
+      <div class="text-xs uppercase font-bold text-base-content/60 tracking-wider">{{ _isCreditCharge ? "Aplicado" : "Liquidado" }}</div>
+      <div class="text-xl sm:text-2xl xl:text-3xl font-bold mt-2 whitespace-nowrap text-success">{{ (_sign * charge.settledAmount) |> formatMoney }}</div>
+      <div class="text-xs text-base-content/50 mt-1">{{ _isCreditCharge ? "já aplicado/recebido" : "já pago" }}</div>
+    </div>
+    <div class="card bg-base-100 shadow-sm border border-base-200 p-5">
+      <div class="text-xs uppercase font-bold text-base-content/60 tracking-wider">{{ _isCreditCharge ? "Por aplicar" : "Em aberto" }}</div>
+      <div class="text-xl sm:text-2xl xl:text-3xl font-bold mt-2 whitespace-nowrap {{ if charge.openAmount > 0 }}text-warning{{ else }}text-base-content/40{{ /if }}">{{ (_sign * charge.openAmount) |> formatMoney }}</div>
+      <div class="text-xs text-base-content/50 mt-1">{{ charge.dueDate ? "venc. " + charge.dueDate : "sem vencimento" }}</div>
+    </div>
+    {{ if charge.kind === "payable" && charge.chargeType !== "refacturation" }}
+      <div class="card bg-base-100 shadow-sm border border-base-200 p-5">
+        <div class="text-xs uppercase font-bold text-base-content/60 tracking-wider">Refaturado</div>
+        <div class="text-xl sm:text-2xl xl:text-3xl font-bold mt-2 whitespace-nowrap {{ if refacturedTotal > 0 }}text-primary{{ else }}text-base-content/40{{ /if }}">{{ refacturedTotal |> formatMoney }}</div>
+        <div class="text-xs text-base-content/50 mt-1">
+          {{ if refacturable > 0 }}
+            {{ refacturable |> formatMoney }} ainda livre
+          {{ else }}
+            totalmente refaturado
+          {{ /if }}
+        </div>
+      </div>
+    {{ else if sourceCharge }}
+      <div class="card bg-base-100 shadow-sm border border-base-200 p-5">
+        <div class="text-xs uppercase font-bold text-base-content/60 tracking-wider">Refaturação de</div>
+        <div class="text-sm font-semibold mt-2">
+          <a href="/admin/c/{{ currentCondominiumId }}/charges/{{ sourceCharge.id }}" class="link link-primary">{{ sourceCharge.description }}</a>
+        </div>
+        <div class="text-xs text-base-content/50 mt-1">{{ sourceCharge.originalAmount |> formatMoney }} total</div>
+      </div>
+    {{ /if }}
+  </div>
+
+  {{# Nota interna - só admin, nunca exposta ao portal. #}}
+  {{ if charge.note }}
+    <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 mb-6 flex items-start gap-3">
+      <svg class="w-5 h-5 text-amber-700 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zM19.5 14.25v4.5A2.25 2.25 0 0117.25 21H5.25A2.25 2.25 0 013 18.75V6.75A2.25 2.25 0 015.25 4.5H10"/>
+      </svg>
+      <div class="flex-1 min-w-0">
+        <div class="text-[10px] uppercase tracking-wider font-bold text-amber-700 mb-1">Nota interna</div>
+        <p class="text-sm text-amber-900 whitespace-pre-line leading-relaxed">{{ charge.note }}</p>
+      </div>
+    </div>
+  {{ /if }}
+
+  {{# Imputação a um orçamento (obra aprovada em assembleia). Vazio = o
+     relatório por Ata infere pela rubrica + ano; escolher aqui desempata
+     quando a rubrica serve mais do que um orçamento do mesmo ano. #}}
+  {{ if charge.kind === "payable" && charge.chargeType !== "refacturation" }}
+    <div class="card bg-base-100 shadow-sm border border-base-200 p-5 mb-6">
+      <div class="flex flex-wrap items-end justify-between gap-4">
+        <div class="min-w-0">
+          <h2 class="text-sm font-bold uppercase tracking-wider text-base-content/60">Imputação ao orçamento</h2>
+          <p class="text-xs text-base-content/50 mt-1 max-w-xl">
+            Deixa em branco para o relatório por Ata inferir pela rubrica e pelo ano.
+            Escolhe um orçamento quando a rubrica serve mais do que uma obra do mesmo ano.
+          </p>
+        </div>
+        <form method="post" action="/admin/c/{{ currentCondominiumId }}/charges/{{ charge.id }}/budget"
+              class="flex items-center gap-2 shrink-0">
+          <select name="budgetId" class="select select-sm select-bordered">
+            <option value="" {{ if !charge.budgetId }}selected{{ /if }}>Inferir automaticamente</option>
+            {{ for b of budgets }}
+              <option value="{{ b.id }}" {{ if charge.budgetId === b.id }}selected{{ /if }}>Orçamento {{ b.label }}</option>
+            {{ /for }}
+          </select>
+          <button type="submit" class="btn btn-sm btn-primary">Guardar</button>
+        </form>
+      </div>
+    </div>
+  {{ /if }}
+
+  {{ if charge.kind === "payable" && charge.chargeType !== "refacturation" }}
+    <div class="card bg-base-100 shadow-sm border border-base-200 overflow-hidden mb-6">
+      <div class="flex items-center justify-between px-6 pt-5 pb-3 border-b border-base-200">
+        <h2 class="text-lg font-bold">Refaturações</h2>
+        <div class="text-xs text-base-content/60">{{ String(refacturations.length) }} emitida(s)</div>
+      </div>
+      {{ if refacturations.length === 0 }}
+        <div class="p-8 text-center text-sm text-base-content/50">Ainda não há refaturações para esta despesa.</div>
+      {{ else }}
+        <div class="table-scroll">
+        <table class="table table-sm">
+          <thead>
+            <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+              <th class="pl-6">Código</th>
+              <th>Fração</th>
+              <th>Data</th>
+              <th class="text-right">Valor</th>
+              <th class="text-right">Pago</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{ for r of refacturations }}
+              <tr class="border-t border-base-100 text-sm">
+                <td class="pl-6">
+                  <a href="/admin/c/{{ currentCondominiumId }}/charges/{{ r.id }}"
+                     class="link link-hover font-mono text-xs font-bold tabular-nums tracking-wider text-success">{{ if r.code }}{{ r.code }}{{ else }}ver{{ /if }}</a>
+                </td>
+                {{# Designação da fração = link para a fração (ADR 0015); o código
+                   ao lado é que abre a cobrança. #}}
+                <td class="font-medium">
+                  <a href="/admin/c/{{ currentCondominiumId }}/units/{{ r.unitId }}" class="link link-hover">{{ r.unit_label }}</a>
+                </td>
+                <td class="text-xs text-base-content/70">{{ r.issueDate }}</td>
+                <td class="text-right tabular-nums">{{ r.originalAmount |> formatMoney }}</td>
+                <td class="text-right tabular-nums text-base-content/60">{{ r.settledAmount |> formatMoney }}</td>
+                <td>
+                  {{ if r.status === "paid" }}
+                    <span class="inline-flex items-center gap-1.5 text-xs font-medium text-success"><span class="inline-block w-1.5 h-1.5 rounded-full bg-success"></span>Pago</span>
+                  {{ else if r.status === "partial" }}
+                    <span class="inline-flex items-center gap-1.5 text-xs font-medium text-warning"><span class="inline-block w-1.5 h-1.5 rounded-full bg-warning"></span>Parcial</span>
+                  {{ else }}
+                    <span class="inline-flex items-center gap-1.5 text-xs text-base-content/60"><span class="inline-block w-1.5 h-1.5 rounded-full bg-base-content/40"></span>Aberto</span>
+                  {{ /if }}
+                </td>
+              </tr>
+            {{ /for }}
+          </tbody>
+        </table>
+        </div>
+      {{ /if }}
+    </div>
+  {{ /if }}
+
+  {{# ─── Anexos: faturas, recibos, comprovativos ────────────────────────
+     Wrapper `#charge-attachments` é o swap target dos forms; o modal vive
+     fora dele para sobreviver ao swap (ADR 0026 regra 1b). #}}
+  <div id="charge-attachments" class="card bg-base-100 shadow-sm border border-base-200 overflow-hidden mb-6">
+    <div class="flex items-center justify-between px-6 pt-5 pb-3 border-b border-base-200">
+      <h2 class="text-lg font-bold">
+        {{ if charge.kind === "payable" }}Faturas / comprovativos{{ else }}Anexos{{ /if }}
+        <span class="text-sm font-normal text-base-content/50 ml-1">· {{ String(attachments.length) }}</span>
+      </h2>
+      <button type="button" class="btn btn-sm btn-primary"
+              onclick="document.getElementById('modal_attach_{{ charge.id }}').showModal()">
+        + Anexar
+      </button>
+    </div>
+    {{ if attachments.length === 0 }}
+      <div class="p-8 text-center text-sm text-base-content/50">
+        Sem anexos. Carrega um PDF, imagem ou documento.
+      </div>
+    {{ else }}
+      <ul class="divide-y divide-base-200">
+        {{ for a of attachments }}
+          <li class="px-6 py-3 flex items-center justify-between gap-3">
+            <div class="min-w-0 flex-1 flex items-center gap-3">
+              {{ set _isPdf = a.mimeType && a.mimeType.indexOf("pdf") >= 0 }}
+              <div class="shrink-0 w-9 h-9 rounded bg-base-200 flex items-center justify-center text-xs font-bold uppercase text-base-content/60">
+                {{ if _isPdf }}PDF{{ else if a.mimeType && a.mimeType.startsWith("image/") }}IMG{{ else }}DOC{{ /if }}
+              </div>
+              <div class="min-w-0 flex-1">
+                <a href="/admin/c/{{ currentCondominiumId }}/charges/{{ charge.id }}/attachments/{{ a.id }}"
+                   target="_blank"
+                   class="text-sm font-medium link link-primary no-underline hover:underline truncate block">
+                  {{ a.filename }}
+                </a>
+                <div class="text-xs text-base-content/50 mt-0.5">
+                  {{ Math.round(Number(a.fileSize) / 1024) }} KB · carregado em {{ a.createdAt |> formatDate }}
+                </div>
+              </div>
+            </div>
+            <form method="post"
+                  action="/admin/c/{{ currentCondominiumId }}/charges/{{ charge.id }}/attachments/{{ a.id }}/delete"
+                  hx-post="/admin/c/{{ currentCondominiumId }}/charges/{{ charge.id }}/attachments/{{ a.id }}/delete"
+                  hx-target="#charge-attachments"
+                  hx-select="#charge-attachments"
+                  hx-swap="outerHTML show:no"
+                  data-confirm-title="Remover anexo?"
+                  data-confirm-body="O ficheiro {{ a.filename }} será removido. Esta ação não pode ser desfeita."
+                  data-confirm-ok="Sim, remover"
+                  data-confirm-danger="true">
+              <button type="submit" class="link text-xs text-error/70 hover:text-error no-underline">remover</button>
+            </form>
+          </li>
+        {{ /for }}
+      </ul>
+    {{ /if }}
+  </div>
+
+  {{# Modal de upload. `hx-on::after-request` fecha o modal só em sucesso. #}}
+  <dialog id="modal_attach_{{ charge.id }}" class="modal">
+    <div class="modal-box max-w-md">
+      <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+      <h3 class="font-bold text-lg mb-1">Anexar à cobrança</h3>
+      <p class="text-sm text-base-content/60 mb-4">
+        PDF, imagem ou documento. Máximo {{ String(uploadMaxMb) }} MB por ficheiro. Podes selecionar vários de uma vez.
+      </p>
+      <form method="post"
+            action="/admin/c/{{ currentCondominiumId }}/charges/{{ charge.id }}/attachments"
+            hx-post="/admin/c/{{ currentCondominiumId }}/charges/{{ charge.id }}/attachments"
+            hx-target="#charge-attachments"
+            hx-select="#charge-attachments"
+            hx-swap="outerHTML show:no"
+            hx-encoding="multipart/form-data"
+            hx-on::after-request="if (event.detail.successful) document.getElementById('modal_attach_{{ charge.id }}').close()"
+            enctype="multipart/form-data"
+            class="space-y-3">
+        {{ include "partials/file_dropzone.vto" {
+          name: "files",
+          multiple: true,
+          accept: "application/pdf,image/*,.doc,.docx",
+          helpText: "PDF, imagem, .doc - podes selecionar vários",
+        } }}
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" class="btn btn-sm btn-ghost"
+                  onclick="document.getElementById('modal_attach_{{ charge.id }}').close()">Cancelar</button>
+          <button type="submit" class="btn btn-sm btn-primary gap-1.5" data-upload-submit disabled>
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/>
+            </svg>
+            Carregar
+          </button>
+        </div>
+      </form>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+
+  {{# ─── Ledger: entries de criação (fn_charge_ai) + settlements ligados ─── #}}
+  <div class="card bg-base-100 shadow-sm border border-base-200 overflow-hidden mb-6">
+    <div class="flex items-center justify-between px-6 pt-5 pb-3 border-b border-base-200">
+      <div>
+        <h2 class="text-lg font-bold">Ledger</h2>
+        <p class="text-xs text-base-content/60 mt-0.5">Efeito contabilístico desta cobrança (criação + settlements ligados).</p>
+      </div>
+      <div class="text-xs text-base-content/60 tabular-nums flex items-center gap-3">
+        <span><span class="text-base-content/40">Total Dr:</span> <strong>{{ ledgerTotals.debitCents |> formatMoney }}</strong></span>
+        <span><span class="text-base-content/40">Total Cr:</span> <strong>{{ ledgerTotals.creditCents |> formatMoney }}</strong></span>
+        {{ if ledgerTotals.debitCents === ledgerTotals.creditCents }}
+          <span class="inline-flex items-center gap-1 text-success"><span class="inline-block w-1.5 h-1.5 rounded-full bg-success"></span>balanceado</span>
+        {{ else }}
+          <span class="inline-flex items-center gap-1 text-error"><span class="inline-block w-1.5 h-1.5 rounded-full bg-error"></span>desbalanceado</span>
+        {{ /if }}
+      </div>
+    </div>
+    {{ if ledgerEntries.length === 0 }}
+      <div class="p-8 text-center text-sm text-base-content/50">Sem entries no ledger para esta cobrança.</div>
+    {{ else }}
+      <div class="table-scroll">
+      <table class="table table-sm">
+        <thead>
+          <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+            <th class="pl-6">Data</th>
+            <th>Tipo</th>
+            <th>Conta</th>
+            <th>Descrição</th>
+            <th>Origem</th>
+            <th class="text-right">Débito</th>
+            <th class="text-right">Crédito</th>
+            <th>Criado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{ for l of ledgerEntries }}
+            <tr class="border-t border-base-100 text-sm">
+              <td class="pl-6 whitespace-nowrap tabular-nums text-base-content/70">{{ l.entryDate |> formatDate }}</td>
+              <td class="whitespace-nowrap text-xs text-base-content/70">{{ l.entryType }}</td>
+              <td class="whitespace-nowrap font-mono text-xs">{{ l.accountCode }}</td>
+              <td class="text-xs max-w-[280px] truncate" title="{{ l.description ?? '' }}">{{ l.description || "-" }}</td>
+              <td class="whitespace-nowrap text-[11px] text-base-content/60">
+                {{ if l.refType === "charge" }}
+                  <span class="inline-flex items-center gap-1">
+                    <span class="inline-block w-1.5 h-1.5 rounded-full bg-primary/60"></span>
+                    charge
+                  </span>
+                {{ else if l.refType === "settlement" }}
+                  <span class="inline-flex items-center gap-1">
+                    <span class="inline-block w-1.5 h-1.5 rounded-full bg-info/60"></span>
+                    settlement <span class="text-base-content/40 font-mono">{{ l.refId }}</span>
+                  </span>
+                {{ else }}
+                  <span class="text-base-content/40">{{ l.refType ?? "-" }}</span>
+                {{ /if }}
+              </td>
+              <td class="text-right tabular-nums whitespace-nowrap">
+                {{ if l.direction === "debit" }}<span class="font-medium">{{ l.amount |> formatMoney }}</span>{{ else }}<span class="text-base-content/30">-</span>{{ /if }}
+              </td>
+              <td class="text-right tabular-nums whitespace-nowrap">
+                {{ if l.direction === "credit" }}<span class="font-medium">{{ l.amount |> formatMoney }}</span>{{ else }}<span class="text-base-content/30">-</span>{{ /if }}
+              </td>
+              <td class="text-[11px] text-base-content/50 whitespace-nowrap" title="{{ l.createdAt }}">{{ l.createdAt |> formatDate }}</td>
+            </tr>
+          {{ /for }}
+        </tbody>
+      </table>
+      </div>
+    {{ /if }}
+  </div>
+
+  {{ if canRefacture && refacturable > 0 }}
+    <dialog id="refact_modal" class="modal">
+      <div class="modal-box max-w-2xl">
+        <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+        <h3 class="font-bold text-lg mb-1">Refaturar por fração</h3>
+        <p class="text-sm text-base-content/60 mb-3">
+          {{ charge.description }} · Total: <strong>{{ charge.originalAmount |> formatMoney }}</strong>
+          {{ if refacturedTotal > 0 }} · Já refaturado: {{ refacturedTotal |> formatMoney }}{{ /if }}
+          · Disponível: <strong class="text-primary">{{ refacturable |> formatMoney }}</strong>
+        </p>
+        {{# Hint para despesa já paga: refaturação é crédito à mesma categoria,
+           funciona mesmo com a fatura já liquidada no banco. #}}
+        {{ if charge.status === "paid" }}
+          <div class="rounded-lg border border-info/30 bg-info/5 px-3 py-2 text-xs text-base-content/80 mb-4">
+            Esta despesa já foi paga. A refaturação é registada normalmente - as frações passam a dever ao condomínio o valor refaturado, e a categoria contabilística fica líquida quando forem pagas.
+          </div>
+        {{ /if }}
+        <form method="post" action="/admin/c/{{ currentCondominiumId }}/charges/{{ charge.id }}/refacturations" class="space-y-3">
+          {{# Vencimento obrigatório: sem ele a refaturação nunca aparece nos
+             atrasos (nem no painel nem nos lembretes). Default = último dia do
+             mês seguinte. #}}
+          <div class="flex flex-wrap items-center gap-2 bg-base-200/40 rounded-lg px-3 py-2">
+            <label for="refact-due-date" class="text-xs uppercase tracking-wider font-bold text-base-content/60">
+              Vencimento
+            </label>
+            <input type="date" id="refact-due-date" name="dueDate" required
+                   value="{{ refacturationDueDate }}"
+                   class="input input-sm input-bordered tabular-nums">
+            <span class="text-[11px] text-base-content/50">
+              Sem vencimento a dívida não entra nos atrasos.
+            </span>
+          </div>
+          {{# Atalhos frequentes: "100% para 1 fração" (caso infiltração / defeito
+             específico) e "dividir por permilagem" (caso luz da garagem). #}}
+          <div class="flex flex-wrap gap-2 items-center text-xs text-base-content/60">
+            <span>Atalhos:</span>
+            <button type="button" data-refact-split-permillage class="btn btn-xs btn-outline">Dividir por permilagem</button>
+            <button type="button" data-refact-clear class="btn btn-xs btn-ghost">Limpar</button>
+          </div>
+          {{# Filtro client-side: só esconde linhas sem match, preserva valores introduzidos. #}}
+          <div class="flex items-center gap-2">
+            <input type="search" data-refact-search
+                   placeholder="Pesquisar fração (designação ou identificador)…"
+                   class="input input-sm input-bordered flex-1">
+            <span class="text-[11px] text-base-content/40 whitespace-nowrap"
+                  data-refact-search-count></span>
+          </div>
+          <div class="bg-base-200/30 rounded-lg p-3 max-h-96 overflow-y-auto">
+            <table class="table table-sm">
+              <thead>
+                <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+                  <th class="pl-2">Fração</th>
+                  <th class="text-right pr-2 w-40">Valor (€)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {{# Vento renderiza `0` como string vazia em `{{ i }}` e parte
+                   name="alloc_0_..."; `String(i)` evita o regex do controller falhar. #}}
+                {{ for i of units.keys() }}
+                  {{ set u = units[i] }}
+                  {{ set idx = String(i) }}
+                  <tr class="border-t border-base-100 text-sm" data-refact-row
+                      data-refact-haystack="{{ (u.designation + ' ' + (u.identifier ?? '')).toLowerCase() }}">
+                    <td class="pl-2">
+                      <input type="hidden" name="alloc_{{ idx }}_unit_id" value="{{ u.id }}">
+                      {{# Click no nome imputa todo o restante a esta fração (limpa as outras). #}}
+                      <button type="button" class="font-medium link link-hover text-left"
+                              data-refact-all-here
+                              data-permillage="{{ u.permillage }}"
+                              title="Imputar tudo o que falta refaturar a esta fração">
+                        {{ u.designation }}{{ if u.identifier }}<span class="text-base-content/50 font-normal"> - {{ u.identifier }}</span>{{ /if }}
+                      </button>
+                      <span class="ml-1 text-[10px] text-base-content/40 tabular-nums">{{ u.permillage |> formatPermillage }}‰</span>
+                    </td>
+                    <td class="text-right pr-2">
+                      <input type="text" name="alloc_{{ idx }}_amount" inputmode="decimal" data-refact-input
+                             data-permillage="{{ u.permillage }}"
+                             class="input input-sm input-bordered w-full text-right tabular-nums"
+                             placeholder="0,00">
+                    </td>
+                  </tr>
+                {{ /for }}
+              </tbody>
+            </table>
+          </div>
+          <div class="flex items-center justify-between text-sm px-3 py-2 bg-base-200 rounded-lg">
+            <span class="font-semibold">Total a refaturar</span>
+            <span class="tabular-nums font-bold" data-refact-sum>0,00 €</span>
+          </div>
+          <div class="text-xs text-base-content/60" data-refact-warn></div>
+          <div class="flex justify-end gap-2 pt-2">
+            <button type="button" onclick="document.getElementById('refact_modal').close()" class="btn btn-sm btn-ghost">Cancelar</button>
+            <button type="submit" class="btn btn-sm btn-primary" data-refact-submit>Refaturar</button>
+          </div>
+        </form>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    </dialog>
+
+    <script>
+      (function () {
+        var limit = {{ refacturable }};
+        var modal = document.getElementById('refact_modal');
+        if (!modal) return;
+        var inputs = modal.querySelectorAll('[data-refact-input]');
+        var sumEl = modal.querySelector('[data-refact-sum]');
+        var warnEl = modal.querySelector('[data-refact-warn]');
+        var submitBtn = modal.querySelector('[data-refact-submit]');
+
+        function fmt(cents) {
+          var s = (cents / 100).toFixed(2).replace('.', ',');
+          return s.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ' €';
+        }
+        function setInput(input, cents) {
+          // Escreve com 2 casas e vírgula (formato PT); string vazia se 0.
+          input.value = cents > 0 ? (cents / 100).toFixed(2).replace('.', ',') : '';
+        }
+        function recompute() {
+          var total = 0;
+          for (var i = 0; i < inputs.length; i++) {
+            var raw = inputs[i].value.trim().replace(',', '.');
+            if (!raw) continue;
+            var n = parseFloat(raw);
+            if (!isNaN(n) && n > 0) total += Math.round(n * 100);
+          }
+          sumEl.textContent = fmt(total);
+          if (total > limit) {
+            warnEl.textContent = 'A soma excede o disponível (' + fmt(limit) + ')';
+            warnEl.className = 'text-xs text-error font-medium';
+            submitBtn.disabled = true;
+          } else if (total === 0) {
+            warnEl.textContent = 'Preenche pelo menos uma fração';
+            warnEl.className = 'text-xs text-base-content/60';
+            submitBtn.disabled = true;
+          } else {
+            warnEl.textContent = total < limit
+              ? 'Refaturação parcial - sobrarão ' + fmt(limit - total) + ' para refaturar depois'
+              : 'Refaturação total';
+            warnEl.className = 'text-xs text-base-content/60';
+            submitBtn.disabled = false;
+          }
+        }
+        for (var i = 0; i < inputs.length; i++) {
+          inputs[i].addEventListener('input', recompute);
+        }
+
+        // ── Atalho "tudo para esta fração" ────────────────────────────────
+        modal.querySelectorAll('[data-refact-all-here]').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            var row = btn.closest('tr');
+            var target = row.querySelector('[data-refact-input]');
+            for (var j = 0; j < inputs.length; j++) {
+              if (inputs[j] !== target) setInput(inputs[j], 0);
+            }
+            setInput(target, limit);
+            recompute();
+            target.focus();
+          });
+        });
+
+        // ── "Dividir por permilagem" ──────────────────────────────────────
+        // Distribui proporcional; a última linha absorve o arredondamento.
+        var splitBtn = modal.querySelector('[data-refact-split-permillage]');
+        if (splitBtn) {
+          splitBtn.addEventListener('click', function () {
+            var totalPm = 0;
+            for (var j = 0; j < inputs.length; j++) {
+              totalPm += Number(inputs[j].dataset.permillage || 0);
+            }
+            if (totalPm <= 0) return;
+            var allocated = 0;
+            for (var j = 0; j < inputs.length; j++) {
+              var pm = Number(inputs[j].dataset.permillage || 0);
+              if (j < inputs.length - 1) {
+                var cents = Math.round(limit * pm / totalPm);
+                setInput(inputs[j], cents);
+                allocated += cents;
+              } else {
+                setInput(inputs[j], Math.max(0, limit - allocated));
+              }
+            }
+            recompute();
+          });
+        }
+
+        // ── "Limpar" ───────────────────────────────────────────────────────
+        var clearBtn = modal.querySelector('[data-refact-clear]');
+        if (clearBtn) {
+          clearBtn.addEventListener('click', function () {
+            for (var j = 0; j < inputs.length; j++) setInput(inputs[j], 0);
+            recompute();
+          });
+        }
+
+        // ── Pesquisa por designação/identificador ─────────────────────────
+        // Normaliza acentos (NFD + strip diacritics) para "Á" bater com "a".
+        var searchInput = modal.querySelector('[data-refact-search]');
+        var countEl = modal.querySelector('[data-refact-search-count]');
+        var rows = modal.querySelectorAll('[data-refact-row]');
+        function normalize(s) {
+          return (s || '').toString().toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        }
+        function applyFilter() {
+          var q = normalize(searchInput.value.trim());
+          var shown = 0;
+          for (var j = 0; j < rows.length; j++) {
+            var hay = normalize(rows[j].dataset.refactHaystack);
+            var match = !q || hay.indexOf(q) !== -1;
+            rows[j].style.display = match ? '' : 'none';
+            if (match) shown += 1;
+          }
+          if (countEl) {
+            countEl.textContent = q
+              ? shown + ' de ' + rows.length
+              : '';
+          }
+        }
+        if (searchInput) {
+          searchInput.addEventListener('input', applyFilter);
+        }
+
+        recompute();
+      })();
+    </script>
+  {{ /if }}
+</div>
+
+{{# ═════════ MODAL: Editar charge ═════════ #}}
+{{# A edição de `amount` dispara o trigger de ledger delta. #}}
+{{ if (charge.status === "open" || charge.status === "overdue") && Number(charge.settledAmount ?? 0) === 0 }}
+  <dialog id="edit_charge_modal" class="modal">
+    <div class="modal-box max-w-lg">
+      <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+      <h3 class="font-bold text-lg mb-2">Editar charge</h3>
+      {{ set amountEditable = (charge.nature === "debit" && charge.kind === "payable" && charge.chargeType !== "refacturation") }}
+      {{ if !amountEditable }}
+        <p class="text-xs text-base-content/60 mb-4">
+          Só os campos textuais são editáveis para este tipo de charge. Para alterar o valor, cancela e cria uma nova
+          (quotas e refaturações exigem notas de crédito; credit_adjustment pode ser usado na fração).
+        </p>
+      {{ /if }}
+      <form method="post" action="/admin/c/{{ currentCondominiumId }}/charges/{{ charge.id }}/update" class="space-y-3">
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Descrição</span></label>
+          <input type="text" name="description" value="{{ charge.description ?? '' }}" class="input input-sm input-bordered" required>
+        </div>
+        {{ if amountEditable }}
+          <div class="form-control">
+            <label class="label py-1"><span class="label-text text-xs">Valor (€)</span></label>
+            <input type="text" name="amount" inputmode="decimal" value="{{ (Number(charge.originalAmount ?? 0) / 100).toFixed(2) }}" class="input input-sm input-bordered" required>
+            <label class="label py-0"><span class="label-text-alt text-info">Alterar o valor dispara lançamento de ajuste no ledger (delta contabilístico).</span></label>
+          </div>
+        {{ /if }}
+        <div class="grid grid-cols-2 gap-3">
+          <div class="form-control">
+            <label class="label py-1"><span class="label-text text-xs">Data de emissão</span></label>
+            <input type="date" name="issueDate" value="{{ charge.issueDate ?? '' }}" class="input input-sm input-bordered">
+          </div>
+          <div class="form-control">
+            <label class="label py-1"><span class="label-text text-xs">Vencimento</span></label>
+            <input type="date" name="dueDate" value="{{ charge.dueDate ?? '' }}" class="input input-sm input-bordered">
+          </div>
+        </div>
+        {{# Competência: input month (YYYY-MM); hidden serializa para YYYY-MM-01
+           no submit. Campo obrigatório - sem ele o update apagava a competência. #}}
+        <div class="form-control">
+          <label class="label py-1">
+            <span class="label-text text-xs">Competência <span class="text-base-content/40">(mês contabilístico)</span></span>
+          </label>
+          <input type="month" name="competencePeriodMonth"
+                 value="{{ charge.competencePeriod ?? '' }}"
+                 class="input input-sm input-bordered" required
+                 data-edit-competence-month
+                 title="Mês a que esta charge respeita. Obrigatório.">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="form-control">
+            <label class="label py-1"><span class="label-text text-xs">Nº fatura</span></label>
+            <input type="text" name="invoiceNumber" value="{{ charge.invoiceNumber ?? '' }}" class="input input-sm input-bordered">
+          </div>
+          <div class="form-control">
+            <label class="label py-1"><span class="label-text text-xs">Nº documento</span></label>
+            <input type="text" name="documentNumber" value="{{ charge.documentNumber ?? '' }}" class="input input-sm input-bordered">
+          </div>
+        </div>
+        {{# Método de pagamento - só editável em payable. #}}
+        {{ if charge.kind === "payable" }}
+          <div class="form-control">
+            <label class="label py-1"><span class="label-text text-xs">Pagamento</span></label>
+            <select name="paymentMethod" class="select select-sm select-bordered">
+              <option value="manual" {{ if charge.paymentMethod === "manual" }}selected{{ /if }}>Manual</option>
+              <option value="direct_debit" {{ if charge.paymentMethod === "direct_debit" }}selected{{ /if }}>Débito Direto</option>
+              <option value="auto_transfer" {{ if charge.paymentMethod === "auto_transfer" }}selected{{ /if }}>Transferência Automática</option>
+            </select>
+          </div>
+        {{ /if }}
+        {{# Nota interna - só admin, anti-leak no portal/charge.ts. #}}
+        <div class="form-control">
+          <label class="label py-1">
+            <span class="label-text text-xs">Nota interna <span class="text-base-content/40">(só admin)</span></span>
+          </label>
+          <textarea name="note" rows="3" maxlength="2000"
+                    placeholder="Anotações internas - ex: confirmar desconto antes de pagar, observações do fornecedor..."
+                    class="textarea textarea-sm textarea-bordered leading-snug">{{ charge.note ?? '' }}</textarea>
+        </div>
+        <div class="flex justify-end gap-2 pt-3 border-t border-base-200">
+          <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('edit_charge_modal').close()">Cancelar</button>
+          <button type="submit" class="btn btn-sm btn-primary">Guardar alterações</button>
+        </div>
+      </form>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+
+  {{# Edit modal: serializa input month (YYYY-MM) → YYYY-MM-01 antes do submit;
+     renomeia o input para não colidir com o hidden criado dinamicamente. #}}
+  <script>
+    (function () {
+      var month = document.querySelector('[data-edit-competence-month]');
+      if (!month) return;
+      var form = month.closest('form');
+      if (!form) return;
+      form.addEventListener('submit', function () {
+        if (!month.value) return;
+        var hidden = form.querySelector('input[name="competencePeriod"]');
+        if (!hidden) {
+          hidden = document.createElement('input');
+          hidden.type = 'hidden';
+          hidden.name = 'competencePeriod';
+          form.appendChild(hidden);
+        }
+        hidden.value = month.value + '-01';
+        month.removeAttribute('name'); // evita enviar YYYY-MM cru
+      });
+    })();
+  </script>
+{{ /if }}
+
+{{# Cancelar reverte o ledger e é irreversível: Zona perigosa (ADR 0025) com
+   typed-match "CANCELAR". Só em estados canceláveis (igual ao guard da API). #}}
+{{ if (charge.status === "open" || charge.status === "overdue") && Number(charge.settledAmount ?? 0) === 0 }}
+  {{ include "partials/danger_zone.vto" {
+    entityName: "cobrança",
+    entityLabel: charge.code ?? charge.description,
+    actionUrl: "/admin/c/" + currentCondominiumId + "/charges/" + charge.id + "/cancel",
+    confirmBody: "Cancela a cobrança " + (charge.code ?? "") + " (" + charge.description + ") e reverte o lançamento contabilístico.",
+    actionVerb: "Cancelar",
+    typedWord: "CANCELAR",
+    dangerIcon: "ban",
+    currentUser,
+  } }}
+{{ /if }}
+
+{{ /layout }}

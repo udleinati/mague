@@ -1,0 +1,209 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{# Filter via ?filter=admin|occupant|all (default all). admin=isManager. #}}
+{{ set adminCount = users.filter((u) => u.isManager).length }}
+{{ set occupantCount = users.length - adminCount }}
+{{ set filter = (filter ?? "all") }}
+{{ set filteredUsers = filter === "admin" ? users.filter((u) => u.isManager)
+                       : filter === "occupant" ? users.filter((u) => !u.isManager)
+                       : users }}
+
+{{ include "partials/page_header.vto" {
+  title: "Utilizadores",
+  meta: [
+    { value: "Pessoas relacionadas com este condomínio. Para tornar alguém administrador, edita o utilizador e ativa o toggle.", plain: true },
+  ],
+} }}
+
+<div class="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-6">
+  {{ include "partials/kpi_card.vto" {
+    tone: "primary", label: "Total", value: String(users.length), caption: "no condomínio"
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "warning", label: "Administradores", value: String(adminCount), caption: "com acesso de gestão"
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "neutral", label: "Ocupantes", value: String(occupantCount), caption: "sem gestão"
+  } }}
+</div>
+
+<div class="tabs tabs-boxed bg-base-200 inline-flex mb-4">
+  <a href="/admin/c/{{ currentCondominiumId }}/users" class="tab {{ if filter === 'all' }}tab-active{{ /if }}">Todos</a>
+  <a href="/admin/c/{{ currentCondominiumId }}/users?filter=admin" class="tab {{ if filter === 'admin' }}tab-active{{ /if }}">Administradores</a>
+  <a href="/admin/c/{{ currentCondominiumId }}/users?filter=occupant" class="tab {{ if filter === 'occupant' }}tab-active{{ /if }}">Ocupantes</a>
+</div>
+
+{{ layout "partials/table_card.vto" { title: "Lista", count: filteredUsers.length, searchable: true } }}
+  {{# Sort client-side (JS no fim). Headers `data-sort-key` clicáveis;
+     ordena por `data-sort` do <td> (valor canónico vs texto formatado). #}}
+  <table class="table table-sm" data-sortable-table>
+    <thead>
+      <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+        <th class="pl-4">
+          <button type="button" data-sort-key="name" class="inline-flex items-center gap-1 uppercase tracking-widest hover:text-base-content/70">
+            Nome
+            <svg class="w-3 h-3 opacity-30" data-sort-icon fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 9l4-4 4 4M16 15l-4 4-4-4"/></svg>
+          </button>
+        </th>
+        <th>Email</th>
+        <th>Fração</th>
+        <th>
+          <button type="button" data-sort-key="firstLogin" class="inline-flex items-center gap-1 uppercase tracking-widest hover:text-base-content/70">
+            1.º acesso
+            <svg class="w-3 h-3 opacity-30" data-sort-icon fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 9l4-4 4 4M16 15l-4 4-4-4"/></svg>
+          </button>
+        </th>
+        <th>
+          <button type="button" data-sort-key="lastLogin" class="inline-flex items-center gap-1 uppercase tracking-widest hover:text-base-content/70">
+            Últ. acesso
+            <svg class="w-3 h-3 opacity-30" data-sort-icon fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 9l4-4 4 4M16 15l-4 4-4-4"/></svg>
+          </button>
+        </th>
+        <th>Estado</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ if filteredUsers.length === 0 }}
+        <tr><td colspan="7" class="p-8 text-center text-base-content/50">Nenhum utilizador encontrado.</td></tr>
+      {{ else }}
+        {{ for user of filteredUsers }}
+          <tr class="hover:bg-base-200/30 border-t border-base-100 text-sm">
+            <td class="pl-4 font-bold max-w-[280px]" data-search data-sort="{{ user.name }}">
+              {{# `flex-nowrap`+`min-w-0`+`truncate`: o nome encolhe com
+                 ellipsis sem empurrar o badge "Admin" para baixo. #}}
+              <span class="inline-flex items-center gap-2 flex-nowrap min-w-0 max-w-full">
+                <span class="truncate" title="{{ user.name }}">{{ user.name }}</span>
+                {{ if user.isManager }}
+                  <span class="badge badge-warning badge-xs font-medium shrink-0">Admin</span>
+                {{ /if }}
+              </span>
+            </td>
+            <td class="text-base-content/70" data-search>{{ user.email ?? "" }}</td>
+            <td class="text-xs" data-search>
+              {{ if user.units && user.units.length > 0 }}
+                {{# Frações empilhadas na vertical - liberta largura para a
+                   coluna do nome (várias frações já não fazem wrap horizontal). #}}
+                <div class="flex flex-col gap-0.5">
+                  {{ for u of user.units }}
+                    <a href="/admin/c/{{ currentCondominiumId }}/units/{{ u.unitId }}"
+                       class="link link-hover link-primary tabular-nums font-semibold whitespace-nowrap"
+                       title="{{ u.relationshipType === 'owner' ? 'Proprietário' : u.relationshipType === 'tenant' ? 'Inquilino' : 'Residente' }}">{{ u.designation }}{{ if u.identifier }}<span class="font-normal opacity-60"> - {{ u.identifier }}</span>{{ /if }}</a>
+                  {{ /for }}
+                </div>
+              {{ else }}
+                <span class="text-base-content/30">-</span>
+              {{ /if }}
+            </td>
+            <td class="text-base-content/70 text-xs tabular-nums whitespace-nowrap" data-sort="{{ user.firstLoginAt ?? '' }}">
+              {{ if user.firstLoginAt }}{{ user.firstLoginAt |> formatDate }}{{ else }}<span class="text-base-content/30">-</span>{{ /if }}
+            </td>
+            <td class="text-base-content/70 text-xs tabular-nums whitespace-nowrap" data-sort="{{ user.lastLoginAt ?? '' }}">
+              {{ if user.lastLoginAt }}{{ user.lastLoginAt |> formatDateTime }}{{ else }}<span class="text-base-content/30">-</span>{{ /if }}
+            </td>
+            <td>
+              {{ if user.isActive }}
+                {{ include "partials/status_badge.vto" { label: "Ativo", tone: "success", size: "xs" } }}
+              {{ else }}
+                {{ include "partials/status_badge.vto" { label: "Inactivo", tone: "muted", size: "xs" } }}
+              {{ /if }}
+            </td>
+            <td class="pr-4 text-right whitespace-nowrap">
+              <div class="inline-flex items-center gap-4">
+                {{ include "partials/user_invite_button.vto" { user, currentCondominiumId } }}
+                {{ include "partials/action_link.vto" {
+                  kind: "view",
+                  href: "/admin/c/" + currentCondominiumId + "/users/" + user.id,
+                } }}
+                {{ include "partials/action_link.vto" {
+                  kind: "edit",
+                  href: "/admin/c/" + currentCondominiumId + "/users/" + user.id + "/edit",
+                } }}
+              </div>
+            </td>
+          </tr>
+        {{ /for }}
+      {{ /if }}
+    </tbody>
+  </table>
+{{ /layout }}
+
+{{# Sort client-side: header alterna asc → desc → reset. Lê `data-sort`
+   (ou textContent); vazios sempre no fim. Suficiente até ~1000 linhas. #}}
+<script>
+(function () {
+  const table = document.querySelector('[data-sortable-table]');
+  if (!table) return;
+  const tbody = table.tBodies[0];
+  if (!tbody) return;
+  const originalOrder = Array.from(tbody.rows);
+  const headers = table.querySelectorAll('[data-sort-key]');
+  // colIndex de cada chave é o index do <th> que a contém.
+  const keyToColIndex = new Map();
+  headers.forEach((btn) => {
+    const th = btn.closest('th');
+    if (!th) return;
+    const idx = Array.from(th.parentElement.children).indexOf(th);
+    keyToColIndex.set(btn.dataset.sortKey, idx);
+  });
+  let state = { key: null, dir: null }; // dir: 'asc' | 'desc' | null
+
+  function cellSortValue(row, colIdx) {
+    const cell = row.cells[colIdx];
+    if (!cell) return '';
+    return cell.dataset.sort !== undefined ? cell.dataset.sort : cell.textContent.trim();
+  }
+
+  function compare(a, b, colIdx, dir) {
+    const va = cellSortValue(a, colIdx);
+    const vb = cellSortValue(b, colIdx);
+    // Vazios sempre no fim, sem inverter com dir.
+    if (!va && !vb) return 0;
+    if (!va) return 1;
+    if (!vb) return -1;
+    const cmp = va.localeCompare(vb, 'pt', { numeric: true, sensitivity: 'base' });
+    return dir === 'desc' ? -cmp : cmp;
+  }
+
+  function applyState() {
+    // Reset todos os ícones
+    headers.forEach((btn) => {
+      const icon = btn.querySelector('[data-sort-icon]');
+      if (icon) {
+        icon.classList.add('opacity-30');
+        icon.classList.remove('opacity-100', 'text-primary');
+      }
+    });
+    if (!state.key) {
+      originalOrder.forEach((row) => tbody.appendChild(row));
+      return;
+    }
+    const colIdx = keyToColIndex.get(state.key);
+    if (colIdx === undefined) return;
+    const sorted = Array.from(tbody.rows).sort((a, b) => compare(a, b, colIdx, state.dir));
+    sorted.forEach((row) => tbody.appendChild(row));
+    const activeBtn = Array.from(headers).find((b) => b.dataset.sortKey === state.key);
+    const icon = activeBtn?.querySelector('[data-sort-icon]');
+    if (icon) {
+      icon.classList.remove('opacity-30');
+      icon.classList.add('opacity-100', 'text-primary');
+    }
+  }
+
+  headers.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.sortKey;
+      if (state.key !== key) {
+        state = { key, dir: 'asc' };
+      } else if (state.dir === 'asc') {
+        state = { key, dir: 'desc' };
+      } else {
+        state = { key: null, dir: null }; // reset
+      }
+      applyState();
+    });
+  });
+})();
+</script>
+
+{{ /layout }}

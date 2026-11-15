@@ -1,0 +1,49 @@
+{{# Dropzone de upload reutilizável (ADR 0026). Gera só a dropzone, não o `<form>`:
+   o caller envolve com o seu form (hx-target/hx-swap/enctype). O botão submit deve
+   ter `data-upload-submit disabled` - o JS global (admin/portal.vto) liga-o quando
+   há ficheiros. Ver file_dropzone callers para a forma completa.
+
+   Params:
+     name        - name do input file (default "files").
+     multiple    - permite múltiplos (default true).
+     required    - input required (default true).
+     accept      - MIME types ou extensões, e.g. "image/*,application/pdf"
+                   ou ".xlsx" (opcional).
+     helpText    - texto secundário discreto (default "Foto, PDF, etc.").
+#}}
+
+<div data-file-dropzone class="group">
+  {{# `relative` no label é OBRIGATÓRIO: sr-only é `position: absolute` sem top/left;
+     sem relative no parent o input ancora ao body e o click faz scroll para o canto
+     top-left (browser scrolls-to-focused-element). Ver ADR 0026. #}}
+  <label class="relative flex flex-col items-center justify-center gap-2 cursor-pointer rounded-xl border-2 border-dashed border-base-300 hover:border-primary/50 hover:bg-base-200/30 transition-colors px-6 py-7 text-center min-h-[140px]" data-dropzone-label>
+    <input type="file"
+           name="{{ name ?? 'files' }}"
+           {{ if multiple !== false }}multiple{{ /if }}
+           {{ if required !== false }}required{{ /if }}
+           {{ if accept }}accept="{{ accept }}"{{ /if }}
+           class="sr-only" data-file-input>
+
+    <div data-dropzone-empty class="flex flex-col items-center gap-2">
+      <svg class="w-8 h-8 text-base-content/30 group-hover:text-primary transition-colors" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0 3 3m-3-3-3 3M6.75 19.5a4.5 4.5 0 0 1-1.41-8.775 5.25 5.25 0 0 1 10.233-2.33 3 3 0 0 1 3.758 3.848A3.752 3.752 0 0 1 18 19.5H6.75Z"/>
+      </svg>
+      <p class="text-sm font-medium text-base-content/80">
+        <span class="text-primary group-hover:underline">Clica</span> ou arrasta ficheiros para aqui
+      </p>
+      <p class="text-[11px] text-base-content/50">{{ helpText ?? "Foto, PDF, etc. - podes selecionar vários" }}</p>
+    </div>
+
+    {{# Estado preenchido: chips + contador, renderizado por JS. #}}
+    <div data-dropzone-filled class="hidden w-full">
+      <div data-file-preview class="flex flex-wrap gap-2 justify-center mb-3"></div>
+      <p class="text-[11px] text-base-content/60">
+        <span data-file-count class="font-semibold text-base-content/80"></span>
+        <span class="mx-1.5 text-base-content/30">·</span>
+        <button type="button" class="link link-primary text-[11px]" data-clear-files>Limpar</button>
+        <span class="mx-1.5 text-base-content/30">·</span>
+        clica para adicionar mais
+      </p>
+    </div>
+  </label>
+</div>

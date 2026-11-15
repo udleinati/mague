@@ -1,0 +1,208 @@
+{{# FOLHA DE PRESENCAS (attendance_sheet_pdf.ts -> Chromium headless -> A4). Documento
+   em branco para a reuniao: 1 linha por fracao (coproprietarios juntos na mesma celula),
+   permilagem para calcular o quorum (Art. 1432.o CC), coluna de assinatura para preencher
+   a mao. Distinta da ata (assembly_minutes.vto): a folha recolhe presencas; a ata regista
+   o que foi deliberado. CSS inline, sem dependencias externas.
+
+   Dados esperados:
+     • condominium  - { name, fiscalNumber?, address? }
+     • assembly     - { type, scheduledAt, secondConvocationAt?, location? }
+     • round        - "first" | "second" (limiar de quorum no rodape)
+     • fractions    - array [{ designation, identifier?, permillageLabel, ownerNames[] }]
+                      em ordem natural (ADR 0014); ownerNames vazio = linha em branco
+     • totals       - { count, permillageLabel } (total de fracoes + permilagem do edificio)
+     • generatedAt  - string ISO (timestamp da geracao - rodape)
+#}}
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<title>Folha de presenças - {{ condominium.name }}</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 16mm 16mm; }
+  * { box-sizing: border-box; }
+  html, body {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.4;
+    color: #1a1a1a;
+    margin: 0;
+    padding: 0;
+    font-feature-settings: "kern" 1, "liga" 1;
+  }
+  .doc-meta {
+    text-align: center;
+    color: #555;
+    font-size: 9pt;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 14pt;
+  }
+  .header-block {
+    margin-bottom: 12pt;
+    padding-bottom: 10pt;
+    border-bottom: 0.5pt solid #ccc;
+  }
+  .header-block .condo { font-size: 13pt; font-weight: bold; margin-bottom: 2pt; }
+  .header-block .condo-meta { font-size: 9pt; color: #666; }
+  h1 {
+    font-size: 16pt;
+    font-weight: bold;
+    text-align: center;
+    margin: 0 0 4pt 0;
+    letter-spacing: 0.02em;
+  }
+  .session-line {
+    text-align: center;
+    font-size: 10pt;
+    color: #333;
+    margin-bottom: 14pt;
+  }
+  table.sheet {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 4pt;
+  }
+  table.sheet thead { display: table-header-group; }
+  table.sheet th {
+    font-size: 8.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #444;
+    text-align: left;
+    border-bottom: 1pt solid #333;
+    padding: 5pt 6pt;
+    vertical-align: bottom;
+  }
+  table.sheet td {
+    padding: 3.5pt 6pt;
+    border-bottom: 0.5pt solid #ccc;
+    vertical-align: top;
+    /* Altura mínima ~2 linhas: dá espaço de assinatura mesmo nas frações que não
+       quebram linha (iguala as que quebram, p.ex. "AG" + identificação longa). */
+    height: 38pt;
+  }
+  table.sheet tr { page-break-inside: avoid; }
+  .col-frac { width: 24%; }
+  .col-perm { width: 7%; text-align: right; }
+  .col-owner { width: 38%; font-size: 10pt; }
+  .col-sign { width: 31%; }
+  th.col-perm { text-align: right; }
+  table.sheet td.col-sign { vertical-align: bottom; }
+  /* Fração: designação (negrito, slot fixo de 1em por carácter para alinhar) ao
+     lado da identificação (Bloco/Piso/Porta), ambas no mesmo tamanho; a
+     identificação fica sem negrito. Identificação quebra linha em frações longas. */
+  .frac-desig {
+    display: inline-block;
+    font-weight: bold;
+    font-size: 11pt;
+    color: #1a1a1a;
+    text-align: left;
+    margin-right: 6pt;
+    white-space: nowrap;
+  }
+  .frac-id {
+    font-size: 11pt;
+    color: #1a1a1a;
+    font-weight: normal;
+  }
+  .perm-value { font-variant-numeric: tabular-nums; font-size: 9.5pt; }
+  .owner-empty { color: #aaa; font-style: italic; }
+  /* Linha de assinatura: pontilhado + "x" a marcar onde assinar.
+     "x" ASCII de propósito - o glifo ✗ (U+2717) não existe na fonte do PDF e sai tofu. */
+  .sign-line {
+    position: relative;
+    border-bottom: 0.6pt dotted #999;
+    height: 13pt;
+  }
+  .sign-x { position: absolute; left: 0; bottom: 1pt; color: #999; font-size: 10pt; }
+  .totals {
+    margin-top: 14pt;
+    padding-top: 8pt;
+    border-top: 1pt solid #333;
+    font-size: 10pt;
+  }
+  .totals .total-line { font-weight: bold; margin-bottom: 8pt; }
+  .totals .fill-line { color: #333; margin-bottom: 5pt; }
+  .fill { display: inline-block; border-bottom: 0.5pt solid #999; min-width: 60pt; }
+  .footer-note {
+    margin-top: 22pt;
+    padding-top: 8pt;
+    border-top: 0.5pt solid #ccc;
+    font-size: 8pt;
+    color: #888;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<div class="doc-meta">Folha de Presenças de Assembleia de Condóminos</div>
+
+<div class="header-block">
+  <div class="condo">{{ condominium.name }}</div>
+  {{ if condominium.fiscalNumber }}
+    <div class="condo-meta">NIF {{ condominium.fiscalNumber }}{{ if condominium.address }} · {{ condominium.address }}{{ /if }}</div>
+  {{ else if condominium.address }}
+    <div class="condo-meta">{{ condominium.address }}</div>
+  {{ /if }}
+</div>
+
+<h1>Folha de Presenças</h1>
+<div class="session-line">
+  Assembleia {{ if assembly.type === "ordinary" }}Ordinária{{ else }}Extraordinária{{ /if }}
+  · {{ assembly.scheduledAt |> formatDateTime }}
+  {{ if assembly.location }} · {{ assembly.location }}{{ /if }}
+</div>
+
+<table class="sheet">
+  <thead>
+    <tr>
+      <th class="col-frac">Fração</th>
+      <th class="col-perm">Perm.</th>
+      <th class="col-owner">Condómino(s)</th>
+      <th class="col-sign">Assinatura</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{ for f of fractions }}
+      <tr>
+        <td class="col-frac">
+          <span class="frac-desig" style="min-width: {{ f.designation.length }}em">{{ f.designation }}</span>{{ if f.identifier }}<span class="frac-id">{{ f.identifier }}</span>{{ /if }}
+        </td>
+        <td class="col-perm"><span class="perm-value">{{ f.permillageLabel }}</span></td>
+        <td class="col-owner">
+          {{ if f.ownerNames.length > 0 }}
+            {{ f.ownerNames.join(" / ") }}
+          {{ else }}
+            <span class="owner-empty">(sem proprietário registado)</span>
+          {{ /if }}
+        </td>
+        <td class="col-sign"><div class="sign-line"><span class="sign-x">x</span></div></td>
+      </tr>
+    {{ /for }}
+  </tbody>
+</table>
+
+<div class="totals">
+  <div class="total-line">
+    Total: {{ totals.count }} fração{{ if totals.count !== 1 }}/frações{{ /if }} · {{ totals.permillageLabel }} ‰
+  </div>
+  <div class="fill-line">
+    Presentes / representados: <span class="fill" style="min-width:50pt"></span> frações · <span class="fill" style="min-width:80pt"></span> ‰
+  </div>
+  <div class="fill-line">
+    {{ if round === "second" }}
+      Quórum (qualquer permilagem &gt; 0, Art. 1432.º n.º 1 CC): <span class="fill" style="min-width:120pt"></span>
+    {{ else }}
+      Quórum (maioria estrita &gt; {{ totals.requiredFirstRoundLabel }} ‰, Art. 1432.º n.º 1 CC): <span class="fill" style="min-width:90pt"></span>
+    {{ /if }}
+  </div>
+</div>
+
+<div class="footer-note">
+  Documento gerado em {{ generatedAt |> formatDate }} · {{ condominium.name }}
+</div>
+
+</body>
+</html>

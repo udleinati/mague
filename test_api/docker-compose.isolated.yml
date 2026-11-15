@@ -1,0 +1,11 @@
+# Override para correr o test:api sem tocar na BD de desenvolvimento.
+# Aponta a API à `mague_test` e a um bucket S3 próprio, para os anexos dos
+# testes não se misturarem com os recibos de dev.
+#
+# Não é auto-carregado (não se chama docker-compose.override.yml de propósito):
+# só entra quando passado com `-f`, pelo `test_api/up_isolated.sh`.
+services:
+  api:
+    environment:
+      DATABASE_URL: postgres://mague:mague@db:5432/mague_test
+      S3_BUCKET: mague-test

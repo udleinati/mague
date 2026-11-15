@@ -1,0 +1,43 @@
+{{# Célula com o botão de convite na linha do user (/users). Reutilizada pelo
+   HTMX response de /users/:id/invite para OOB swap após envio, sem reload.
+
+   Inputs esperados:
+     • user                  → objecto { id, email, firstLoginAt, occupantId, lastInvitedAt, inviteInCooldown, inviteCooldownUntil }
+     • currentCondominiumId  → string
+     • oob? (boolean)        → true em respostas HTMX (adiciona hx-swap-oob)
+#}}
+<span id="user-invite-cell-{{ user.id }}"{{ if oob }} hx-swap-oob="outerHTML"{{ /if }}>
+  {{ if user.firstLoginAt }}
+    {{# Já fez login - não mostrar nada. #}}
+  {{ else if !user.email }}
+    <span class="text-[10px] text-base-content/40 italic" title="Sem email - adiciona antes de convidar">sem email</span>
+  {{ else if !user.occupantId }}
+    {{# Admin-only sem occupant: endpoint per-occupant não cobre. Sem botão. #}}
+  {{ else if user.inviteInCooldown }}
+    {{# Cooldown (ADR 0032): badge inerte; API devolve 422 COOLDOWN_ACTIVE se forçado.
+       Tooltip daisyUI (`tooltip`+`data-tip`, imediato ao hover) em vez do `title` nativo. #}}
+    {{ set _left = user.inviteCooldownUntil |> formatRemaining }}
+    <span class="tooltip tooltip-quick tooltip-left cursor-help inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-warning/10 text-warning"
+          data-tip="{{ if _left }}{{ _left }} - {{ /if }}reenvio a partir de {{ user.inviteCooldownUntil |> formatDateTime }}">
+      em cooldown
+    </span>
+  {{ else }}
+    {{ set _isResend = user.lastInvitedAt ? true : false }}
+    <form method="post"
+          action="/admin/c/{{ currentCondominiumId }}/users/{{ user.id }}/invite"
+          hx-post="/admin/c/{{ currentCondominiumId }}/users/{{ user.id }}/invite"
+          hx-swap="none"
+          class="inline"
+          data-confirm-title="{{ _isResend ? 'Reenviar convite?' : 'Enviar convite?' }}"
+          data-confirm-body="Email com link de acesso vai para {{ user.email }}. O link expira em 14 dias.{{ if _isResend }} Tokens anteriores deixam de ser válidos.{{ /if }}"
+          data-confirm-ok="Enviar">
+      {{ if _isResend }}
+        <button type="submit" class="link link-primary text-xs"
+                title="Convite anterior em {{ user.lastInvitedAt |> formatDate }} - enviar um novo">reenviar</button>
+      {{ else }}
+        <button type="submit" class="link link-primary text-xs"
+                title="Nunca acedeu - enviar convite ao portal (expira em 14 dias)">convidar</button>
+      {{ /if }}
+    </form>
+  {{ /if }}
+</span>

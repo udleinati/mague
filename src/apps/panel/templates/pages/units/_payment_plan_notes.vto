@@ -1,0 +1,14 @@
+{{# Campos de nota do plano de pagamento (criar e editar). Params: `idPrefix`, `plan`
+   (null ao criar). A partilhada sai no email de lembrete; a interna nunca. #}}
+<div class="form-control">
+  <label class="label py-1" for="{{ idPrefix }}_notes"><span class="label-text font-medium">Nota partilhada</span></label>
+  <textarea id="{{ idPrefix }}_notes" name="notes" rows="3" maxlength="2000" class="textarea textarea-bordered textarea-sm"
+            placeholder="Ex: €1.200 em 6 prestações mensais de €200, início Jul/2026">{{ plan?.notes ?? '' }}</textarea>
+  <p class="text-xs text-info mt-1">Visível ao condómino: esta nota e a data final seguem no email de lembrete de cobrança enviado à fração.</p>
+</div>
+<div class="form-control">
+  <label class="label py-1" for="{{ idPrefix }}_internalNotes"><span class="label-text font-medium">Nota interna</span></label>
+  <textarea id="{{ idPrefix }}_internalNotes" name="internalNotes" rows="3" maxlength="2000" class="textarea textarea-bordered textarea-sm"
+            placeholder="Ex: Informou por telefone que regulariza no fim do mês">{{ plan?.internalNotes ?? '' }}</textarea>
+  <p class="text-xs text-base-content/50 mt-1">Só a administração vê. Não sai nos emails ao condómino.</p>
+</div>

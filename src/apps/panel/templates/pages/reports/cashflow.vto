@@ -1,0 +1,176 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{ set _base = "/admin/c/" + currentCondominiumId + "/reports/cashflow" }}
+{{# Vento não aceita `|>` dentro dos params de include/layout - pré-formatar. #}}
+{{ set _horizonEnd = report.horizonEnd |> formatDate }}
+{{ set _horizonLabel = String(horizonMonths) + " meses" }}
+
+{{ layout "partials/page_header.vto" {
+  title: "Previsão de tesouraria",
+  breadcrumbs: [
+    { label: "Painel", href: "/admin/c/" + currentCondominiumId + "/dashboard" },
+    { label: "Relatórios" },
+    { label: "Tesouraria" },
+  ],
+  meta: [
+    { label: "Horizonte", value: _horizonLabel },
+    { label: "Até", value: _horizonEnd }
+  ]
+} }}
+  <form action="{{ _base }}" method="get" class="flex items-center gap-2">
+    <span class="text-xs uppercase tracking-wider font-bold text-base-content/60">Horizonte</span>
+    <select name="months" class="select select-sm select-bordered" onchange="this.form.submit()">
+      <option value="6" {{ if horizonMonths === 6 }}selected{{ /if }}>6 meses</option>
+      <option value="12" {{ if horizonMonths === 12 }}selected{{ /if }}>12 meses</option>
+      <option value="24" {{ if horizonMonths === 24 }}selected{{ /if }}>24 meses</option>
+    </select>
+  </form>
+{{ /layout }}
+
+{{ set _balanceNow = report.balance.totalCents |> formatMoney }}
+{{ set _balanceOrd = report.balance.ordinaryCents |> formatMoney }}
+{{ set _balanceFcr = report.balance.fcrCents |> formatMoney }}
+{{ set _balanceCaption = "ordinária " + _balanceOrd + " · FCR " + _balanceFcr }}
+{{ set _inTotal = report.totals.inCents |> formatMoney }}
+{{ set _outTotal = report.totals.outCents |> formatMoney }}
+{{ set _projected = report.totals.projectedClosingCents |> formatMoney }}
+{{ set _projectedOrd = report.totals.projectedClosingOrdinaryCents |> formatMoney }}
+{{ set _projectedFcr = report.totals.projectedClosingFcrCents |> formatMoney }}
+{{ set _projectedCaption = "ordinária " + _projectedOrd + " · FCR " + _projectedFcr }}
+
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+  {{ include "partials/kpi_card.vto" {
+    tone: "info", label: "Saldo hoje", value: _balanceNow, caption: _balanceCaption, highlightValue: true
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "success", label: "Entradas previstas", value: _inTotal, caption: "cobranças em aberto + recorrentes", highlightValue: true
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "error", label: "Saídas previstas", value: _outTotal, caption: "despesas em aberto + recorrentes", highlightValue: true
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: hasNegative ? "error" : "primary", label: "Saldo projetado", value: _projected, caption: _projectedCaption, highlightValue: true
+  } }}
+</div>
+
+{{ if hasNegative }}
+  <div class="alert alert-error mb-6">
+    <div>
+      <div class="font-semibold">A tesouraria fica negativa em {{ worst.label }}.</div>
+      <div class="text-sm opacity-80">Saldo projetado nesse mês: {{ worst.closingCents |> formatMoney }}. Ver as saídas desse mês abaixo.</div>
+    </div>
+  </div>
+{{ /if }}
+
+{{ layout "partials/table_card.vto" {
+  title: "Entrada e saída de caixa",
+  subtitle: "Cobranças e despesas já lançadas, por data de vencimento, mais as ocorrências ainda por gerar dos recorrentes ativos. O saldo projetado separa as duas bolsas: as saídas descontam sempre na ordinária",
+  wrapperClass: "mb-6"
+} }}
+  <table class="table table-sm">
+    <thead>
+      <tr>
+        <th>Período</th>
+        <th class="text-right">Entradas</th>
+        <th class="text-right">Saídas</th>
+        <th class="w-1/6">Peso</th>
+        <th class="text-right">Líquido</th>
+        <th class="text-right">Saldo ord.</th>
+        <th class="text-right">Saldo FCR</th>
+        <th class="text-right">Saldo total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ for r of rows }}
+        <tr class="{{ if r.kind === 'overdue' }}bg-warning/10{{ else if r.closingCents < 0 }}bg-error/10{{ /if }}">
+          <td class="whitespace-nowrap">
+            <span class="font-medium">{{ r.label }}</span>
+            {{ if r.kind === "overdue" }}
+              <div class="text-xs text-warning">já vencido</div>
+            {{ else if r.kind === "later" }}
+              <div class="text-xs text-base-content/50">fora do horizonte</div>
+            {{ /if }}
+          </td>
+          <td class="text-right tabular-nums{{ if r.inCents > 0 }} text-success{{ /if }}">{{ if r.inCents > 0 }}{{ r.inCents |> formatMoney }}{{ else }}<span class="text-base-content/30">-</span>{{ /if }}</td>
+          <td class="text-right tabular-nums{{ if r.outCents > 0 }} text-error{{ /if }}">{{ if r.outCents > 0 }}{{ r.outCents |> formatMoney }}{{ else }}<span class="text-base-content/30">-</span>{{ /if }}</td>
+          <td>
+            <div class="flex flex-col gap-1 min-w-[80px]">
+              <div class="h-1.5 rounded-full bg-success/70" style="width: {{ String(r.inPct) }}%"></div>
+              <div class="h-1.5 rounded-full bg-error/70" style="width: {{ String(r.outPct) }}%"></div>
+            </div>
+          </td>
+          <td class="text-right tabular-nums font-medium {{ if r.netCents > 0 }}text-success{{ else if r.netCents < 0 }}text-error{{ /if }}">{{ r.netCents |> formatMoney }}</td>
+          <td class="text-right tabular-nums {{ if r.closingOrdinaryCents < 0 }}text-error{{ /if }}">{{ r.closingOrdinaryCents |> formatMoney }}</td>
+          <td class="text-right tabular-nums text-base-content/70">{{ r.closingFcrCents |> formatMoney }}</td>
+          <td class="text-right tabular-nums font-semibold {{ if r.closingCents < 0 }}text-error{{ /if }}">{{ r.closingCents |> formatMoney }}</td>
+        </tr>
+      {{ /for }}
+    </tbody>
+  </table>
+{{ /layout }}
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+  <div class="lg:col-span-2">
+    {{ layout "partials/table_card.vto" {
+      title: "Recorrentes projetados",
+      count: report.recurring.length,
+      subtitle: "Ocorrências ainda não geradas, contadas a partir da próxima data de execução"
+    } }}
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th>Descrição</th>
+            <th>Tipo</th>
+            <th class="text-right">Valor</th>
+            <th>Próxima</th>
+            <th class="text-right">No horizonte</th>
+            <th class="text-right">Total previsto</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{ if report.recurring.length === 0 }}
+            <tr><td colspan="6" class="text-center text-base-content/50 py-8">Sem recorrentes ativos.</td></tr>
+          {{ /if }}
+          {{ for t of report.recurring }}
+            <tr>
+              <td>{{ t.description }}</td>
+              <td>
+                {{ if t.kind === "payable" }}
+                  <span class="badge badge-sm badge-error badge-outline">Saída</span>
+                {{ else }}
+                  <span class="badge badge-sm badge-success badge-outline">Entrada</span>
+                {{ /if }}
+              </td>
+              <td class="text-right tabular-nums">{{ t.amountCents |> formatMoney }}</td>
+              <td class="whitespace-nowrap tabular-nums">{{ t.nextRunDate |> formatDate }}</td>
+              <td class="text-right tabular-nums">{{ String(t.occurrencesInHorizon) }}×</td>
+              <td class="text-right tabular-nums font-medium">{{ (t.amountCents * t.occurrencesInHorizon) |> formatMoney }}</td>
+            </tr>
+          {{ /for }}
+        </tbody>
+      </table>
+    {{ /layout }}
+  </div>
+
+  <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+    <div class="text-sm font-semibold mb-3">O que esta previsão não conta</div>
+    <ul class="text-sm text-base-content/70 space-y-3">
+      <li>
+        <span class="font-medium text-base-content">Créditos de frações por usar:</span>
+        <span class="tabular-nums">{{ report.unusedCredits.openCents |> formatMoney }}</span>
+        ({{ String(report.unusedCredits.count) }} lançamento(s)).
+        Não são saída de caixa, mas abatem em cobranças futuras: as entradas acima estão otimistas nesse montante.
+      </li>
+      <li>
+        <span class="font-medium text-base-content">Quotas ainda por gerar</span> de orçamentos aprovados.
+        Só entram depois de geradas em Orçamento.
+      </li>
+      <li>
+        <span class="font-medium text-base-content">Cobranças em atraso</span> aparecem na primeira linha da tabela
+        e contam para o saldo projetado. Se houver dúvida sobre a cobrabilidade, subtraia essa linha.
+      </li>
+    </ul>
+  </div>
+</div>
+
+{{ /layout }}

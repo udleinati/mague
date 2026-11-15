@@ -1,0 +1,150 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+<div class="max-w-2xl">
+  {{ include "partials/page_header.vto" {
+    title: "Editar conta",
+    scale: "detail",
+    breadcrumbs: [
+      { label: "Contas bancárias", href: "/admin/c/" + currentCondominiumId + "/bank-accounts" },
+      { label: account.bankName, href: "/admin/c/" + currentCondominiumId + "/bank-accounts/" + account.id },
+      { label: "Editar" },
+    ],
+    status: account.kind === "cash" ? { label: "💵 Caixa", tone: "warning" } : null
+  } }}
+  <form method="post" action="/admin/c/{{ currentCondominiumId }}/bank-accounts/{{ account.id }}/update" class="card bg-base-100 shadow-sm border border-base-200 p-6 space-y-4 mb-6">
+    <div class="form-control">
+      <label class="label"><span class="label-text font-medium">Tipo</span></label>
+      <div class="grid grid-cols-2 gap-2">
+        <label class="cursor-pointer border border-base-300 rounded-lg p-3 has-[:checked]:border-primary has-[:checked]:bg-primary/5 hover:bg-base-200/50">
+          <div class="flex items-center gap-2">
+            <input type="radio" name="kind" value="bank" class="radio radio-sm radio-primary" {{ if account.kind !== "cash" }}checked{{ /if }} onchange="onKindChange('bank')">
+            <span class="font-medium text-sm">🏦 Banco</span>
+          </div>
+        </label>
+        <label class="cursor-pointer border border-base-300 rounded-lg p-3 has-[:checked]:border-primary has-[:checked]:bg-primary/5 hover:bg-base-200/50">
+          <div class="flex items-center gap-2">
+            <input type="radio" name="kind" value="cash" class="radio radio-sm radio-primary" {{ if account.kind === "cash" }}checked{{ /if }} onchange="onKindChange('cash')">
+            <span class="font-medium text-sm">💵 Caixa (numerário)</span>
+          </div>
+        </label>
+      </div>
+    </div>
+    <div class="form-control">
+      <label class="label" for="bankName"><span class="label-text font-medium" id="bankNameLabel">{{ if account.kind === "cash" }}Designação{{ else }}Banco{{ /if }}</span></label>
+      <input type="text" id="bankName" name="bankName" class="input input-bordered" required maxlength="100" value="{{ account.bankName ?? '' }}">
+    </div>
+    <div class="form-control">
+      <label class="label" for="accountName"><span class="label-text font-medium">Nome da conta</span></label>
+      <input type="text" id="accountName" name="accountName" class="input input-bordered" maxlength="255" value="{{ account.accountName ?? '' }}">
+    </div>
+    <div class="form-control {{ if account.kind === "cash" }}hidden{{ /if }}" id="ibanField">
+      <label class="label" for="iban"><span class="label-text font-medium">IBAN</span></label>
+      <input type="text" id="iban" name="iban" class="input input-bordered font-mono" maxlength="34" value="{{ account.iban ?? '' }}">
+    </div>
+    <div class="form-control {{ if account.kind === "cash" }}hidden{{ /if }}" id="accountHolderField">
+      <label class="label" for="accountHolder"><span class="label-text font-medium">Titular da conta</span></label>
+      <input type="text" id="accountHolder" name="accountHolder" class="input input-bordered" maxlength="255" value="{{ account.accountHolder ?? '' }}" placeholder="Ex: Condomínio Av da Mague, X">
+      <span class="text-xs text-base-content/50 mt-1">Nome que aparece no portal do condómino quando faz transferência.</span>
+    </div>
+    <div class="form-control {{ if account.kind === "cash" }}hidden{{ /if }}" id="quotaPaymentField">
+      {{# Sentinel: hidden "false" + checkbox "true". Sem ele, desmarcar não envia
+         nada e o backend interpreta como "manter valor". #}}
+      <input type="hidden" name="isQuotaPayment" value="false">
+      <label class="label cursor-pointer justify-start gap-3">
+        <input type="checkbox" name="isQuotaPayment" value="true" class="checkbox checkbox-primary" {{ if account.isQuotaPayment }}checked{{ /if }}>
+        <span class="label-text">Conta divulgada para pagamentos</span>
+      </label>
+      <span class="text-xs text-base-content/50 mt-1 ml-9">Aparece no portal do condómino com IBAN + titular para transferência (quotas, refaturações ou outros pagamentos). Pode ter mais de uma marcada.</span>
+    </div>
+    <div class="form-control">
+      <label class="label cursor-pointer justify-start gap-3">
+        <input type="checkbox" name="isActive" value="true" class="checkbox checkbox-primary" {{ if account.isActive }}checked{{ /if }}>
+        <span class="label-text">Conta ativa</span>
+      </label>
+    </div>
+    <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
+      <a href="/admin/c/{{ currentCondominiumId }}/bank-accounts/{{ account.id }}" class="btn btn-sm btn-ghost">Cancelar</a>
+      <button type="submit" class="btn btn-sm btn-primary">Guardar alterações</button>
+    </div>
+  </form>
+
+  <div class="card bg-base-100 shadow-sm border border-base-200 p-6 mb-6">
+    <h2 class="text-xl font-bold mb-1">Saldo inicial</h2>
+    <p class="text-sm text-base-content/60 mb-4">Quanto dinheiro a conta já tinha quando o condomínio começou a usar o sistema. Cria lançamentos contabilísticos (ledger) para arrancar a contabilidade.</p>
+
+    {{ if account.openingBalance > 0 }}
+      <div class="grid grid-cols-3 gap-3 mb-4">
+        <div class="bg-base-200/30 rounded-lg p-3">
+          <div class="text-xs uppercase font-bold text-base-content/60 tracking-wider">Total</div>
+          <div class="text-xl font-bold mt-1">{{ account.openingBalance |> formatMoney }}</div>
+        </div>
+        <div class="bg-base-200/30 rounded-lg p-3">
+          <div class="text-xs uppercase font-bold text-base-content/60 tracking-wider">Ordinário</div>
+          <div class="text-xl font-bold mt-1">{{ account.openingBalanceOrdinaryCents |> formatMoney }}</div>
+        </div>
+        <div class="bg-base-200/30 rounded-lg p-3">
+          <div class="text-xs uppercase font-bold text-base-content/60 tracking-wider">FCR</div>
+          <div class="text-xl font-bold mt-1">{{ account.openingBalanceFcrCents |> formatMoney }}</div>
+        </div>
+      </div>
+      <div class="text-xs text-base-content/60">Definido em {{ account.openingBalanceDate }}. Para redefinir, é preciso anular os lançamentos anteriores no ledger (não disponível pelo painel - contactar suporte).</div>
+    {{ else }}
+      <form method="post" action="/admin/c/{{ currentCondominiumId }}/bank-accounts/{{ account.id }}/opening-balance" class="space-y-4">
+        <div class="grid grid-cols-2 gap-4">
+          <div class="form-control">
+            <label class="label" for="openingBalanceOrdinary"><span class="label-text font-medium">Ordinário (€)</span></label>
+            <input type="text" id="openingBalanceOrdinary" name="openingBalanceOrdinary" inputmode="decimal" class="input input-bordered" placeholder="0,00" required>
+            <span class="text-xs text-base-content/50 mt-1">Disponível para despesas correntes.</span>
+          </div>
+          <div class="form-control">
+            <label class="label" for="openingBalanceFcr"><span class="label-text font-medium">FCR (€)</span></label>
+            <input type="text" id="openingBalanceFcr" name="openingBalanceFcr" inputmode="decimal" class="input input-bordered" placeholder="0,00" required>
+            <span class="text-xs text-base-content/50 mt-1">Fundo Comum de Reserva acumulado.</span>
+          </div>
+        </div>
+        <div class="form-control">
+          <label class="label" for="openingBalanceDate"><span class="label-text font-medium">Data de arranque</span></label>
+          <input type="date" id="openingBalanceDate" name="openingBalanceDate" class="input input-bordered" required>
+        </div>
+        <div class="flex justify-end pt-2">
+          <button type="submit" class="btn btn-sm btn-primary">Definir saldo inicial</button>
+        </div>
+      </form>
+    {{ /if }}
+  </div>
+
+  {{# Zona perigosa - pattern canónico (ADR 0025). #}}
+  {{ include "partials/danger_zone.vto" {
+    entityName: "conta bancária",
+    entityLabel: account.bankName,
+    actionUrl: "/admin/c/" + currentCondominiumId + "/bank-accounts/" + account.id + "/delete",
+    confirmBody: "Apaga a conta " + account.bankName + " da listagem. Movimentos existentes ficam preservados no histórico.",
+    currentUser,
+  } }}
+</div>
+
+<script>
+  // Mostra/esconde IBAN/titular/quota consoante o tipo. CHECK na DB exige
+  // kind=bank para is_quota_payment=true; em cash desmarcamos por segurança.
+  window.onKindChange = function (kind) {
+    var ibanField = document.getElementById("ibanField");
+    var holderField = document.getElementById("accountHolderField");
+    var quotaField = document.getElementById("quotaPaymentField");
+    var bankNameLabel = document.getElementById("bankNameLabel");
+    if (kind === "cash") {
+      ibanField.classList.add("hidden");
+      holderField.classList.add("hidden");
+      quotaField.classList.add("hidden");
+      var qcb = quotaField.querySelector("input[name='isQuotaPayment']");
+      if (qcb) qcb.checked = false;
+      bankNameLabel.textContent = "Designação";
+    } else {
+      ibanField.classList.remove("hidden");
+      holderField.classList.remove("hidden");
+      quotaField.classList.remove("hidden");
+      bankNameLabel.textContent = "Banco";
+    }
+  };
+</script>
+
+{{ /layout }}

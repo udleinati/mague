@@ -1,0 +1,1262 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{# Gates da máquina de vida draft -> scheduled -> held (fonte de verdade =
+   status; ver $shared/assembly/lifecycle.ts). `meetingReached` (data agendada
+   <= hoje) vem do controller; `canEdit` gate dos modais, botões com gate próprio. #}}
+{{ set isDraft = target.status === "draft" }}
+{{ set isScheduled = target.status === "scheduled" }}
+{{ set canEditAgenda = isDraft }}
+{{ set canRecord = isScheduled && meetingReached }}
+{{ set canEdit = isDraft || canRecord }}
+{{ set showMeetingRecord = !isDraft && (meetingReached || !isScheduled) }}
+{{# Selada = realizada ou cancelada (histórico oficial). Distinto de "não
+   editável": convocada-antes-da-data também não é editável mas não está selada. #}}
+{{ set isSealed = target.status === "held" || target.status === "cancelled" }}
+
+<div class="max-w-5xl">
+  {{# Header canónico (ADR 0036). O sinal "Ainda não enviada" fica fora do
+     partial, logo abaixo do header. #}}
+  {{ set _firstAt = target.scheduledAt |> formatDateTime }}
+  {{ set _secondAt = target.secondConvocationAt |> formatDateTime }}
+  {{ set _statusBadge = isDraft ? { label: "Rascunho", tone: "info" }
+    : isScheduled ? { label: "Convocada", tone: "warning" }
+    : target.status === "held" ? { label: "Realizada", tone: "success" }
+    : target.status === "cancelled" ? { label: "Cancelada", tone: "error" }
+    : { label: target.status, tone: "neutral" } }}
+  {{ layout "partials/page_header.vto" {
+    title: target.type === "ordinary" ? "Assembleia Ordinária" : "Assembleia Extraordinária",
+    scale: "detail",
+    breadcrumbs: [
+      { label: "Assembleias", href: "/admin/c/" + currentCondominiumId + "/assembly" },
+      { label: target.minutesNumber ?? target.id },
+    ],
+    status: _statusBadge,
+    meta: [
+      { label: "1ª", value: _firstAt },
+      target.secondConvocationAt ? { label: "2ª", value: _secondAt } : null,
+      target.location ? { value: target.location, plain: true } : null,
+    ]
+  } }}
+    {{# Convocar: draft -> scheduled, trava ordem do dia + textos (ADR 0013). #}}
+    {{ if isDraft }}
+      <form method="post" action="/admin/c/{{ currentCondominiumId }}/assembly/{{ target.id }}/status" class="inline"
+            data-confirm-title="Convocar assembleia"
+            data-confirm-body="A ordem do dia e os textos da convocatória ficam travados. Podes retificar (voltar a rascunho) se precisares de corrigir."
+            data-confirm-ok="Convocar">
+        <input type="hidden" name="status" value="scheduled">
+        <button type="submit" class="btn btn-sm btn-primary">Convocar</button>
+      </form>
+      {{# Envio bloqueado em rascunho: a convocatória ainda pode mudar. #}}
+      <button type="button" class="btn btn-sm btn-outline" disabled
+              title="Convoca a assembleia antes de enviar a convocatória">
+        Enviar convocatória
+      </button>
+    {{ /if }}
+    {{# Retificar: scheduled -> draft (destrava). Presenças e votos mantêm-se. #}}
+    {{ if isScheduled }}
+      <form method="post" action="/admin/c/{{ currentCondominiumId }}/assembly/{{ target.id }}/status" class="inline"
+            data-confirm-title="Retificar (voltar a rascunho)"
+            data-confirm-body="A assembleia volta a rascunho e a ordem do dia fica editável. As presenças e votos já registados mantêm-se.">
+        <input type="hidden" name="status" value="draft">
+        <button type="submit" class="btn btn-sm btn-outline">Retificar</button>
+      </form>
+      {{# Enviar convocatória a todos (bulk, ADR 0013). 1 despacho por fração
+         (ADR 0034). Some a partir da data da reunião (API: 422
+         CONVOCATION_MEETING_PASSED). #}}
+      {{ if !meetingReached }}
+      <form method="post" action="/admin/c/{{ currentCondominiumId }}/assembly/{{ target.id }}/convocation/send" class="inline"
+            data-confirm-title="Enviar convocatória a todos"
+            data-confirm-body="Vai enviar a convocatória e o modelo de procuração por email a todos os proprietários e residentes com email registado (1 email por fração). Quem não tem email fica registado como falha."
+            data-confirm-ok="Enviar">
+        <button type="submit" class="btn btn-sm btn-primary">Enviar convocatória</button>
+      </form>
+      {{ /if }}
+      {{# Marcar como realizada só a partir da data da reunião. #}}
+      {{ if meetingReached }}
+        <button type="button" class="btn btn-sm btn-primary" onclick="document.getElementById('modal_mark_held').showModal()">
+          Marcar como realizada
+        </button>
+      {{ /if }}
+    {{ /if }}
+  {{ /layout }}
+
+  {{# "Ainda não enviada" = convocada mas sem nenhum envio aos condóminos. #}}
+  {{ if convocationNeverSent }}
+    <div class="-mt-4 mb-6">
+      <span class="inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-warning/10 text-warning border border-warning/20"
+            title="A assembleia está convocada mas a convocatória ainda não foi enviada aos condóminos.">
+        Ainda não enviada
+      </span>
+    </div>
+  {{ /if }}
+
+  {{ if isSealed }}
+    {{# Flash de lock só quando SELADA (held/cancelled): convocada-antes-da-data
+      não entra aqui (mostraria "cancelada" a uma só convocada - bug). Padrão
+      tintado-suave de partials/alert.vto, não `alert alert-X` do daisyUI. #}}
+    <div class="mb-6 rounded-lg border border-base-200 bg-info/5 px-4 py-3 flex items-start gap-3">
+      <svg class="w-5 h-5 text-info shrink-0 mt-0.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+      </svg>
+      <div class="text-sm">
+        <div class="font-medium text-info">
+          Assembleia {{ if target.status === "held" }}realizada{{ else }}cancelada{{ /if }}
+        </div>
+        <div class="text-base-content/70">
+          Já não é possível editar dados, adicionar, editar ou apagar pontos da ordem do dia. Faz parte do histórico oficial.
+        </div>
+      </div>
+    </div>
+  {{ /if }}
+
+  <div class="card bg-base-100 shadow-sm border border-base-200 overflow-hidden mb-6">
+    <div class="px-6 pt-5 pb-3 border-b border-base-200 flex items-center justify-between gap-3">
+      <h2 class="text-lg font-bold">Dados</h2>
+      <div class="flex items-center gap-2">
+        {{# PDFs read-only on-the-fly via proxy ao API (não mudam estado). #}}
+        <a href="/admin/c/{{ currentCondominiumId }}/assembly/{{ target.id }}/proxy.pdf"
+           target="_blank"
+           class="btn btn-xs btn-ghost gap-1.5"
+           title="Pré-visualizar modelo de procuração em PDF (amostra)">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
+          </svg>
+          PDF Procuração
+        </a>
+        {{# Mesmo template `assembly_convocation.vto` que vai anexado ao email. #}}
+        <a href="/admin/c/{{ currentCondominiumId }}/assembly/{{ target.id }}/convocation.pdf"
+           target="_blank"
+           class="btn btn-xs btn-ghost gap-1.5"
+           title="Pré-visualizar a convocatória em PDF (igual à enviada por email)">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
+          </svg>
+          PDF Convocatória
+        </a>
+        {{# Folha de presenças em branco: 1 linha por fração, para imprimir e assinar na reunião. #}}
+        <a href="/admin/c/{{ currentCondominiumId }}/assembly/{{ target.id }}/attendance-sheet.pdf"
+           target="_blank"
+           class="btn btn-xs btn-ghost gap-1.5"
+           title="Folha de presenças em branco para imprimir (uma linha por fração)">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m-6-8h.01M5.25 6.75A2.25 2.25 0 0 1 7.5 4.5h9a2.25 2.25 0 0 1 2.25 2.25v12A2.25 2.25 0 0 1 16.5 21h-9a2.25 2.25 0 0 1-2.25-2.25V6.75Z"/>
+          </svg>
+          PDF Folha de presenças
+        </a>
+        {{# Ata on-the-fly via proxy: reflete o estado atual (não é a versão selada). #}}
+        <a href="/admin/c/{{ currentCondominiumId }}/assembly/{{ target.id }}/minute.pdf"
+           target="_blank"
+           class="btn btn-xs btn-ghost gap-1.5"
+           title="Pré-visualizar a ata em PDF (abre em nova aba)">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m.75 12 3 3m0 0 3-3m-3 3v-7.5"/>
+          </svg>
+          PDF Ata
+        </a>
+        {{# Dados da convocatória editam-se só em rascunho (travam ao convocar). #}}
+        {{ if canEditAgenda }}
+          <button type="button" class="btn btn-xs btn-ghost" onclick="document.getElementById('modal_assembly').showModal()">
+            Editar
+          </button>
+        {{ /if }}
+      </div>
+    </div>
+    <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div>
+        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Nº Ata</div>
+        <div class="font-medium">{{ target.minutesNumber ?? "-" }}</div>
+      </div>
+      <div>
+        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Tipo</div>
+        <div class="font-medium">{{ if target.type === "ordinary" }}Ordinária{{ else }}Extraordinária{{ /if }}</div>
+      </div>
+      <div class="md:col-span-2">
+        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Abertura da convocatória</div>
+        <div class="font-medium whitespace-pre-line">{{ target.convocationIntro ?? "-" }}</div>
+      </div>
+      <div class="md:col-span-2">
+        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Rodapé da convocatória</div>
+        <div class="font-medium whitespace-pre-line">{{ target.convocationFooter ?? "-" }}</div>
+      </div>
+      <div class="md:col-span-2">
+        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Notas</div>
+        <div class="font-medium whitespace-pre-line">{{ target.notes ?? "-" }}</div>
+      </div>
+    </div>
+  </div>
+
+  {{# ─── Destinatários da convocatória + reenvio individual ───────────────
+     Só em convocada e antes da data da reunião (depois a API recusa, 422
+     CONVOCATION_MEETING_PASSED). Card no partial para o htmx fazer swap parcial. #}}
+  {{ if isScheduled && !meetingReached }}
+    {{ include "pages/assembly/_convocation_recipients.vto" {
+      target, convocationRecipients, canSend: true, currentCondominiumId, toast: null
+    } }}
+
+    {{# Modal de pré-visualização do email (mesmo padrão do billing-reminders:
+       dialog + iframe sandbox). O HTML vem on-demand da rota /convocation/preview
+       e é injetado via srcdoc. Fora do partial `#convocation-recipients` para os
+       swaps HTMX do reenvio não o duplicarem; os botões "Ver" (dentro do swap)
+       chamam a função global. #}}
+    <dialog id="convocation_preview_modal" class="modal">
+      <div class="modal-box max-w-4xl">
+        <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+        <h3 class="font-bold text-base pr-8">Pré-visualização do email</h3>
+        <p class="text-xs text-base-content/60 mt-1">Mostra o corpo do email tal como seria enviado a este destinatário.</p>
+        <div class="mt-3 text-sm flex items-baseline gap-2">
+          <span class="text-base-content/50 shrink-0">Assunto:</span>
+          <strong id="convocation_preview_subject" class="break-words"></strong>
+        </div>
+        {{# Anexos: o envio junta sempre estes dois PDF a cada destinatário (ver
+           `dispatchOneConvocation`). O modelo de procuração vai personalizado
+           (proprietário) ou em branco (residente), mas o nome do ficheiro é o
+           mesmo. Mostrados no chrome do modal (mesmo padrão do email_log_table),
+           porque os anexos não vivem no corpo do email. #}}
+        <div class="mt-3 flex flex-wrap items-center gap-2">
+          <span class="text-xs font-medium text-base-content/50">Anexos:</span>
+          <span class="inline-flex items-center gap-1 text-xs bg-base-200 rounded px-2 py-1">📎 convocatoria.pdf</span>
+          <span class="inline-flex items-center gap-1 text-xs bg-base-200 rounded px-2 py-1">📎 procuracao.pdf</span>
+        </div>
+        <div class="mt-4 border border-base-200 rounded-lg overflow-hidden bg-base-200/40">
+          <iframe id="convocation_preview_iframe" sandbox class="w-full h-[75vh] bg-white" title="Pré-visualização do email"></iframe>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button>fechar</button></form>
+    </dialog>
+
+    <script>
+      window.openConvocationPreview = async function (url) {
+        const modal = document.getElementById("convocation_preview_modal");
+        const iframe = document.getElementById("convocation_preview_iframe");
+        const subject = document.getElementById("convocation_preview_subject");
+        subject.textContent = "";
+        iframe.srcdoc =
+          '<!doctype html><meta charset="utf-8"><body style="font-family:system-ui,sans-serif;padding:2rem;color:#6b7280;">A gerar pré-visualização...</body>';
+        modal.showModal();
+        try {
+          const resp = await fetch(url, { headers: { Accept: "application/json" } });
+          const data = await resp.json();
+          subject.textContent = data.subject || "-";
+          iframe.srcdoc = data.html;
+        } catch (_e) {
+          iframe.srcdoc =
+            '<!doctype html><meta charset="utf-8"><body style="font-family:system-ui,sans-serif;padding:2rem;color:#b91c1c;">Erro a gerar a pré-visualização.</body>';
+        }
+      };
+    </script>
+  {{ /if }}
+
+  {{# ─── Fase de registo: presenças, ata, texto da ata ───────────────────
+     Só a partir da data da reunião (showMeetingRecord); read-only em held/cancelled. #}}
+  {{ if showMeetingRecord }}
+  {{# ─── Presenças + quórum (Art. 1432.º CC) ────────────────────────────── #}}
+  <div class="card bg-base-100 shadow-sm border border-base-200 overflow-hidden mb-6">
+    <div class="px-6 pt-5 pb-3 border-b border-base-200 flex items-center justify-between gap-3 flex-wrap">
+      <div class="flex items-center gap-3 flex-wrap">
+        <h2 class="text-lg font-bold">Presenças <span class="text-base-content/50 font-normal text-sm">· {{ String(attendees.length) }}</span></h2>
+        {{# Threshold de quórum depende da convocatória (1ª: >50%; 2ª: >0). #}}
+        {{ if quorum.round === "first" }}
+          <span class="inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-info/10 text-info border border-info/20">
+            1ª convocatória
+          </span>
+        {{ else }}
+          <span class="inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-100 border border-amber-200" style="color:#854D0E">
+            2ª convocatória
+          </span>
+        {{ /if }}
+        {{# Quórum legitima as deliberações que se seguem (Art. 1432.º nº 1). #}}
+        {{ if quorum.hasQuorum }}
+          {{ include "partials/status_badge.vto" { label: "Quórum atingido", tone: "success", size: "xs" } }}
+        {{ else }}
+          {{ include "partials/status_badge.vto" { label: "Sem quórum", tone: "error", size: "xs" } }}
+        {{ /if }}
+      </div>
+      <div class="flex items-center gap-2 flex-wrap">
+        {{# Toggle 1ª ↔ 2ª convocatória (Art. 1432.º nº 4 CC). #}}
+        {{ if canRecord }}
+          <form method="post" action="/admin/c/{{ currentCondominiumId }}/assembly/{{ target.id }}/convocation-round" class="inline">
+            {{ if quorum.round === "first" }}
+              <input type="hidden" name="convocationRound" value="second">
+              <button type="submit" class="btn btn-sm btn-warning btn-outline">Passar para 2ª convocatória</button>
+            {{ else }}
+              <input type="hidden" name="convocationRound" value="first">
+              <button type="submit" class="btn btn-sm btn-ghost">Voltar para 1ª</button>
+            {{ /if }}
+          </form>
+        {{ /if }}
+        {{ if canRecord && availableUnits.length > 0 }}
+          <button type="button" class="btn btn-sm btn-primary" onclick="document.getElementById('modal_add_attendee').showModal()">
+            + Registar presença
+          </button>
+        {{ /if }}
+      </div>
+    </div>
+    {{# Permilagem presente vs total. 3 casas decimais sempre - alinha com a
+       precisão `decimal(8,3)` da coluna `unit.permillage`. #}}
+    <div class="px-6 pt-3 pb-2">
+      <div class="flex items-center justify-between text-xs mb-1 gap-2 flex-wrap">
+        <span class="text-base-content/60">
+          Permilagem presente:
+          <strong class="ml-1 inline-flex items-center px-1.5 py-0.5 rounded font-bold tabular-nums {{ if quorum.hasQuorum }}bg-success/10 text-success{{ else }}bg-error/10 text-error{{ /if }}">
+            {{ Number(quorum.totalAttendeePermillage).toFixed(3) }}
+          </strong>
+          / <span class="tabular-nums">{{ Number(quorum.totalBuildingPermillage).toFixed(3) }}</span> ‰
+        </span>
+        {{ if quorum.round === "first" }}
+          <span class="text-base-content/40">1ª convocatória exige &gt;50%</span>
+        {{ else }}
+          <span class="text-base-content/40">2ª convocatória aceita qualquer permilagem</span>
+        {{ /if }}
+      </div>
+      <progress
+        class="progress {{ if quorum.hasQuorum }}progress-success{{ else }}progress-error{{ /if }} w-full h-2"
+        value="{{ String(quorum.totalAttendeePermillage) }}"
+        max="{{ String(quorum.totalBuildingPermillage) }}"></progress>
+    </div>
+    {{ if attendees.length > 0 }}
+      <div class="table-scroll">
+        <table class="table table-sm">
+          <thead>
+            <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+              <th class="pl-6">Fração</th>
+              <th>Presente / Procurador</th>
+              <th class="text-right">Permilagem</th>
+              <th>Tipo</th>
+              {{ if canRecord }}<th class="pr-6 text-right">Ações</th>{{ /if }}
+            </tr>
+          </thead>
+          <tbody>
+            {{ for a of attendees }}
+              {{# `o` = titular; em is_proxy mostra o portador (interno ou externo). #}}
+              {{ set u = units.find((x) => x.id === a.unitId) }}
+              {{ set o = occupants.find((x) => x.id === a.occupantId) }}
+              {{ set holderInt = a.proxyHolderOccupantId ? occupants.find((x) => x.id === a.proxyHolderOccupantId) : null }}
+              <tr class="border-t border-base-100">
+                <td class="pl-6 font-bold">{{ u ? u.designation : "?" }}{{ if u && u.identifier }}<span class="text-base-content/50 font-normal"> - {{ u.identifier }}</span>{{ /if }}</td>
+                <td>
+                  <div class="font-medium">{{ o ? o.name : a.occupantId }}</div>
+                  {{ if a.isProxy }}
+                    <div class="text-xs text-base-content/60">
+                      Representado por
+                      {{ if holderInt }}
+                        <strong>{{ holderInt.name }}</strong>
+                      {{ else if a.proxyHolderExternalName }}
+                        <strong>{{ a.proxyHolderExternalName }}</strong>
+                        <span class="text-base-content/40">(externo)</span>
+                      {{ else }}
+                        <span class="text-error">[portador não registado]</span>
+                      {{ /if }}
+                    </div>
+                  {{ /if }}
+                </td>
+                <td class="text-right tabular-nums">{{ Number(a.permillageAtMeeting).toFixed(3) }} ‰</td>
+                <td>
+                  {{ if a.isProxy }}
+                    <span class="inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-warning/10 text-warning border border-warning/20">Procuração</span>
+                  {{ else }}
+                    <span class="inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-success/10 text-success border border-success/20">Presença</span>
+                  {{ /if }}
+                </td>
+                {{ if canRecord }}
+                  <td class="pr-6 text-right">
+                    {{# Backend devolve HX-Redirect; `data-confirm-*` interceta antes do submit (ADR 0013). #}}
+                    <form method="post"
+                          action="/admin/c/{{ currentCondominiumId }}/assembly/{{ target.id }}/attendees/{{ a.id }}/delete"
+                          hx-post="/admin/c/{{ currentCondominiumId }}/assembly/{{ target.id }}/attendees/{{ a.id }}/delete"
+                          hx-swap="none"
+                          class="inline"
+                          data-confirm-title="Remover presença" data-confirm-body="A presença será apagada deste registo." data-confirm-danger="true">
+                      <button type="submit" class="btn btn-xs btn-ghost text-error">Remover</button>
+                    </form>
+                  </td>
+                {{ /if }}
+              </tr>
+            {{ /for }}
+          </tbody>
+        </table>
+      </div>
+    {{ else }}
+      <div class="px-6 py-8 text-center text-base-content/50 text-sm">
+        Sem presenças registadas. Adiciona condóminos antes de deliberar sobre a ordem do dia.
+      </div>
+    {{ /if }}
+  </div>
+
+  {{# ─── Assinatura da Ata (Art. 1434.º CC) ───────────────────────────────
+     Card + modal no partial `_signature_block.vto`. Registo da reunião →
+     editável quando convocada (canRecord). #}}
+  {{ include "pages/assembly/_signature_block.vto" {
+    target, canEdit: canRecord, occupants, currentCondominiumId, toast: null
+  } }}
+
+  {{# Texto narrativo da ata (Abertura + Encerramento). Click → modal único
+     `modal_minute_section` (modo intro/conclusion) → POST /minute-section. #}}
+  <div class="card bg-base-100 shadow-sm border border-base-200 overflow-hidden mb-6">
+    <div class="px-6 pt-5 pb-3 border-b border-base-200 flex items-center justify-between gap-3">
+      <h2 class="text-lg font-bold">Texto da ata</h2>
+      <span class="text-xs text-base-content/50">Texto narrativo - aparece antes e depois das deliberações.</span>
+    </div>
+    <div class="table-scroll">
+      <table class="table table-sm">
+        <thead>
+          <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+            <th class="pl-6 w-32">Seção</th>
+            <th>Pré-visualização</th>
+            {{ if canRecord }}<th class="pr-6 text-right">Ações</th>{{ /if }}
+          </tr>
+        </thead>
+        {{# `<tbody>` no partial p/ swap parcial após edição (ver _minute_section_rows.vto). #}}
+        {{ include "pages/assembly/_minute_section_rows.vto" { target, canEdit: canRecord, toast: null } }}
+      </table>
+    </div>
+  </div>
+  {{ /if }}
+
+  <div class="card bg-base-100 shadow-sm border border-base-200 overflow-hidden mb-6">
+    <div class="px-6 pt-5 pb-3 border-b border-base-200 flex items-center justify-between gap-3">
+      <h2 class="text-lg font-bold">Ordem do dia <span class="text-base-content/50 font-normal text-sm">· {{ String((target.agendaItems ?? []).length) }}</span></h2>
+      {{# Acrescentar pontos = montar a ordem do dia → só em rascunho. #}}
+      {{ if canEditAgenda }}
+        <button type="button" class="btn btn-sm btn-primary" onclick="openAgendaItemModal('create')">
+          + Adicionar ponto
+        </button>
+      {{ /if }}
+    </div>
+    <div class="table-scroll">
+      <table class="table table-sm">
+        <thead>
+          <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+            <th class="pl-6 w-8">#</th>
+            <th>Assunto</th>
+            <th class="w-44 text-right">Resultado</th>
+            {{ if canEdit }}<th class="pr-6 w-24 text-right">Ações</th>{{ /if }}
+          </tr>
+        </thead>
+        {{# `<tbody>` no partial p/ swap parcial; empty state é uma row dentro
+           dele (não bloco irmão) para manter um único swap target. #}}
+        {{ include "pages/assembly/_agenda_tbody.vto" {
+          target, canEdit, canEditAgenda, budgets, currentCondominiumId, toast: null
+        } }}
+      </table>
+    </div>
+  </div>
+
+  {{# ─── Anexos ──────────────────────────────────────────────────────────
+     Editáveis no admin; condóminos vêem read-only no portal. #}}
+  <div class="card bg-base-100 shadow-sm border border-base-200 overflow-hidden mb-6">
+    <div class="px-6 pt-5 pb-3 border-b border-base-200 flex items-center justify-between gap-3">
+      <h2 class="text-lg font-bold">Anexos <span class="text-base-content/50 font-normal text-sm">· {{ String(attachments.length) }}</span></h2>
+      {{ if canEdit }}
+        <button type="button" class="btn btn-sm btn-primary" onclick="document.getElementById('modal_attach_assembly').showModal()">
+          + Anexar ficheiro
+        </button>
+      {{ /if }}
+    </div>
+
+    {{ if attachments.length === 0 }}
+      <p class="px-6 py-8 text-center text-sm text-base-content/50">Sem anexos. {{ if canEdit }}Adiciona a ata em PDF ou outros documentos relevantes.{{ /if }}</p>
+    {{ else }}
+      <ul class="divide-y divide-base-200 px-6 py-2">
+        {{ for a of attachments }}
+          <li class="flex items-center justify-between py-2 gap-3">
+            <a href="/admin/c/{{ currentCondominiumId }}/assembly/{{ target.id }}/attachments/{{ a.id }}" target="_blank"
+               class="flex items-center gap-2 text-sm flex-1 min-w-0 hover:text-primary">
+              {{ if a.mimeType && a.mimeType.startsWith("image/") }}
+                <span title="Imagem">🖼️</span>
+              {{ else if a.mimeType === "application/pdf" }}
+                <span title="PDF">📄</span>
+              {{ else }}
+                <span title="Ficheiro">📎</span>
+              {{ /if }}
+              <span class="truncate font-medium">{{ a.filename }}</span>
+              <span class="text-xs text-base-content/50 shrink-0">{{ String(Math.round(a.fileSize / 1024)) }} KB</span>
+            </a>
+            {{ if canEdit }}
+              <form method="post" action="/admin/c/{{ currentCondominiumId }}/assembly/{{ target.id }}/attachments/{{ a.id }}/delete"
+                    data-confirm-title="Remover anexo"
+                    data-confirm-body="O ficheiro {{ a.filename }} vai ser removido."
+                    data-confirm-ok="Remover"
+                    data-confirm-danger="true"
+                    class="shrink-0">
+                <button type="submit" class="btn btn-xs btn-ghost text-error">remover</button>
+              </form>
+            {{ /if }}
+          </li>
+        {{ /for }}
+      </ul>
+    {{ /if }}
+  </div>
+</div>
+
+{{ if canEdit }}
+<dialog id="modal_attach_assembly" class="modal">
+  <div class="modal-box max-w-md">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-lg mb-3">Anexar ficheiros à assembleia</h3>
+    <p class="text-sm text-base-content/60 mb-3">Aceita PDF, imagens (JPG/PNG/WebP/HEIC). Max {{ String(uploadMaxMb) }} MB cada.</p>
+    <form method="post"
+          action="/admin/c/{{ currentCondominiumId }}/assembly/{{ target.id }}/attachments"
+          enctype="multipart/form-data" class="space-y-3">
+      {{ include "partials/file_dropzone.vto" {
+        name: "files",
+        multiple: true,
+        accept: uploadAccept,
+        helpText: "PDF ou imagens - podes selecionar vários",
+      } }}
+      <div class="flex justify-end gap-2 pt-2 border-t border-base-200">
+        <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('modal_attach_assembly').close()">Cancelar</button>
+        <button type="submit" class="btn btn-sm btn-primary gap-1.5" data-upload-submit disabled>
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/>
+          </svg>
+          Carregar
+        </button>
+      </div>
+    </form>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+{{ /if }}
+
+{{# Modal de leitura da descrição - visível mesmo em assembleias bloqueadas. #}}
+<dialog id="modal_view_desc" class="modal">
+  <div class="modal-box max-w-2xl">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-lg mb-3 pr-8" id="view_desc_title">Ponto da ordem do dia</h3>
+    <div class="text-sm text-base-content/80 whitespace-pre-line leading-relaxed" id="view_desc_content"></div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<script>
+  window.openViewModal = function (btn) {
+    document.getElementById("view_desc_title").textContent =
+      btn.getAttribute("data-view-subject") || "Ponto da ordem do dia";
+    document.getElementById("view_desc_content").textContent =
+      btn.getAttribute("data-view-desc") || "";
+    document.getElementById("modal_view_desc").showModal();
+  };
+</script>
+
+{{ if canEdit }}
+  {{# ═════════ MODAL: Adicionar ponto / Deliberar ═════════
+     Modal único: o JS abaixo alterna create (POST /agenda-items) / edit
+     (POST /agenda-items/:id/update, pré-preenchido). Largura entre 3xl e 4xl. #}}
+  <dialog id="modal_agenda_item" class="modal">
+    <div class="modal-box max-w-[52rem]">
+      <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+      <h3 class="font-bold text-lg mb-4" id="modal_agenda_item_title">Novo ponto da ordem do dia</h3>
+
+      {{# JS seta `form.action`/`hx-post` em runtime (create/edit). Target
+         `#agenda-tbody` (swap parcial, scroll preservado, toast OOB). #}}
+      <form method="post" id="agenda_item_form" class="space-y-4"
+            hx-target="#agenda-tbody"
+            hx-swap="outerHTML">
+        {{ if canEditAgenda }}
+        {{# ─── RASCUNHO: montar o ponto (votação/resultado só na deliberação). ─── #}}
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div class="form-control">
+            <label class="label" for="sequence"><span class="label-text font-medium">Ordem</span></label>
+            <input type="number" id="sequence" name="sequence" min="1" class="input input-bordered" required>
+          </div>
+          <div class="form-control md:col-span-3">
+            <label class="label" for="subject"><span class="label-text font-medium">Assunto</span></label>
+            <input type="text" id="subject" name="subject" class="input input-bordered" required>
+          </div>
+        </div>
+
+        {{# Rascunho monta só o que vai na convocatória (ordem/assunto/tipo). A
+           descrição e a referência registam-se na deliberação (ver bloco else). #}}
+        <div class="form-control">
+          <label class="label" for="itemType"><span class="label-text font-medium">Tipo de ponto</span></label>
+          <select id="itemType" name="itemType" class="select select-bordered">
+            <option value="">-</option>
+            <option value="approve_budget">Aprovar orçamento</option>
+            <option value="accounts_approval">Aprovação de contas</option>
+            <option value="admin_election">Eleição administração</option>
+            <option value="approve_fcr_usage">Aprovar uso FCR</option>
+            <option value="info">Informativo (sem voto)</option>
+            <option value="other">Outra</option>
+          </select>
+        </div>
+        {{ else }}
+        {{# ─── CONVOCADA: deliberar. Resultado derivado dos votos no servidor;
+           o assunto anunciado fica travado (read-only); descrição + referência
+           registam-se aqui (não vão na convocatória). ─── #}}
+        <div class="rounded-lg border border-base-200 bg-base-200/30 px-4 py-3">
+          <div class="font-medium" id="deliberate_subject"></div>
+        </div>
+
+        <div class="form-control">
+          <label class="label" for="description">
+            <span class="label-text font-medium">Descrição</span>
+            <span class="label-text-alt text-base-content/50">Detalhes da discussão, do voto, do contexto</span>
+          </label>
+          <textarea id="description" name="description" class="textarea textarea-bordered" rows="4"></textarea>
+        </div>
+
+        {{# Referência a orçamento: só nos pontos "Aprovar orçamento" (revelada por
+           JS conforme o tipo do ponto). #}}
+        <div id="ref_fields" class="grid grid-cols-1 md:grid-cols-2 gap-4 hidden">
+          <div class="form-control">
+            <label class="label" for="refType"><span class="label-text font-medium">Referência (tipo)</span></label>
+            <select id="refType" name="refType" class="select select-bordered">
+              <option value="">-</option>
+              <option value="budget">Orçamento</option>
+            </select>
+          </div>
+          <div class="form-control">
+            <label class="label" for="refId"><span class="label-text font-medium">Referência (ID)</span></label>
+            <select id="refId" name="refId" class="select select-bordered">
+              <option value="">-</option>
+              {{ for b of budgets }}
+                <option value="{{ b.id }}">
+                  {{ b.year }} · {{ b.type }}{{ if b.notes }} · {{ b.notes }}{{ /if }} · {{ b.status === "approved" ? "aprovado" : (b.status === "not_approved" ? "não aprovado" : "rascunho") }}
+                </option>
+              {{ /for }}
+            </select>
+          </div>
+        </div>
+
+          {{# Votos da deliberação. Escondidos + desativados nos pontos "info"
+             (não se votam) via JS - ver toggleDeliberationFields. #}}
+          <div id="votes_section">
+          {{# Votos por fração (Art. 1432.º + 1433.º CC); agregados derivados
+             pelo trigger `fn_assembly_vote_aggregate` (component 011). Sem
+             presenças → fallback agregado legacy (perde quem-votou-como). #}}
+          {{ if attendees.length > 0 }}
+            <div>
+              <div class="flex items-start justify-between gap-3 mb-2 flex-wrap">
+                <div>
+                  <label class="label py-0"><span class="label-text font-medium">Votos por fração</span></label>
+                  <p class="text-xs text-base-content/60">
+                    Marca o voto de cada presente. Deixa vazio para não registar voto desta fração.
+                  </p>
+                </div>
+                {{# Atalho p/ aprovações unânimes: marca todas, user ajusta as que diferem. #}}
+                <div class="flex items-center gap-1 flex-shrink-0">
+                  <span class="text-[10px] uppercase tracking-wider text-base-content/40 mr-1">Marcar todas:</span>
+                  <button type="button" class="btn btn-xs btn-success btn-outline" onclick="setAllVotes('favor')">Favor</button>
+                  <button type="button" class="btn btn-xs btn-error btn-outline" onclick="setAllVotes('against')">Contra</button>
+                  <button type="button" class="btn btn-xs btn-outline" onclick="setAllVotes('abstain')">Abstenção</button>
+                  <button type="button" class="btn btn-xs btn-ghost" onclick="setAllVotes('')">Limpar</button>
+                </div>
+              </div>
+              <div class="table-scroll border border-base-200 rounded-lg">
+                {{# w-20 fixo nas 3 colunas de voto: sem isto a width auto segue
+                   o header ("Favor" vs "Abstenção") e desalinha os radios. #}}
+                <table class="table table-sm">
+                  <thead>
+                    <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+                      <th class="pl-3">Fração</th>
+                      <th>Presente</th>
+                      <th class="text-right">Permilagem</th>
+                      <th class="text-center w-20">Favor</th>
+                      <th class="text-center w-20">Contra</th>
+                      <th class="text-center w-20">Abstenção</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {{ for a of attendees }}
+                      {{ set u = units.find((x) => x.id === a.unitId) }}
+                      {{ set o = occupants.find((x) => x.id === a.occupantId) }}
+                      <tr class="border-t border-base-100">
+                        <td class="pl-3 font-bold">{{ u ? u.designation : "?" }}{{ if u && u.identifier }}<span class="text-base-content/50 font-normal"> - {{ u.identifier }}</span>{{ /if }}</td>
+                        <td class="text-base-content/70 text-xs">{{ o ? o.name : a.occupantId }}</td>
+                        <td class="text-right tabular-nums">{{ Number(a.permillageAtMeeting).toFixed(3) }} ‰</td>
+                        {{# Valor cru (sem toFixed): o backend arredonda na soma. #}}
+                        <input type="hidden" name="perm__{{ a.unitId }}" value="{{ a.permillageAtMeeting }}">
+                        <td class="text-center w-20"><input type="radio" name="vote__{{ a.unitId }}" value="favor" class="radio radio-sm radio-success"></td>
+                        <td class="text-center w-20"><input type="radio" name="vote__{{ a.unitId }}" value="against" class="radio radio-sm radio-error"></td>
+                        <td class="text-center w-20"><input type="radio" name="vote__{{ a.unitId }}" value="abstain" class="radio radio-sm"></td>
+                      </tr>
+                    {{ /for }}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          {{ else }}
+            {{# Fallback: sem presenças, modo agregado clássico. #}}
+            <div class="rounded-lg border border-base-200 bg-warning/5 px-3 py-2 text-xs text-base-content/70">
+              Sem presenças registadas - serão usados apenas totais agregados (perde-se o registo
+              de quem votou como, importante para o direito de recurso - Art. 1433.º).
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div class="form-control">
+                <label class="label" for="votesInFavor"><span class="label-text font-medium">Votos a favor</span></label>
+                <input type="number" id="votesInFavor" name="votesInFavor" min="0" step="0.001" class="input input-bordered" placeholder="0,000">
+              </div>
+              <div class="form-control">
+                <label class="label" for="votesAgainst"><span class="label-text font-medium">Votos contra</span></label>
+                <input type="number" id="votesAgainst" name="votesAgainst" min="0" step="0.001" class="input input-bordered" placeholder="0,000">
+              </div>
+              <div class="form-control">
+                <label class="label" for="votesAbstain"><span class="label-text font-medium">Abstenções</span></label>
+                <input type="number" id="votesAbstain" name="votesAbstain" min="0" step="0.001" class="input input-bordered" placeholder="0,000">
+              </div>
+            </div>
+          {{ /if }}
+          {{# Nota livre da votação - aparece na ata junto ao resultado/contagem. #}}
+          <div class="form-control mt-4">
+            <label class="label" for="voteNote">
+              <span class="label-text font-medium">Nota da votação</span>
+              <span class="label-text-alt text-base-content/50">Aparece na ata junto ao resultado</span>
+            </label>
+            <textarea id="voteNote" name="voteNote" class="textarea textarea-bordered" rows="2" placeholder="Ex.: aprovada por maioria de 70%."></textarea>
+          </div>
+          </div>
+
+        {{ /if }}
+
+        <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
+          <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('modal_agenda_item').close()">Cancelar</button>
+          <button type="submit" class="btn btn-sm btn-primary" id="agenda_item_submit">Adicionar ponto</button>
+        </div>
+      </form>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+
+  {{# ═════════ MODAL: Confirmar "Marcar como realizada" ═════════ #}}
+  <dialog id="modal_mark_held" class="modal">
+    <div class="modal-box max-w-md">
+      <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+      <h3 class="font-bold text-lg mb-2">Marcar assembleia como realizada</h3>
+      <div class="rounded-lg border border-warning/30 bg-warning/5 px-4 py-3 mb-4 flex items-start gap-3">
+        <svg class="w-5 h-5 text-warning shrink-0 mt-0.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+        </svg>
+        <div class="text-sm">
+          <div class="font-medium text-warning">Ação irreversível</div>
+          <div class="text-base-content/70 mt-1">
+            Após marcar como realizada, a assembleia fica <strong>selada</strong>: não poderás adicionar, editar nem apagar pontos da ordem do dia, nem alterar os seus dados. Esta assembleia passa a fazer parte do histórico oficial.
+          </div>
+        </div>
+      </div>
+      <form method="post" action="/admin/c/{{ currentCondominiumId }}/assembly/{{ target.id }}/status">
+        <input type="hidden" name="status" value="held">
+        <div class="flex justify-end gap-2">
+          <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('modal_mark_held').close()">Cancelar</button>
+          <button type="submit" class="btn btn-sm btn-primary">Sim, marcar como realizada</button>
+        </div>
+      </form>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+
+  {{# ═════════ MODAL: Editar dados da assembleia ═════════ #}}
+  <dialog id="modal_assembly" class="modal">
+    <div class="modal-box max-w-2xl">
+      <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+      <h3 class="font-bold text-lg mb-4">Editar assembleia</h3>
+
+      <form method="post" action="/admin/c/{{ currentCondominiumId }}/assembly/{{ target.id }}/update" class="space-y-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="form-control">
+            <label class="label" for="a_type"><span class="label-text font-medium">Tipo</span></label>
+            <select id="a_type" name="type" class="select select-bordered" required>
+              <option value="ordinary" {{ if target.type === "ordinary" }}selected{{ /if }}>Ordinária</option>
+              <option value="extraordinary" {{ if target.type === "extraordinary" }}selected{{ /if }}>Extraordinária</option>
+            </select>
+          </div>
+          <div class="form-control">
+            <label class="label" for="a_scheduledAt"><span class="label-text font-medium">1ª convocatória</span></label>
+            <input type="datetime-local" id="a_scheduledAt" name="scheduledAt"
+                   value="{{ target.scheduledAt ? target.scheduledAt.slice(0, 16) : '' }}"
+                   class="input input-bordered" required>
+          </div>
+        </div>
+
+        {{# 2ª convocatória opcional (Art. 1432.º nº 4 CC); DB CHECK exige >= scheduledAt. #}}
+        <div class="form-control">
+          <label class="label" for="a_secondConvocationAt">
+            <span class="label-text font-medium">2ª convocatória</span>
+            <span class="label-text-alt text-base-content/50">opcional, fica registada para a convocatória legal</span>
+          </label>
+          <input type="datetime-local" id="a_secondConvocationAt" name="secondConvocationAt"
+                 value="{{ target.secondConvocationAt ? target.secondConvocationAt.slice(0, 16) : '' }}"
+                 class="input input-bordered">
+        </div>
+
+        <div class="form-control">
+          <label class="label" for="a_location"><span class="label-text font-medium">Local</span></label>
+          <input type="text" id="a_location" name="location" maxlength="255"
+                 value="{{ target.location ?? '' }}"
+                 class="input input-bordered" placeholder="Ex: Sala comum do 1º andar">
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="form-control">
+            <label class="label" for="a_minutesNumber"><span class="label-text font-medium">Nº Ata</span></label>
+            <input type="text" id="a_minutesNumber" name="minutesNumber" maxlength="50"
+                   value="{{ target.minutesNumber ?? '' }}"
+                   class="input input-bordered" placeholder="Ex: 05/2026">
+          </div>
+          <div class="form-control">
+            <label class="label" for="a_convocationRound"><span class="label-text font-medium">Convocatória atual</span></label>
+            <select id="a_convocationRound" name="convocationRound" class="select select-bordered">
+              <option value="first" {{ if (target.convocationRound ?? 'first') === 'first' }}selected{{ /if }}>1ª (exige &gt;50% permilagem)</option>
+              <option value="second" {{ if target.convocationRound === 'second' }}selected{{ /if }}>2ª (qualquer permilagem &gt; 0)</option>
+            </select>
+          </div>
+        </div>
+
+        {{# Textos da CONVOCATÓRIA (distintos do texto da ata); vão no PDF da convocatória. #}}
+        <div class="form-control">
+          <label class="label" for="a_convocationIntro">
+            <span class="label-text font-medium">Abertura da convocatória</span>
+            <span class="label-text-alt text-base-content/50">texto antes da ordem do dia</span>
+          </label>
+          <textarea id="a_convocationIntro" name="convocationIntro" rows="3" class="textarea textarea-bordered"
+                    placeholder="Ex: Exmos. Senhores Condóminos, nos termos do Art. 1432.º CC convoca-se...">{{ target.convocationIntro ?? '' }}</textarea>
+        </div>
+        <div class="form-control">
+          <label class="label" for="a_convocationFooter">
+            <span class="label-text font-medium">Rodapé da convocatória</span>
+            <span class="label-text-alt text-base-content/50">instruções (documentos, procuração, etc.)</span>
+          </label>
+          <textarea id="a_convocationFooter" name="convocationFooter" rows="3" class="textarea textarea-bordered"
+                    placeholder="Ex: A procuração deve ser entregue à administração até ao início da reunião.">{{ target.convocationFooter ?? '' }}</textarea>
+        </div>
+
+        <div class="form-control">
+          <label class="label" for="a_notes"><span class="label-text font-medium">Notas (internas)</span></label>
+          <textarea id="a_notes" name="notes" rows="3" class="textarea textarea-bordered">{{ target.notes ?? '' }}</textarea>
+        </div>
+
+        <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
+          <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('modal_assembly').close()">Cancelar</button>
+          <button type="submit" class="btn btn-sm btn-primary">Guardar alterações</button>
+        </div>
+      </form>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+
+  {{# ═════════ MODAL: Editar seção da ata (Abertura / Encerramento) ═════
+     Modal único; `openMinuteSectionModal` lê data-* da linha e preenche o
+     form. POST /minute-section decide a coluna a gravar. #}}
+  <dialog id="modal_minute_section" class="modal">
+    <div class="modal-box max-w-2xl">
+      <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+      <h3 class="font-bold text-lg mb-1" id="modal_minute_section_title">Editar seção</h3>
+      <p class="text-xs text-base-content/50 mb-4" id="modal_minute_section_hint">Texto narrativo que aparece na ata.</p>
+
+      {{# Swap parcial só de `#minute-section-tbody` (scroll preservado, toast OOB);
+         modal fecha-se via listener JS abaixo. #}}
+      <form method="post"
+            action="/admin/c/{{ currentCondominiumId }}/assembly/{{ target.id }}/minute-section"
+            hx-post="/admin/c/{{ currentCondominiumId }}/assembly/{{ target.id }}/minute-section"
+            hx-target="#minute-section-tbody"
+            hx-swap="outerHTML"
+            id="minute_section_form" class="space-y-3">
+        <input type="hidden" name="section" id="minute_section_key" value="">
+        <div class="form-control">
+          <textarea id="minute_section_text" name="text" rows="10"
+                    class="textarea textarea-bordered w-full leading-relaxed"
+                    placeholder="Escreve aqui o texto da seção da ata…"></textarea>
+        </div>
+        <div class="flex justify-end gap-2 pt-3 border-t border-base-200">
+          <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('modal_minute_section').close()">Cancelar</button>
+          <button type="submit" class="btn btn-sm btn-primary">Guardar</button>
+        </div>
+      </form>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+
+  <script>
+    // Modal único para "Abertura" / "Encerramento". O botão da linha
+    // passa `data-section-key` (intro|conclusion), label e texto atual.
+    window.openMinuteSectionModal = function (btn) {
+      var key = btn.getAttribute("data-section-key");
+      var label = btn.getAttribute("data-section-label") || "Seção";
+      var text = btn.getAttribute("data-section-text") || "";
+      document.getElementById("modal_minute_section_title").textContent = "Editar " + label.toLowerCase();
+      document.getElementById("modal_minute_section_hint").textContent = key === "intro"
+        ? "Texto introdutório da ata (Art. 1432.º CC). Aparece antes das deliberações."
+        : "Fórmula de encerramento (Art. 1433.º CC). Aparece depois das deliberações.";
+      document.getElementById("minute_section_key").value = key;
+      document.getElementById("minute_section_text").value = text;
+      document.getElementById("modal_minute_section").showModal();
+    };
+
+    // Fecha o modal após o swap bem-sucedido. O backend devolve o
+    // `<tbody>` atualizado que substitui só essa parte da DOM - o resto
+    // da página (scroll, outros modais, etc) fica intacto.
+    (function () {
+      var f = document.getElementById("minute_section_form");
+      if (!f) return;
+      f.addEventListener("htmx:afterRequest", function (evt) {
+        if (evt && evt.detail && evt.detail.successful) {
+          var d = document.getElementById("modal_minute_section");
+          if (d && d.open) d.close();
+        }
+      });
+    })();
+
+    // Listener global para fechar `modal_sign_minutes` após swap parcial.
+    // O modal é re-emitido via OOB swap em cada request (o partial
+    // inclui-o), portanto o listener é delegado ao body em vez de
+    // acoplado ao form (que muda de instância a cada swap). Filtra pelo
+    // elemento que disparou o evento via `evt.detail.elt.id`.
+    document.body.addEventListener("htmx:afterRequest", function (evt) {
+      if (!evt.detail || !evt.detail.successful) return;
+      var elt = evt.detail.elt;
+      if (!elt || elt.id !== "sign_minutes_form") return;
+      var d = document.getElementById("modal_sign_minutes");
+      if (d && d.open) d.close();
+    });
+  </script>
+
+  <script>
+    (function () {
+      {{# `target.id` e `currentCondominiumId` são nanoids (alphanum + _-): seguros mesmo com autoescape. #}}
+      var condoPrefix = "/admin/c/{{ currentCondominiumId }}/assembly/{{ target.id }}";
+      // Estado da assembleia: em rascunho edita-se o PONTO; convocada, o
+      // mesmo modal serve para registar a DELIBERAÇÃO (resultado) sobre o ponto.
+      var isScheduled = {{ isScheduled ? "true" : "false" }};
+      // `nextSequence` lê-se do `<tbody data-next-sequence>` em runtime
+      // (não JS var hardcoded) porque o htmx swap parcial atualiza esse
+      // atributo após cada create. Senão ficaria stale.
+      function getNextSequence() {
+        var tbody = document.getElementById("agenda-tbody");
+        return tbody ? Number(tbody.dataset.nextSequence || 1) : 1;
+      }
+      var modal = document.getElementById("modal_agenda_item");
+      var form = document.getElementById("agenda_item_form");
+      var title = document.getElementById("modal_agenda_item_title");
+      var submit = document.getElementById("agenda_item_submit");
+
+      // Helper: set value só se o elemento existir no DOM. Os 3 inputs de
+      // votos agregados (#votesInFavor/#votesAgainst/#votesAbstain) só são
+      // renderizados no modo "sem presenças" (fallback) - quando há
+      // presenças registadas, a votação é per-fração (radios) e estes
+      // campos não existem. Sem este helper, querySelector retornava null
+      // e `.value` lançava TypeError - resultado: modal não abria.
+      function setIfExists(sel, val) {
+        var el = form.querySelector(sel);
+        if (el) el.value = val;
+      }
+
+      window.openAgendaItemModal = function (mode, btn) {
+        // Reset completo do form antes de carregar valores.
+        form.reset();
+
+        if (mode === "create") {
+          // Criar ponto só acontece em rascunho.
+          title.textContent = "Novo ponto da ordem do dia";
+          submit.textContent = "Adicionar ponto";
+          form.action = condoPrefix + "/agenda-items";
+          form.setAttribute("hx-post", form.action);
+          if (window.htmx) window.htmx.process(form);
+          setIfExists("#sequence", getNextSequence());
+        } else {
+          // 'edit' - lê os data-* do botão clicado. Em rascunho edita-se o
+          // ponto; convocada, regista-se a deliberação (resultado).
+          var itemType = btn.getAttribute("data-item-type") || "";
+          var isInfo = itemType === "info";
+          // Em convocada: pontos `info` registam só a nota; os restantes deliberam.
+          title.textContent = !isScheduled ? "Editar ponto" : (isInfo ? "Nota do ponto" : "Deliberar sobre o ponto");
+          submit.textContent = !isScheduled ? "Guardar alterações" : (isInfo ? "Guardar nota" : "Registar deliberação");
+          var itemId = btn.getAttribute("data-agenda-item-id");
+          form.action = condoPrefix + "/agenda-items/" + itemId + "/update";
+          form.setAttribute("hx-post", form.action);
+          if (window.htmx) window.htmx.process(form);
+          setIfExists("#sequence", btn.getAttribute("data-sequence") || "1");
+          setIfExists("#subject", btn.getAttribute("data-subject") || "");
+          setIfExists("#description", btn.getAttribute("data-description") || "");
+          setIfExists("#itemType", btn.getAttribute("data-item-type") || "");
+          setIfExists("#refType", btn.getAttribute("data-ref-type") || "");
+          setIfExists("#refId", btn.getAttribute("data-ref-id") || "");
+          setIfExists("#votesInFavor", btn.getAttribute("data-votes-favor") || "");
+          setIfExists("#votesAgainst", btn.getAttribute("data-votes-against") || "");
+          setIfExists("#votesAbstain", btn.getAttribute("data-votes-abstain") || "");
+          setIfExists("#voteNote", btn.getAttribute("data-vote-note") || "");
+          // Em convocada (deliberar) o assunto anunciado é read-only: preenche o
+          // bloco de contexto a partir do data-* da linha clicada (descrição e
+          // referência são editáveis, já preenchidas acima por setIfExists).
+          if (isScheduled) {
+            var subjEl = document.getElementById("deliberate_subject");
+            if (subjEl) subjEl.textContent = btn.getAttribute("data-subject") || "";
+          }
+          // Ajusta os campos da deliberação ao tipo: referência só p/ orçamento,
+          // votos escondidos+desativados nos pontos `info` (não se votam).
+          toggleDeliberationFields(itemType);
+          // Pré-marca os radios `vote__<unitId>` a partir do mapa JSON
+          // injectado pelo controller. Se o modo per-fração não estiver
+          // renderizado (fallback agregado), os radios não existem e os
+          // updates abaixo são no-op.
+          try {
+            var votesMap = JSON.parse(btn.getAttribute("data-votes-by-unit") || "{}");
+            // Primeiro desmarca todos (caso edit anterior tenha deixado state).
+            form.querySelectorAll('input[type="radio"][name^="vote__"]').forEach(function (r) {
+              r.checked = false;
+            });
+            Object.keys(votesMap).forEach(function (unitId) {
+              var value = votesMap[unitId];
+              var radio = form.querySelector(
+                'input[type="radio"][name="vote__' + unitId + '"][value="' + value + '"]',
+              );
+              if (radio) radio.checked = true;
+            });
+          } catch (_e) { /* JSON inválido: ignora */ }
+        }
+        modal.showModal();
+      };
+
+      window.toggleDeliberationFields = function (itemType) {
+        // Form de deliberação: referência a orçamento só nos pontos "Aprovar
+        // orçamento"; votos só nos pontos que se votam (não `info`). Guards p/ o
+        // rascunho, onde estes wrappers não existem.
+        var ref = document.getElementById("ref_fields");
+        if (ref) {
+          var isBudget = itemType === "approve_budget";
+          ref.classList.toggle("hidden", !isBudget);
+          if (isBudget) {
+            // Única opção; preencher dispara o side-effect de aprovação ao realizar.
+            var refTypeSel = document.getElementById("refType");
+            if (refTypeSel) refTypeSel.value = "budget";
+          }
+        }
+        var votes = document.getElementById("votes_section");
+        if (votes) {
+          var isInfo = itemType === "info";
+          votes.classList.toggle("hidden", isInfo);
+          // Campos desativados não são submetidos - info não regista votos nem nota.
+          votes.querySelectorAll("input, textarea").forEach(function (el) { el.disabled = isInfo; });
+        }
+      };
+
+      {{# Bulk-set dos radios `vote__<unitId>`; value="" desmarca tudo. #}}
+      window.setAllVotes = function (value) {
+        var radios = form.querySelectorAll('input[type="radio"][name^="vote__"]');
+        if (!value) {
+          radios.forEach(function (r) { r.checked = false; });
+          return;
+        }
+        radios.forEach(function (r) {
+          if (r.value === value) r.checked = true;
+        });
+      };
+
+      // Fecha o modal_agenda_item após o swap parcial bem-sucedido. O backend
+      // devolve só o `<tbody>` atualizado + toast OOB - resto da página
+      // intacta, scroll preservado.
+      form.addEventListener("htmx:afterRequest", function (evt) {
+        if (evt && evt.detail && evt.detail.successful && modal) {
+          if (modal.open) modal.close();
+        }
+      });
+    })();
+  </script>
+{{ /if }}
+
+{{# ─── Modal: Registar Presença (Art. 1432.º CC) ─────────────────────────── #}}
+{{ if canRecord }}
+  {{# `overflow-visible` no modal-box p/ os dropdowns dos comboboxes saírem
+     fora (convenção CLAUDE.md). `ownersByUnit`/`occupants` viajam como JSON
+     em data-attrs (apóstrofes deixam o browser desencodar `&quot;`). #}}
+  <dialog id="modal_add_attendee" class="modal"
+          data-owners-by-unit='{{ JSON.stringify(ownersByUnit) }}'
+          data-all-occupants='{{ JSON.stringify(occupants.map((o) => ({ id: o.id, name: o.name }))) }}'>
+    <div class="modal-box max-w-lg overflow-visible">
+      <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+      <h3 class="font-bold text-lg mb-3">Registar presença</h3>
+      <p class="text-xs text-base-content/60 mb-4">
+        Adiciona um condómino presente ou registado por procuração (Art. 1431.º nº 5). A permilagem fica
+        snapshot - não muda mesmo que a fração seja alterada depois.
+      </p>
+      {{# Backend responde HX-Redirect p/ refrescar (re-calcula quórum);
+         `method`/`action` ficam como fallback sem JS. #}}
+      <form method="post"
+            action="/admin/c/{{ currentCondominiumId }}/assembly/{{ target.id }}/attendees"
+            hx-post="/admin/c/{{ currentCondominiumId }}/assembly/{{ target.id }}/attendees"
+            hx-swap="none"
+            class="space-y-3">
+        {{# ─── Fração: combobox pesquisável ───────────────────────────── #}}
+        <div class="form-control relative" data-combobox id="att_unit_combobox">
+          <label class="label py-1"><span class="label-text text-xs">Fração *</span></label>
+          <input type="text" data-combobox-search autocomplete="off"
+                 placeholder="Pesquisar designação, bloco ou identificador…"
+                 class="input input-sm input-bordered" required>
+          <input type="hidden" name="unitId" data-combobox-value required>
+          <ul data-combobox-list class="hidden absolute top-full left-0 right-0 z-30 mt-1 max-h-60 overflow-y-auto bg-base-100 border border-base-200 rounded-lg shadow-lg py-1">
+            {{ for u of availableUnits }}
+              {{# `data-label` (designation + identifier) é o que fica no input ao selecionar. #}}
+              {{ set _fullLabel = u.identifier ? (u.designation + " - " + u.identifier) : u.designation }}
+              <li data-combobox-option
+                  data-id="{{ u.id }}"
+                  data-label="{{ _fullLabel }}"
+                  data-permillage="{{ u.permillage }}"
+                  data-haystack="{{ (_fullLabel + ' ' + (u.block ?? '') + ' ' + (u.floor ?? '') + ' ' + (u.door ?? '')).toLowerCase() }}"
+                  class="px-3 py-1.5 text-sm hover:bg-base-200 cursor-pointer whitespace-nowrap">
+                <span class="font-semibold">{{ u.designation }}</span>{{ if u.identifier }}<span class="text-base-content/70"> - {{ u.identifier }}</span>{{ /if }}
+                <span class="text-base-content/50"> · {{ u.permillage }} ‰</span>
+              </li>
+            {{ /for }}
+            <li data-combobox-empty class="hidden px-3 py-2 text-sm text-base-content/50 italic">Sem resultados.</li>
+          </ul>
+        </div>
+        {{# ─── Permilagem readonly ─────────────────────────────────────── #}}
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Permilagem aplicada</span></label>
+          <input type="text" id="att_permillage" name="permillageAtMeeting" required readonly
+                 class="input input-sm input-bordered bg-base-200 text-base-content/70"
+                 placeholder="Auto-preenchido pela fração">
+        </div>
+        {{# ─── Titular da fração (proprietário) ──────────────────────── #}}
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Titular da fração * <span class="text-base-content/40 font-normal">(proprietário registado)</span></span></label>
+          <select id="att_occupant_select" name="occupantId" required class="select select-sm select-bordered" disabled>
+            <option value="">- escolhe primeiro a fração -</option>
+          </select>
+        </div>
+        {{# ─── Procuração ─────────────────────────────────────────────── #}}
+        <div class="form-control bg-base-200/40 rounded-lg px-3 py-2">
+          <label class="label cursor-pointer justify-start gap-3 py-1">
+            <input type="checkbox" id="att_is_proxy" name="isProxy" value="1" class="checkbox checkbox-sm">
+            <span class="label-text text-xs font-medium">O titular não está presente - veio um portador da procuração (Art. 1431.º nº 5)</span>
+          </label>
+        </div>
+        <div class="form-control hidden" id="att_repr_wrap">
+          <label class="label py-1"><span class="label-text text-xs">Portador da procuração *</span></label>
+          {{# `proxyHolderKind` decide qual campo vai no submit (XOR no DB). #}}
+          <div class="flex gap-2 mb-2 text-xs">
+            <label class="flex items-center gap-1 cursor-pointer">
+              <input type="radio" name="proxyHolderKind" value="internal" checked
+                     class="radio radio-xs" onchange="onAttReprKindChange(this)">
+              <span>Outro condómino do sistema</span>
+            </label>
+            <label class="flex items-center gap-1 cursor-pointer">
+              <input type="radio" name="proxyHolderKind" value="external"
+                     class="radio radio-xs" onchange="onAttReprKindChange(this)">
+              <span>Pessoa externa (familiar, advogado, vizinho, etc.)</span>
+            </label>
+          </div>
+          {{# Portador interno: qualquer ocupante (não só da fração). #}}
+          <div class="relative" data-combobox id="att_repr_combobox">
+            <input type="text" data-combobox-search autocomplete="off"
+                   placeholder="Pesquisar condómino portador…"
+                   class="input input-sm input-bordered">
+            <input type="hidden" name="proxyHolderOccupantId" data-combobox-value>
+            <ul data-combobox-list class="hidden absolute top-full left-0 right-0 z-30 mt-1 max-h-60 overflow-y-auto bg-base-100 border border-base-200 rounded-lg shadow-lg py-1">
+              {{ for o of occupants }}
+                <li data-combobox-option
+                    data-id="{{ o.id }}"
+                    data-label="{{ o.name }}"
+                    data-haystack="{{ ((o.name ?? '') + ' ' + (o.email ?? '') + ' ' + (o.nif ?? '')).toLowerCase() }}"
+                    class="px-3 py-1.5 text-sm hover:bg-base-200 cursor-pointer">
+                  <span class="font-medium">{{ o.name }}</span>{{ if o.email }}<span class="text-base-content/50 text-xs"> · {{ o.email }}</span>{{ /if }}
+                </li>
+              {{ /for }}
+              <li data-combobox-empty class="hidden px-3 py-2 text-sm text-base-content/50 italic">Sem resultados.</li>
+            </ul>
+          </div>
+          {{# Externo: input livre. Hidden por defeito. #}}
+          <div id="att_repr_external_wrap" class="hidden mt-1">
+            <input type="text" name="proxyHolderExternalName" placeholder="Nome do portador da procuração (externo)"
+                   class="input input-sm input-bordered w-full">
+          </div>
+        </div>
+        <div class="flex justify-end gap-2 pt-3 border-t border-base-200">
+          <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('modal_add_attendee').close()">Cancelar</button>
+          <button type="submit" class="btn btn-sm btn-primary">Adicionar</button>
+        </div>
+      </form>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+
+  <script>
+    (function () {
+      // Lê data do dialog (data-attributes - Vento escapa `"` para `&quot;`,
+      // mas o navegador desencoda automaticamente em attrs com apóstrofes).
+      var dlg = document.getElementById("modal_add_attendee");
+      var OWNERS_BY_UNIT = JSON.parse(dlg.getAttribute("data-owners-by-unit") || "{}");
+
+      var occSel = document.getElementById("att_occupant_select");
+      var permInput = document.getElementById("att_permillage");
+      var unitBox = document.getElementById("att_unit_combobox");
+      var unitHidden = unitBox.querySelector("[data-combobox-value]");
+      var isProxyCb = document.getElementById("att_is_proxy");
+      var reprWrap = document.getElementById("att_repr_wrap");
+      var reprComboboxWrap = document.getElementById("att_repr_combobox");
+      var reprExternalWrap = document.getElementById("att_repr_external_wrap");
+
+      function refreshOccupants(unitId, permillage) {
+        permInput.value = permillage || "";
+        occSel.innerHTML = "";
+        var owners = OWNERS_BY_UNIT[unitId] || [];
+        if (owners.length === 0) {
+          var emptyOpt = document.createElement("option");
+          emptyOpt.value = "";
+          emptyOpt.textContent = "- sem proprietários registados nesta fração -";
+          occSel.appendChild(emptyOpt);
+          occSel.disabled = true;
+          return;
+        }
+        occSel.disabled = false;
+        var placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = "- escolher -";
+        occSel.appendChild(placeholder);
+        owners.forEach(function (o) {
+          var opt = document.createElement("option");
+          opt.value = o.id;
+          opt.textContent = o.name;
+          occSel.appendChild(opt);
+        });
+      }
+
+      function syncFromCombobox() {
+        var unitId = unitHidden.value;
+        var opt = unitBox.querySelector('[data-combobox-option][data-id="' + unitId + '"]');
+        var permillage = opt ? opt.getAttribute("data-permillage") : "";
+        refreshOccupants(unitId, permillage);
+      }
+
+      unitHidden.addEventListener("change", syncFromCombobox);
+      unitHidden.addEventListener("input", syncFromCombobox);
+      unitBox.addEventListener("click", function (ev) {
+        var li = ev.target.closest("[data-combobox-option]");
+        if (li) setTimeout(syncFromCombobox, 0);
+      });
+
+      // Procuração toggle.
+      isProxyCb.addEventListener("change", function () {
+        reprWrap.classList.toggle("hidden", !isProxyCb.checked);
+      });
+
+      // Toggle interno/externo no representado.
+      window.onAttReprKindChange = function (radio) {
+        var isExternal = radio.value === "external" && radio.checked;
+        reprComboboxWrap.classList.toggle("hidden", isExternal);
+        reprExternalWrap.classList.toggle("hidden", !isExternal);
+      };
+    })();
+  </script>
+{{ /if }}
+
+{{# Modal "Assinar Ata" vive em `_signature_block.vto` (re-emitido por OOB swap). #}}
+
+{{# Zona perigosa - cancelar (só em rascunho/convocada). Cancelar é terminal
+   (lifecycle.ts), daí o pattern irreversível (ADR 0025 + modal 0013). #}}
+{{ if isDraft || isScheduled }}
+  {{ set _assemblyKind = target.type === "ordinary" ? "ordinária" : "extraordinária" }}
+  {{ set _assemblyDate = target.scheduledAt |> formatDate }}
+  {{ include "partials/danger_zone.vto" {
+    entityName: "assembleia",
+    entityLabel: "assembleia " + _assemblyKind + " de " + _assemblyDate,
+    actionUrl: "/admin/c/" + currentCondominiumId + "/assembly/" + target.id + "/cancel",
+    confirmBody: "A assembleia passa a Cancelada e sai do fluxo ativo. A ordem do dia, presenças e votos já registados mantêm-se como histórico, mas não poderás reativá-la.",
+    currentUser,
+    actionVerb: "Cancelar",
+    typedWord: "CANCELAR",
+    dangerIcon: "ban",
+  } }}
+{{ /if }}
+
+{{ /layout }}

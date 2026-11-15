@@ -1,0 +1,11 @@
+Mague
+Copyright 2026 Os autores do Mague
+
+Este produto inclui software de terceiros:
+
+- nanoid para PostgreSQL (src/db/components/000_nanoid.sql)
+  Copyright 2025 Viascom Ltd liab. Co
+  Licença Apache, versão 2.0
+
+- CSS gerado com Tailwind CSS e daisyUI (src/apps/panel/static/app.css)
+  Licença MIT

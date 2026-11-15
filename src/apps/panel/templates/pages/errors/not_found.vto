@@ -1,0 +1,22 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+<div class="max-w-2xl mx-auto">
+  <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-12 text-center">
+    <div class="text-5xl mb-3 text-base-content/30">🔍</div>
+    <h1 class="text-3xl font-bold mb-2">{{ heading ?? "Página não encontrada" }}</h1>
+    <p class="text-sm text-base-content/60 max-w-md mx-auto mb-6">{{ subtitle ?? "O caminho que procuras não existe, foi movido, ou o condomínio indicado não está acessível." }}</p>
+    <div class="flex items-center justify-center gap-3 flex-wrap">
+      {{ if showDashboard }}
+        <a href="/admin/c/{{ dashboardCid }}/dashboard" class="btn btn-sm btn-primary">Voltar ao painel</a>
+      {{ /if }}
+      {{ if showChoose }}
+        <a href="/choose-condominium" class="btn btn-sm btn-ghost">Escolher condomínio</a>
+      {{ /if }}
+    </div>
+    {{ if attemptedPath }}
+      <p class="text-xs text-base-content/40 mt-6 font-mono">{{ attemptedPath }}</p>
+    {{ /if }}
+  </div>
+</div>
+
+{{ /layout }}

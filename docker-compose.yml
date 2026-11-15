@@ -1,0 +1,149 @@
+name: mague
+
+services:
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: mague-valkey
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - valkey_data:/data
+    command: ["valkey-server", "--save", "60", "1", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # RustFS - S3-compatible object storage em Rust (ligth, drop-in MinIO).
+  # Usado para armazenar PDFs de recibos. Em produção apontar para AWS S3
+  # real ou Cloudflare R2 - mesmo SDK, mesmo código.
+  # Console web em http://localhost:9001 (ver buckets, objects).
+  # API S3 em http://localhost:9000 (RUSTFS_ACCESS_KEY/RUSTFS_SECRET_KEY como creds).
+  rustfs:
+    image: rustfs/rustfs:latest
+    container_name: mague-rustfs
+    restart: always
+    ports:
+      - "9000:9000" # S3 API
+      - "9001:9001" # Console web
+    environment:
+      RUSTFS_ACCESS_KEY: maguedev
+      RUSTFS_SECRET_KEY: maguedev123
+      RUSTFS_CONSOLE_ENABLE: "true"
+    volumes:
+      - rustfs_data:/data
+    healthcheck:
+      # RustFS responde 403 a `GET /` sem credenciais - basta responder
+      # algo (não usar `-f` que exige 2xx). Aceita qualquer HTTP code.
+      test: [
+        "CMD-SHELL",
+        "curl -s -o /dev/null -w '%{http_code}' http://localhost:9000/ | grep -qE '^[0-9]+$'",
+      ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Mailpit - SMTP catch-all + Web UI para inspeccionar emails em dev.
+  # Em produção apontar SMTP_HOST/SMTP_PORT para o provider real (Postmark,
+  # Resend, SES, etc). Web UI em http://localhost:8025.
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: mague-mailpit
+    restart: always
+    ports:
+      - "1025:1025" # SMTP - onde a API envia
+      - "8025:8025" # Web UI - onde o dev vê os emails
+    environment:
+      MP_MAX_MESSAGES: 5000
+      MP_DATABASE: /data/mailpit.db
+    volumes:
+      - mailpit_data:/data
+
+  db:
+    build:
+      context: ./test_sql
+      dockerfile: Dockerfile.db
+    image: mague-db
+    container_name: mague-db
+    environment:
+      POSTGRES_DB: mague
+      POSTGRES_USER: mague
+      POSTGRES_PASSWORD: mague
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql # PG 18+: mount no parent, data vai para ./<major>/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mague -d mague"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    image: mague-api
+    container_name: mague-api
+    command: deno task dev:api
+    restart: always
+    tty: true
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      rustfs:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://mague:mague@db:5432/mague
+      VALKEY_URL: redis://valkey:6379
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_FROM: "MAGUE <noreply@mague.local>"
+      PANEL_BASE_URL: http://localhost:3400
+      # S3 / RustFS - armazenamento de PDFs de recibos (ver libs/storage/s3.ts).
+      S3_ENDPOINT: http://rustfs:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: mague-receipts
+      S3_ACCESS_KEY: maguedev
+      S3_SECRET_KEY: maguedev123
+      S3_FORCE_PATH_STYLE: "true"
+    volumes:
+      - .:/app
+      - deno_cache:/deno-dir
+      # Cache do Chromium descarregado pelo `astral` (lib PDF) - ~150MB.
+      # Sem isto cada container restart re-baixa, demora ~30s e estoira
+      # primeiro pedido com timeout.
+      - astral_cache:/root/.cache/astral
+
+  panel:
+    build: .
+    image: mague-panel
+    container_name: mague-panel
+    command: deno task dev:panel
+    restart: always
+    tty: true
+    ports:
+      - "3400:3400"
+    depends_on:
+      - api
+    env_file:
+      - .env
+    environment:
+      PANEL_API_URL: http://api:3000
+    volumes:
+      - .:/app
+      - deno_cache:/deno-dir
+
+volumes:
+  pgdata:
+  deno_cache:
+  valkey_data:
+  mailpit_data:
+  rustfs_data:
+  astral_cache:

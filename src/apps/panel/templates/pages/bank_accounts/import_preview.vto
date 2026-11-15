@@ -1,0 +1,119 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+<div class="max-w-6xl">
+  {{ include "partials/page_header.vto" {
+    title: "Pré-visualização do extrato",
+    scale: "detail",
+    breadcrumbs: [
+      { label: "Contas bancárias", href: "/admin/c/" + currentCondominiumId + "/bank-accounts" },
+      { label: account.bankName, href: "/admin/c/" + currentCondominiumId + "/bank-accounts/" + account.id },
+      { label: "Importar" },
+    ],
+    meta: [
+      { value: filename, plain: true },
+      { value: String(summary.total) + " linhas", plain: true },
+    ]
+  } }}
+
+  <div class="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-6">
+    <div class="card bg-base-100 shadow-sm border border-base-200 p-5">
+      <div class="text-xs uppercase font-bold text-base-content/60 tracking-wider">Total no ficheiro</div>
+      <div class="text-xl sm:text-2xl xl:text-3xl font-bold mt-2">{{ String(summary.total) }}</div>
+    </div>
+    <div class="card bg-base-100 shadow-sm border border-base-200 p-5">
+      <div class="text-xs uppercase font-bold text-success/80 tracking-wider">Novos</div>
+      <div class="text-xl sm:text-2xl xl:text-3xl font-bold mt-2 text-success">{{ String(summary.new) }}</div>
+      <div class="text-xs text-base-content/50 mt-1">a importar</div>
+    </div>
+    <div class="card bg-base-100 shadow-sm border border-base-200 p-5">
+      <div class="text-xs uppercase font-bold text-base-content/60 tracking-wider">Duplicados</div>
+      <div class="text-xl sm:text-2xl xl:text-3xl font-bold mt-2 text-base-content/50">{{ String(summary.duplicates) }}</div>
+      <div class="text-xs text-base-content/50 mt-1">já existentes</div>
+    </div>
+  </div>
+
+  {{ if summary.warnings && summary.warnings.length > 0 }}
+    <div class="rounded-lg bg-warning/10 border border-warning/30 px-4 py-3 flex items-start gap-3 mb-4">
+      <span class="text-warning text-lg leading-none">⚠</span>
+      <div class="text-sm text-warning flex-1">
+        <div class="font-semibold mb-1">Avisos ({{ summary.warnings.length }})</div>
+        <ul class="list-disc list-inside text-xs">
+          {{ for w of summary.warnings }}
+            <li>{{ w }}</li>
+          {{ /for }}
+        </ul>
+      </div>
+    </div>
+  {{ /if }}
+
+  <form method="post" action="/admin/c/{{ currentCondominiumId }}/bank-accounts/{{ account.id }}/import/commit">
+    <input type="hidden" name="rows_json" value='{{ JSON.stringify(rows.map((r) => ({ transactionDate: r.transactionDate, valueDate: r.valueDate, description: r.description, amountCents: r.amountCents, balanceAfterCents: r.balanceAfterCents }))) }}'>
+    <input type="hidden" name="filename" value="{{ filename }}">
+
+    <div class="bg-base-100 rounded-xl border border-base-200 overflow-hidden shadow-sm">
+      <div class="flex items-center justify-between p-4 border-b border-base-200">
+        <div class="text-sm font-semibold">Movimentos · {{ rows.length }}</div>
+        <div class="flex gap-2">
+          <button type="button" onclick="document.querySelectorAll('input[name^=include_]').forEach((c) => c.checked = true)" class="btn btn-xs btn-ghost">Selecionar todos</button>
+          <button type="button" onclick="document.querySelectorAll('input[name^=include_]').forEach((c) => c.checked = false)" class="btn btn-xs btn-ghost">Nenhum</button>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table class="table table-sm">
+          <thead>
+            <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+              <th class="pl-4 w-10">Inc.</th>
+              <th>Data</th>
+              <th>Tipo</th>
+              <th>Descrição</th>
+              <th class="text-right">Valor</th>
+              <th class="text-right">Saldo</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{# `String(i)`: Vento autoescape renderiza `0` como vazio, partindo
+               `include_0` → `include_` e fazendo silent-drop da 1ª linha.
+               Mesmo padrão em `charges/show.vto`. #}}
+            {{ for i of rows.keys() }}
+              {{ set r = rows[i] }}
+              {{ set idx = String(i) }}
+              <tr class="border-t border-base-100 text-sm {{ if r.is_duplicate }}opacity-60{{ /if }}">
+                <td class="pl-4">
+                  <input type="checkbox" name="include_{{ idx }}" class="checkbox checkbox-sm checkbox-primary" {{ if !r.is_duplicate }}checked{{ /if }}>
+                </td>
+                <td class="tabular-nums text-xs text-base-content/70">{{ r.transactionDate }}</td>
+                <td class="text-xs font-mono text-base-content/60">{{ r.kind }}</td>
+                <td class="text-xs">{{ r.description }}</td>
+                <td class="text-right tabular-nums font-semibold {{ if r.amountCents < 0 }}text-error{{ else }}text-success{{ /if }}">
+                  {{ r.amountCents |> formatMoney }}
+                </td>
+                <td class="text-right tabular-nums text-xs text-base-content/60">
+                  {{ if r.balanceAfterCents !== null }}{{ r.balanceAfterCents |> formatMoney }}{{ /if }}
+                </td>
+                <td>
+                  {{ if r.is_duplicate }}
+                    <span class="inline-flex items-center gap-1.5 text-xs text-base-content/60">
+                      <span class="inline-block w-1.5 h-1.5 rounded-full bg-base-content/40"></span> Duplicado
+                    </span>
+                  {{ else }}
+                    <span class="inline-flex items-center gap-1.5 text-xs font-medium text-success">
+                      <span class="inline-block w-1.5 h-1.5 rounded-full bg-success"></span> Novo
+                    </span>
+                  {{ /if }}
+                </td>
+              </tr>
+            {{ /for }}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="flex justify-between items-center mt-4">
+      <a href="/admin/c/{{ currentCondominiumId }}/bank-accounts/{{ account.id }}" class="btn btn-sm btn-ghost">Cancelar</a>
+      <button type="submit" class="btn btn-sm btn-primary">Importar selecionados</button>
+    </div>
+  </form>
+</div>
+
+{{ /layout }}

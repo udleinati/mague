@@ -1,0 +1,103 @@
+{{# Barra de filtros (Ano | Tabs estado | Conta). Cada controlo faz GET
+   ao /reconciliation; o server devolve só este fragment, swap em
+   #reconciliation-fragment + push da URL. #}}
+{{ set _yearQs = filterYear === null ? "&year=" : ("&year=" + String(filterYear)) }}
+{{ set _baseQs = (filterBankAccountId ? ("&bankAccountId=" + filterBankAccountId) : "") + _yearQs }}
+
+<div class="flex flex-wrap items-center gap-2 mb-4">
+  <form action="/admin/c/{{ currentCondominiumId }}/reconciliation" class="flex items-center gap-2">
+    {{ if filterStatus }}<input type="hidden" name="status" value="{{ filterStatus }}">{{ /if }}
+    {{ if filterBankAccountId }}<input type="hidden" name="bankAccountId" value="{{ filterBankAccountId }}">{{ /if }}
+    <span class="text-xs uppercase tracking-wider font-bold text-base-content/60">Ano</span>
+    <select name="year" class="select select-sm select-bordered"
+            hx-get="/admin/c/{{ currentCondominiumId }}/reconciliation"
+            hx-include="closest form"
+            hx-target="#reconciliation-fragment"
+            hx-swap="innerHTML"
+            hx-push-url="true"
+            hx-trigger="change">
+      <option value="" {{ if filterYear === null }}selected{{ /if }}>Todos</option>
+      {{ for y of availableYears }}
+        <option value="{{ String(y) }}" {{ if filterYear === y }}selected{{ /if }}>{{ String(y) }}</option>
+      {{ /for }}
+    </select>
+  </form>
+
+  <div class="divider divider-horizontal mx-1 h-8"></div>
+
+  <div class="tabs tabs-boxed bg-base-200/50">
+    <a href="/admin/c/{{ currentCondominiumId }}/reconciliation?status={{ _baseQs }}"
+       hx-get="/admin/c/{{ currentCondominiumId }}/reconciliation?status={{ _baseQs }}"
+       hx-target="#reconciliation-fragment" hx-swap="innerHTML" hx-push-url="true"
+       class="tab tab-sm {{ if filterStatus === '' }}tab-active{{ /if }}">Todos</a>
+    <a href="/admin/c/{{ currentCondominiumId }}/reconciliation?status=unreconciled{{ _baseQs }}"
+       hx-get="/admin/c/{{ currentCondominiumId }}/reconciliation?status=unreconciled{{ _baseQs }}"
+       hx-target="#reconciliation-fragment" hx-swap="innerHTML" hx-push-url="true"
+       class="tab tab-sm {{ if filterStatus === 'unreconciled' }}tab-active{{ /if }}">Por conciliar</a>
+    <a href="/admin/c/{{ currentCondominiumId }}/reconciliation?status=reconciled{{ _baseQs }}"
+       hx-get="/admin/c/{{ currentCondominiumId }}/reconciliation?status=reconciled{{ _baseQs }}"
+       hx-target="#reconciliation-fragment" hx-swap="innerHTML" hx-push-url="true"
+       class="tab tab-sm {{ if filterStatus === 'reconciled' }}tab-active{{ /if }}">Conciliados</a>
+    <a href="/admin/c/{{ currentCondominiumId }}/reconciliation?status=ignored{{ _baseQs }}"
+       hx-get="/admin/c/{{ currentCondominiumId }}/reconciliation?status=ignored{{ _baseQs }}"
+       hx-target="#reconciliation-fragment" hx-swap="innerHTML" hx-push-url="true"
+       class="tab tab-sm {{ if filterStatus === 'ignored' }}tab-active{{ /if }}">Ignorados</a>
+    <a href="/admin/c/{{ currentCondominiumId }}/reconciliation?status=reversed{{ _baseQs }}"
+       hx-get="/admin/c/{{ currentCondominiumId }}/reconciliation?status=reversed{{ _baseQs }}"
+       hx-target="#reconciliation-fragment" hx-swap="innerHTML" hx-push-url="true"
+       class="tab tab-sm {{ if filterStatus === 'reversed' }}tab-active{{ /if }}">Revertidos</a>
+  </div>
+
+  <form action="/admin/c/{{ currentCondominiumId }}/reconciliation" class="flex items-center gap-2 ml-auto">
+    {{ if filterStatus }}<input type="hidden" name="status" value="{{ filterStatus }}">{{ /if }}
+    <input type="hidden" name="year" value="{{ filterYear === null ? '' : String(filterYear) }}">
+    <select name="bankAccountId" class="select select-sm select-bordered"
+            hx-get="/admin/c/{{ currentCondominiumId }}/reconciliation"
+            hx-include="closest form"
+            hx-target="#reconciliation-fragment"
+            hx-swap="innerHTML"
+            hx-push-url="true"
+            hx-trigger="change">
+      <option value="" {{ if !filterBankAccountId }}selected{{ /if }}>Todas as contas</option>
+      {{ for a of bankAccounts }}
+        <option value="{{ a.id }}" {{ if a.id === filterBankAccountId }}selected{{ /if }}>{{ a.bankName }}{{ if a.accountName }} · {{ a.accountName }}{{ /if }}</option>
+      {{ /for }}
+    </select>
+  </form>
+</div>
+
+<div class="bg-base-100 rounded-xl border border-base-200 overflow-hidden shadow-sm" data-table-search-scope>
+  <div class="flex justify-between items-center p-4 border-b border-base-200">
+    <div class="text-sm font-semibold">Movimentos <span class="text-base-content/50 font-normal">· {{ transactions.length }}</span></div>
+    <div class="flex items-center gap-2">
+      <input type="search" data-table-search placeholder="Pesquisar…" class="input input-sm input-bordered">
+    </div>
+  </div>
+  <div class="table-scroll">
+  <table class="table table-sm">
+    <thead>
+      <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+        <th class="pl-4">Data</th>
+        <th>Descrição</th>
+        <th class="text-right">Valor</th>
+        <th>Estado</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ if transactions.length === 0 }}
+        <tr><td colspan="5" class="p-8 text-center text-base-content/50">Sem movimentos.</td></tr>
+      {{ else }}
+        {{ for t of transactions }}
+          {{ include "pages/reconciliation/_tx_row.vto" { t } }}
+        {{ /for }}
+      {{ /if }}
+    </tbody>
+  </table>
+  </div>
+  {{ if pagination && pagination.totalPages > 1 }}
+    <div class="border-t border-base-200">
+      {{ include "partials/pagination.vto" { pagination } }}
+    </div>
+  {{ /if }}
+</div>

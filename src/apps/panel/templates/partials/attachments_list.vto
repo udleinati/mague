@@ -1,0 +1,143 @@
+{{# Partial: lista de anexos reutilizável.
+
+   Dois layouts:
+     - "grid" (default): cards com thumbnail da imagem (ou ícone genérico
+       para PDF/outros) em grid responsiva. Apropriado para entidades
+       visuais (tickets, patologias, ocorrências com fotos).
+     - "list": linhas compactas com badge de tipo (IMG/PDF/DOC) + nome +
+       tamanho + ações. Apropriado para entidades onde anexos são
+       documentos (inspections, contratos, atas - normalmente PDF).
+
+   Params:
+     attachments   - array dos anexos. Cada item precisa de
+                     `.id`, `.filename`, `.mimeType`. Opcional: `.fileSize`,
+                     `.createdAt` (data de upload, mostrada no layout "list").
+     baseUrl       - URL base dos anexos (singular ou plural,
+                     `/inspections/{id}/attachments`). O partial constrói:
+                       view:   `{baseUrl}/{att.id}`
+                       delete: `{baseUrl}/{att.id}/delete`
+     layout        - "grid" (default) ou "list".
+     canDelete     - boolean (default true). Quando false, esconde o
+                     botão de remover (estados read-only, e.g.
+                     pathology terminal, ticket resolved).
+     deleteLabel   - texto do data-confirm-title (default "Remover anexo").
+     emptyText     - mostrado quando attachments.length === 0.
+                     Default "Sem anexos.".
+     hxTarget      - opcional. Quando definido, o form de delete adota
+                     `hx-post` + `hx-target` + `hx-select` + `hx-swap="outerHTML show:no"`
+                     (ADR 0026 - swap apenas do fragment indicado).
+                     Tipicamente igual a hxSelect, e.g. "#inspection-attachments".
+     hxSelect      - opcional, par com hxTarget. CSS selector que o htmx
+                     usa para extrair do response apenas a região alvo.
+
+   Exemplos: ver pathologies/show.vto (grid) e inspections/show.vto (list).
+#}}
+
+{{ set _layout = layout ?? "grid" }}
+{{ set _canDelete = canDelete !== false }}
+{{ set _deleteLabel = deleteLabel ?? "Remover anexo" }}
+
+{{ if attachments && attachments.length > 0 }}
+
+  {{# ═════════ Layout GRID: cards com thumbnails ═════════ #}}
+  {{ if _layout === "grid" }}
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+      {{ for a of attachments }}
+        {{ set _attUrl = baseUrl + "/" + a.id }}
+        {{# HEIC/HEIF (fotos de iPhone) são imagens válidas mas Chrome/Firefox
+           não as renderizam inline - um `<img>` apareceria partido. Mostram
+           um cartão "HEIC" clicável (abre/transfere) em vez do thumbnail. #}}
+        {{ set _isHeic = a.mimeType === "image/heic" || a.mimeType === "image/heif" }}
+        {{ set _isThumb = a.mimeType.startsWith("image/") && !_isHeic }}
+        <div class="border border-base-200 rounded-lg overflow-hidden bg-base-50/40">
+          {{ if _isThumb }}
+            <a href="{{ _attUrl }}" target="_blank" class="block">
+              <img src="{{ _attUrl }}"
+                   alt="{{ a.filename }}"
+                   class="w-full h-32 object-cover hover:opacity-90 transition-opacity">
+            </a>
+          {{ else if _isHeic }}
+            <a href="{{ _attUrl }}" target="_blank"
+               class="flex flex-col h-32 items-center justify-center gap-1.5 bg-base-200/60 hover:bg-base-200 transition-colors">
+              <svg class="w-7 h-7 text-base-content/40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Z"/></svg>
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-info/10 text-info tracking-widest">HEIC</span>
+            </a>
+          {{ else }}
+            <a href="{{ _attUrl }}" target="_blank"
+               class="flex h-32 items-center justify-center bg-base-200/60 hover:bg-base-200 transition-colors">
+              {{ if a.mimeType === "application/pdf" }}
+                <span class="px-2 py-1 rounded text-[10px] font-bold bg-error/10 text-error tracking-widest">PDF</span>
+              {{ else if a.mimeType.startsWith("text/") || a.mimeType.startsWith("application/") }}
+                <span class="px-2 py-1 rounded text-[10px] font-bold bg-base-content/10 text-base-content/60 tracking-widest">DOC</span>
+              {{ else }}
+                <svg class="w-8 h-8 text-base-content/40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"/></svg>
+              {{ /if }}
+            </a>
+          {{ /if }}
+          <div class="p-2 flex items-center justify-between gap-2 text-xs">
+            <span class="truncate flex-1" title="{{ a.filename }}">{{ a.filename }}</span>
+            {{ if _canDelete }}
+              <form method="post"
+                    action="{{ _attUrl }}/delete"
+                    {{ if hxTarget }}hx-post="{{ _attUrl }}/delete" hx-target="{{ hxTarget }}" hx-select="{{ hxSelect ?? hxTarget }}" hx-swap="outerHTML show:no"{{ /if }}
+                    class="inline"
+                    data-confirm-title="{{ _deleteLabel }}"
+                    data-confirm-body="O ficheiro {{ a.filename }} vai ser removido."
+                    data-confirm-ok="Remover"
+                    data-confirm-danger="true">
+                <button type="submit" class="link link-error text-xs" title="Remover">×</button>
+              </form>
+            {{ /if }}
+          </div>
+        </div>
+      {{ /for }}
+    </div>
+  {{ /if }}
+
+  {{# ═════════ Layout LIST: linhas compactas ═════════ #}}
+  {{ if _layout === "list" }}
+    <ul class="space-y-2">
+      {{ for a of attachments }}
+        {{ set _attUrl = baseUrl + "/" + a.id }}
+        <li class="flex items-center gap-3 p-2.5 rounded-lg border border-base-200 bg-base-100 hover:bg-base-200/40 transition-colors">
+          {{ if a.mimeType.startsWith("image/") }}
+            <div class="w-10 h-10 flex items-center justify-center rounded shrink-0 bg-info/10 text-info text-[10px] font-bold tracking-wider">IMG</div>
+          {{ else if a.mimeType === "application/pdf" }}
+            <div class="w-10 h-10 flex items-center justify-center rounded shrink-0 bg-error/10 text-error text-[10px] font-bold tracking-wider">PDF</div>
+          {{ else }}
+            <div class="w-10 h-10 flex items-center justify-center rounded shrink-0 bg-base-200 text-base-content/50">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"/></svg>
+            </div>
+          {{ /if }}
+
+          <div class="flex-1 min-w-0">
+            <a href="{{ _attUrl }}" target="_blank" class="text-sm font-medium link link-hover truncate block" title="{{ a.filename }}">
+              {{ a.filename }}
+            </a>
+            <div class="text-[10px] text-base-content/50 mt-0.5 truncate">
+              {{ a.mimeType }}{{ if a.fileSize }}<span class="mx-1.5 text-base-content/30">·</span>{{ String(Math.round(a.fileSize / 1024)) }} KB{{ /if }}{{ if a.createdAt }}<span class="mx-1.5 text-base-content/30">·</span>{{ a.createdAt |> formatDate }}{{ /if }}
+            </div>
+          </div>
+
+          {{ if _canDelete }}
+            <form method="post"
+                  action="{{ _attUrl }}/delete"
+                  {{ if hxTarget }}hx-post="{{ _attUrl }}/delete" hx-target="{{ hxTarget }}" hx-select="{{ hxSelect ?? hxTarget }}" hx-swap="outerHTML show:no"{{ /if }}
+                  class="shrink-0"
+                  data-confirm-title="{{ _deleteLabel }}"
+                  data-confirm-body="O ficheiro {{ a.filename }} vai ser removido."
+                  data-confirm-ok="Remover"
+                  data-confirm-danger="true">
+              <button type="submit" class="btn btn-xs btn-ghost text-error" title="Remover">remover</button>
+            </form>
+          {{ /if }}
+        </li>
+      {{ /for }}
+    </ul>
+  {{ /if }}
+
+{{ else }}
+  <div class="rounded-lg border border-dashed border-base-300 p-6 text-center text-xs text-base-content/50 italic">
+    {{ emptyText ?? "Sem anexos." }}
+  </div>
+{{ /if }}

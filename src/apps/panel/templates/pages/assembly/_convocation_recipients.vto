@@ -1,0 +1,119 @@
+{{# Partial do card `#convocation-recipients`. POST de reenvio individual
+   (HX-Request) faz outerHTML swap deste card (preserva scroll, ADR 0026).
+   1 linha por pessoa × fração (ADR 0034). `canSend` = fora de rascunho. #}}
+<div id="convocation-recipients" class="card bg-base-100 shadow-sm border border-base-200 overflow-hidden mb-6">
+  <div class="px-6 pt-5 pb-3 border-b border-base-200 flex items-center justify-between gap-3 flex-wrap">
+    <h2 class="text-lg font-bold">
+      Destinatários da convocatória
+      <span class="text-base-content/50 font-normal text-sm">· {{ String(convocationRecipients.length) }}</span>
+    </h2>
+    <span class="text-xs text-base-content/50">
+      Proprietários e residentes - 1 por fração. Novo envio com cooldown de 24h.
+    </span>
+  </div>
+
+  {{ if convocationRecipients.length === 0 }}
+    <div class="px-6 py-8 text-center text-base-content/50 text-sm">
+      Sem proprietários ou residentes registados nas frações.
+    </div>
+  {{ else }}
+    <div class="table-scroll">
+      <table class="table table-sm">
+        <thead>
+          <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+            <th class="pl-6">Destinatário</th>
+            <th>Fração</th>
+            <th>Email</th>
+            <th>Último envio</th>
+            <th class="pr-6 text-right">Ação</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{ for r of convocationRecipients }}
+            <tr class="border-t border-base-100">
+              <td class="pl-6 font-medium">{{ r.name }}</td>
+              <td class="text-xs text-base-content/70 whitespace-nowrap">{{ r.unitLabel }}</td>
+              <td class="text-xs">
+                {{ if r.hasEmail }}
+                  <span class="text-base-content/70">{{ r.email }}</span>
+                {{ else }}
+                  <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-error/10 text-error">
+                    sem email
+                  </span>
+                {{ /if }}
+              </td>
+              <td class="text-xs text-base-content/70">
+                {{ if r.lastSentAt }}
+                  {{ r.lastSentAt |> formatDateTime }}
+                  {{ if r.inCooldown }}
+                    {{# Badge + tooltip daisyUI (ADR 0032): tempo restante + instante de reenvio. #}}
+                    {{ set _left = r.cooldownUntil |> formatRemaining }}
+                    <span class="tooltip tooltip-quick tooltip-left cursor-help ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-warning/10 text-warning"
+                          data-tip="{{ if _left }}{{ _left }} - {{ /if }}novo envio a partir de {{ r.cooldownUntil |> formatDateTime }}">
+                      em cooldown
+                    </span>
+                  {{ /if }}
+                {{ else }}
+                  <span class="text-base-content/40 italic">Nunca</span>
+                {{ /if }}
+              </td>
+              <td class="pr-6 text-right">
+                <div class="inline-flex items-center gap-3">
+                  {{# "Ver" = olho + label: pré-visualiza o corpo do email deste
+                     destinatário (mesmo padrão do billing-reminders). Sempre ativo
+                     (read-only); o modal + JS vivem no show.vto (fora do swap HTMX). #}}
+                  <button type="button"
+                          class="inline-flex items-center gap-1 link link-primary text-xs"
+                          title="Ver email"
+                          onclick="openConvocationPreview('/admin/c/{{ currentCondominiumId }}/assembly/{{ target.id }}/convocation/preview/{{ r.occupantId }}/{{ r.unitId }}')">
+                    <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"/>
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    </svg>
+                    Ver
+                  </button>
+                  <form method="post"
+                        action="/admin/c/{{ currentCondominiumId }}/assembly/{{ target.id }}/convocation/send/{{ r.occupantId }}/{{ r.unitId }}"
+                        hx-post="/admin/c/{{ currentCondominiumId }}/assembly/{{ target.id }}/convocation/send/{{ r.occupantId }}/{{ r.unitId }}"
+                        hx-target="#convocation-recipients"
+                        hx-swap="outerHTML show:no"
+                        class="inline"
+                        data-confirm-title="Enviar convocatória"
+                        data-confirm-body="Vai enviar a convocatória e o modelo de procuração por email a {{ r.name }} (fração {{ r.unitLabel }})."
+                        data-confirm-ok="Enviar"
+                        data-confirm-danger="false">
+                    <button type="submit"
+                            class="btn btn-xs btn-primary"
+                            {{ if r.inCooldown || !r.hasEmail || !canSend }}disabled{{ /if }}>
+                      Enviar
+                    </button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          {{ /for }}
+        </tbody>
+      </table>
+    </div>
+  {{ /if }}
+</div>
+
+{{# Toast OOB para #toast-container. Cor por `toast.type` (success/danger,
+   ex: 422 cooldown). Auto-dismiss via JS global, admin.vto. #}}
+{{ if toast }}
+  {{ set _isErr = toast.type === "danger" }}
+  <div id="toast-container" hx-swap-oob="beforeend">
+    <div class="rounded-lg bg-base-100 shadow-lg min-w-[260px]" data-auto-dismiss="5000">
+      <div class="relative overflow-hidden rounded-lg pl-4 pr-8 py-3 flex items-start gap-3 {{ if _isErr }}bg-error/10 border border-error/30{{ else }}bg-success/10 border border-success/30{{ /if }}">
+        <span class="text-lg leading-none {{ if _isErr }}text-error{{ else }}text-success{{ /if }}">{{ if _isErr }}✕{{ else }}✓{{ /if }}</span>
+        <span class="text-sm font-medium text-base-content">{{ toast.message }}</span>
+        <button type="button"
+                class="absolute right-2 top-2 opacity-50 hover:opacity-100 text-sm leading-none {{ if _isErr }}text-error{{ else }}text-success{{ /if }}"
+                aria-label="Fechar"
+                data-toast-close>✕</button>
+        <div class="absolute bottom-0 left-0 h-0.5 opacity-60 {{ if _isErr }}bg-error{{ else }}bg-success{{ /if }}"
+             style="width: 0%" data-toast-progress></div>
+      </div>
+    </div>
+  </div>
+{{ /if }}

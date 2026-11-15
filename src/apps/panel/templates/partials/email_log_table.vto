@@ -1,0 +1,94 @@
+{{# Audit de emails (audit.email_log) - partilhado por fração e ocupante.
+   `emails`: array de { id, createdAt, subject, recipient, status, error,
+   bodyHtml, attachments }, já ordenado created_at DESC pelo servidor. Uma linha
+   por destinatário; status=failed expõe o error (fail-loud). Clicar na linha
+   abre o corpo do email + nomes dos anexos. `bodyHtml` NULL (linhas antigas)
+   mostra "corpo não guardado". #}}
+{{ layout "partials/table_card.vto" { title: "Emails enviados", count: emails.length, wrapperClass: "mb-6" } }}
+  <table class="table table-sm">
+    <thead>
+      <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+        <th class="pl-4">Data</th>
+        <th>Assunto</th>
+        <th>Destinatário</th>
+        <th>Estado</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ if emails.length === 0 }}
+        <tr><td colspan="4" class="p-8 text-center text-base-content/50">Sem emails enviados.</td></tr>
+      {{ else }}
+        {{ for e of emails }}
+          <tr class="hover:bg-base-200/40 border-t border-base-100 text-sm cursor-pointer"
+              onclick="document.getElementById('email_modal_{{ e.id }}').showModal()"
+              title="Ver email enviado">
+            <td class="pl-4 text-base-content/70 whitespace-nowrap tabular-nums">{{ e.createdAt |> formatDateTime }}</td>
+            <td class="max-w-[360px] truncate">
+              <span class="link link-hover">{{ e.subject }}</span>
+              {{ if e.attachments && e.attachments.length > 0 }}
+                <span class="text-base-content/40 ml-1 whitespace-nowrap" title="{{ e.attachments.length }} anexo(s)">📎 {{ e.attachments.length }}</span>
+              {{ /if }}
+            </td>
+            <td class="text-base-content/70">{{ e.recipient }}</td>
+            <td>
+              {{ if e.status === "failed" }}
+                {{ include "partials/status_badge.vto" { label: "Falhou", tone: "error", size: "xs" } }}
+                {{ if e.error }}<div class="text-[11px] text-error/70 mt-0.5">{{ e.error }}</div>{{ /if }}
+              {{ else }}
+                {{ include "partials/status_badge.vto" { label: "Enviado", tone: "success", size: "xs" } }}
+              {{ /if }}
+            </td>
+          </tr>
+        {{ /for }}
+      {{ /if }}
+    </tbody>
+  </table>
+{{ /layout }}
+
+{{# Modais - um por email. Ficam fora do table_card (corpo do card = só a
+   tabela, ADR 0038); o position:fixed do daisyUI centra-os na viewport. #}}
+{{ for e of emails }}
+  <dialog id="email_modal_{{ e.id }}" class="modal">
+    <div class="modal-box max-w-3xl">
+      <form method="dialog">
+        <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
+      </form>
+      <h3 class="font-bold text-base pr-8">{{ e.subject }}</h3>
+      <div class="text-xs text-base-content/60 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span>Para <strong>{{ e.recipient }}</strong></span>
+        <span class="text-base-content/30">·</span>
+        <span class="tabular-nums">{{ e.createdAt |> formatDateTime }}</span>
+        {{ if e.status === "failed" }}
+          <span class="text-base-content/30">·</span>
+          {{ include "partials/status_badge.vto" { label: "Falhou", tone: "error", size: "xs" } }}
+        {{ /if }}
+      </div>
+      {{ if e.status === "failed" && e.error }}
+        <div class="text-xs text-error/80 mt-2">{{ e.error }}</div>
+      {{ /if }}
+
+      {{# Anexos - só nomes (conteúdo não é guardado). #}}
+      {{ if e.attachments && e.attachments.length > 0 }}
+        <div class="mt-3 flex flex-wrap gap-2">
+          {{ for a of e.attachments }}
+            <span class="inline-flex items-center gap-1 text-xs bg-base-200 rounded px-2 py-1">📎 {{ a.filename }}</span>
+          {{ /for }}
+        </div>
+      {{ /if }}
+
+      {{# Corpo - iframe sandbox isola o CSS/markup do email do painel. #}}
+      <div class="mt-4 border border-base-200 rounded-lg overflow-hidden">
+        {{ if e.bodyHtml }}
+          <iframe sandbox class="w-full h-[60vh] bg-white" title="Corpo do email" srcdoc="{{ e.bodyHtml }}"></iframe>
+        {{ else }}
+          <div class="p-8 text-center text-sm text-base-content/50">
+            Corpo não guardado (email anterior a esta funcionalidade).
+          </div>
+        {{ /if }}
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop">
+      <button>fechar</button>
+    </form>
+  </dialog>
+{{ /for }}

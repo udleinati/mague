@@ -1,0 +1,89 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{ layout "partials/page_header.vto" {
+  title: "Documentos",
+  meta: [
+    { value: "Arquivo do condomínio. Públicos são visíveis no portal do condómino.", plain: true },
+  ]
+} }}
+  <button type="button" class="btn btn-sm btn-primary" onclick="openDocModal('create')">
+    + Novo documento
+  </button>
+{{ /layout }}
+
+<div class="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-6">
+  <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+    <div class="text-xs uppercase font-bold text-base-content/60 tracking-wider">Total</div>
+    <div class="text-xl sm:text-2xl xl:text-3xl font-black mt-2">{{ String(totalCount) }}</div>
+  </div>
+  <div class="bg-success/5 rounded-xl border border-success/20 p-5">
+    <div class="text-xs uppercase font-bold text-success/80 tracking-wider">Públicos</div>
+    <div class="text-xl sm:text-2xl xl:text-3xl font-black mt-2 text-success/90">{{ String(publicCount) }}</div>
+    <div class="text-xs text-base-content/60 mt-1">visíveis no portal</div>
+  </div>
+  <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+    <div class="text-xs uppercase font-bold text-base-content/60 tracking-wider">Privados</div>
+    <div class="text-xl sm:text-2xl xl:text-3xl font-black mt-2">{{ String(totalCount - publicCount) }}</div>
+    <div class="text-xs text-base-content/60 mt-1">só na área admin</div>
+  </div>
+</div>
+
+{{# Filtros #}}
+<div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-4 mb-4 flex flex-wrap gap-2">
+  <a href="/admin/c/{{ currentCondominiumId }}/documents" class="btn btn-xs {{ if !filter.category && !filter.visibility }}btn-primary{{ else }}btn-ghost{{ /if }}">Todos</a>
+  <a href="/admin/c/{{ currentCondominiumId }}/documents?visibility=public" class="btn btn-xs {{ if filter.visibility === 'public' }}btn-primary{{ else }}btn-ghost{{ /if }}">Públicos</a>
+  <a href="/admin/c/{{ currentCondominiumId }}/documents?visibility=private" class="btn btn-xs {{ if filter.visibility === 'private' }}btn-primary{{ else }}btn-ghost{{ /if }}">Privados</a>
+  <span class="border-l border-base-200 mx-1"></span>
+  {{ for cat of ["minutes", "regulation", "contract", "budget", "insurance", "plant", "other"] }}
+    <a href="/admin/c/{{ currentCondominiumId }}/documents?category={{ cat }}" class="btn btn-xs {{ if filter.category === cat }}btn-primary{{ else }}btn-ghost{{ /if }}">{{ categoryLabels[cat] }}</a>
+  {{ /for }}
+</div>
+
+{{ layout "partials/table_card.vto" { title: "Lista", count: documents.length, searchable: true } }}
+  <table class="table table-sm">
+    <thead>
+      <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+        <th class="pl-4">Título</th>
+        <th>Categoria</th>
+        <th>Data</th>
+        <th>Visibilidade</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ if documents.length === 0 }}
+        <tr><td colspan="5" class="p-8 text-center text-base-content/50">Nenhum documento.</td></tr>
+      {{ else }}
+        {{ for d of documents }}
+          <tr class="hover:bg-base-200/30 border-t border-base-100 text-sm">
+            <td class="pl-4 font-bold" data-search>
+              <a href="/admin/c/{{ currentCondominiumId }}/documents/{{ d.id }}" class="link link-hover">{{ d.title }}</a>
+              {{ if d.description }}<div class="text-xs text-base-content/60 font-normal mt-0.5 truncate max-w-md">{{ d.description }}</div>{{ /if }}
+            </td>
+            <td class="text-xs text-base-content/70">{{ categoryLabels[d.category] ?? d.category }}</td>
+            <td class="text-xs tabular-nums whitespace-nowrap">
+              {{ if d.publishedAt }}{{ d.publishedAt |> formatDate }}{{ else }}<span class="italic text-base-content/40">Sem data</span>{{ /if }}
+            </td>
+            <td>
+              {{ if d.isPublic }}
+                {{ include "partials/status_badge.vto" { label: "Público", tone: "success", size: "xs" } }}
+              {{ else }}
+                {{ include "partials/status_badge.vto" { label: "Privado", tone: "muted", size: "xs" } }}
+              {{ /if }}
+            </td>
+            <td class="pr-4 text-right whitespace-nowrap">
+              {{ include "partials/action_link.vto" {
+                kind: "view",
+                href: "/admin/c/" + currentCondominiumId + "/documents/" + d.id,
+              } }}
+            </td>
+          </tr>
+        {{ /for }}
+      {{ /if }}
+    </tbody>
+  </table>
+{{ /layout }}
+
+{{ include "pages/documents/_form_modal.vto" { currentCondominiumId, categoryLabels } }}
+
+{{ /layout }}

@@ -1,0 +1,229 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+<div class="max-w-6xl">
+  {{ set isCash = account.kind === "cash" }}
+  {{ layout "partials/page_header.vto" {
+    title: (isCash ? "💵 " : "🏦 ") + account.bankName,
+    scale: "detail",
+    breadcrumbs: [
+      { label: "Contas bancárias", href: "/admin/c/" + currentCondominiumId + "/bank-accounts" },
+      { label: account.bankName },
+    ],
+    status: account.isActive
+      ? { label: "Ativa", tone: "success" }
+      : { label: "Inactiva", tone: "muted" },
+    meta: [
+      account.accountName ? { value: account.accountName, plain: true } : null,
+      account.iban && !isCash ? { value: account.iban, plain: true } : null,
+      account.accountHolder && !isCash ? { label: "Titular", value: account.accountHolder } : null,
+    ]
+  } }}
+    <a href="/admin/c/{{ currentCondominiumId }}/bank-accounts/{{ account.id }}/edit" class="btn btn-sm">Editar</a>
+    {{ if isCash }}
+      <button type="button" onclick="document.getElementById('manual_tx_modal').showModal()" class="btn btn-sm btn-primary">+ Adicionar movimento</button>
+    {{ else }}
+      <button type="button" onclick="document.getElementById('manual_tx_modal').showModal()" class="btn btn-sm">+ Movimento manual</button>
+      <button type="button" onclick="document.getElementById('import_modal').showModal()" class="btn btn-sm btn-primary">Importar extrato</button>
+    {{ /if }}
+  {{ /layout }}
+
+  {{ if isCash || account.isQuotaPayment }}
+    <div class="-mt-4 mb-6 flex items-center gap-3 flex-wrap">
+      {{ if isCash }}
+        <span class="inline-flex items-center text-xs uppercase tracking-wider font-bold px-2 py-0.5 rounded bg-amber-100 border border-amber-200" style="color:#854D0E">Caixa</span>
+      {{ /if }}
+      {{ if account.isQuotaPayment }}
+        {{ include "partials/status_badge.vto" { label: "Conta divulgada para pagamentos", tone: "success", size: "xs" } }}
+      {{ /if }}
+    </div>
+  {{ /if }}
+  <dialog id="import_modal" class="modal">
+    <div class="modal-box max-w-md">
+      <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+      <h3 class="font-bold text-lg mb-1">Importar extrato XLSX</h3>
+      <p class="text-sm text-base-content/60 mb-4">Formato NovoBanco. Os movimentos vão para pré-visualização antes de serem gravados.</p>
+      <form method="post" action="/admin/c/{{ currentCondominiumId }}/bank-accounts/{{ account.id }}/import/preview" enctype="multipart/form-data" class="space-y-3">
+        {{ include "partials/file_dropzone.vto" {
+          name: "file",
+          multiple: false,
+          accept: ".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          helpText: "Extrato NovoBanco (.xlsx)",
+        } }}
+        <button type="submit" class="btn btn-sm btn-primary w-full" data-upload-submit disabled>Pré-visualizar</button>
+      </form>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+
+  {{# ─── MODAL: Adicionar movimento manual ───
+     Único caminho de entrada para 'cash'; escape hatch para 'bank' (gaps no CSV).
+     Toggle "Entrada/Saída" em vez de valor signed; o controller aplica o sinal. #}}
+  <dialog id="manual_tx_modal" class="modal">
+    <div class="modal-box max-w-md">
+      <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+      <h3 class="font-bold text-lg mb-1">{{ if isCash }}Adicionar recebimento{{ else }}Movimento manual{{ /if }}</h3>
+      <p class="text-sm text-base-content/60 mb-4">
+        {{ if isCash }}
+          Regista um recebimento em numerário. Depois de gravado, vai para a fila de conciliação para alocares à fração / quota correspondente.
+        {{ else }}
+          Acrescenta uma linha em falta no extrato (correção). Vai para a fila de conciliação como qualquer outro movimento.
+        {{ /if }}
+      </p>
+      <form method="post" action="/admin/c/{{ currentCondominiumId }}/bank-accounts/{{ account.id }}/manual-tx" class="space-y-3">
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs font-medium">Tipo</span></label>
+          <div class="grid grid-cols-2 gap-2">
+            <label class="cursor-pointer border border-base-300 rounded-lg p-2 has-[:checked]:border-success has-[:checked]:bg-success/5">
+              <div class="flex items-center gap-2">
+                <input type="radio" name="direction" value="in" class="radio radio-sm radio-success" checked>
+                <span class="font-medium text-sm">↓ Entrada</span>
+              </div>
+            </label>
+            <label class="cursor-pointer border border-base-300 rounded-lg p-2 has-[:checked]:border-error has-[:checked]:bg-error/5">
+              <div class="flex items-center gap-2">
+                <input type="radio" name="direction" value="out" class="radio radio-sm radio-error">
+                <span class="font-medium text-sm">↑ Saída</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div class="form-control">
+            <label class="label py-1" for="manual_amount"><span class="label-text text-xs font-medium">Valor (€)</span></label>
+            <input type="text" id="manual_amount" name="amount" inputmode="decimal" class="input input-sm input-bordered" placeholder="0,00" required>
+          </div>
+          <div class="form-control">
+            <label class="label py-1" for="manual_date"><span class="label-text text-xs font-medium">Data</span></label>
+            <input type="date" id="manual_date" name="transactionDate" class="input input-sm input-bordered" required>
+          </div>
+        </div>
+
+        <div class="form-control">
+          <label class="label py-1" for="manual_description"><span class="label-text text-xs font-medium">Descrição</span></label>
+          <input type="text" id="manual_description" name="description" maxlength="255" class="input input-sm input-bordered"
+                 placeholder="{{ if isCash }}Ex: Sr. Silva - A - Janeiro 2026{{ else }}Descrição do movimento{{ /if }}">
+        </div>
+
+        <div class="form-control">
+          <label class="label py-1" for="manual_notes"><span class="label-text text-xs font-medium">Notas (opcional)</span></label>
+          <textarea id="manual_notes" name="notes" rows="2" class="textarea textarea-sm textarea-bordered"></textarea>
+        </div>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('manual_tx_modal').close()">Cancelar</button>
+          <button type="submit" class="btn btn-sm btn-primary">Adicionar</button>
+        </div>
+      </form>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+  <script>
+    // Default a data para hoje quando o modal abre.
+    (function () {
+      var input = document.getElementById("manual_date");
+      if (input && !input.value) {
+        var d = new Date();
+        var iso = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+        input.value = iso;
+      }
+    })();
+  </script>
+
+  {{# Ordinário atual = inicial_ord + ∑ movimentos; FCR = saldo inicial da
+      bolsa FCR (estático nesta página). #}}
+  {{ set _fcr = account.openingBalanceFcrCents ?? 0 }}
+  {{ set _openOrd = account.openingBalanceOrdinaryCents ?? 0 }}
+  {{ set _txsDelta = stats.currentBalance - stats.opening }}
+  {{ set _ordAtual = _openOrd + _txsDelta }}
+
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+    <div class="card bg-base-100 shadow-sm border border-base-200 p-5">
+      <div class="text-xs uppercase font-bold text-base-content/60 tracking-wider">Saldo atual</div>
+      <div class="text-xl sm:text-2xl xl:text-3xl font-bold mt-2 whitespace-nowrap">{{ stats.currentBalance |> formatMoney }}</div>
+      <div class="text-xs text-base-content/50 mt-1">{{ String(stats.txCount) }} movimentos</div>
+    </div>
+    <div class="card bg-base-100 shadow-sm border border-base-200 p-5">
+      <div class="text-xs uppercase font-bold text-base-content/60 tracking-wider">Ordinário</div>
+      <div class="text-xl sm:text-2xl xl:text-3xl font-bold mt-2 whitespace-nowrap">{{ _ordAtual |> formatMoney }}</div>
+      <div class="text-xs text-base-content/50 mt-1">
+        {{ if _openOrd > 0 }}
+          inicial {{ _openOrd |> formatMoney }}
+        {{ else }}
+          sem saldo inicial
+        {{ /if }}
+      </div>
+    </div>
+    <div class="card bg-base-100 shadow-sm border border-base-200 p-5">
+      <div class="text-xs uppercase font-bold text-base-content/60 tracking-wider">FCR</div>
+      <div class="text-xl sm:text-2xl xl:text-3xl font-bold mt-2 whitespace-nowrap {{ if _fcr > 0 }}text-primary{{ else }}text-base-content/40{{ /if }}">{{ _fcr |> formatMoney }}</div>
+      <div class="text-xs text-base-content/50 mt-1">
+        {{ if _fcr > 0 }}
+          reserva acumulada
+        {{ else }}
+          <a href="/admin/c/{{ currentCondominiumId }}/bank-accounts/{{ account.id }}/edit" class="link">definir →</a>
+        {{ /if }}
+      </div>
+    </div>
+    <div class="card bg-base-100 shadow-sm border border-base-200 p-5">
+      <div class="text-xs uppercase font-bold text-base-content/60 tracking-wider">Pendentes</div>
+      <div class="text-xl sm:text-2xl xl:text-3xl font-bold mt-2 {{ if stats.pendingCount > 0 }}text-warning{{ /if }}">{{ String(stats.pendingCount) }}</div>
+      <div class="text-xs text-base-content/50 mt-1">
+        {{ if stats.pendingCount > 0 }}
+          <a href="/admin/c/{{ currentCondominiumId }}/reconciliation?bankAccountId={{ account.id }}" class="link link-warning">Ir conciliar →</a>
+        {{ else }}
+          tudo em dia
+        {{ /if }}
+      </div>
+    </div>
+  </div>
+
+  {{ layout "partials/table_card.vto" { title: "Extrato", headerRight: "Importação CSV em breve", wrapperClass: "mb-6" } }}
+    <table class="table table-sm">
+      <thead>
+        <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+          <th class="pl-6">Data</th>
+          <th>Descrição</th>
+          <th class="text-right">Valor</th>
+          <th>Estado</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ if txs.length === 0 }}
+          <tr><td colspan="4" class="p-8 text-center text-base-content/50">Sem movimentos nesta conta.</td></tr>
+        {{ else }}
+          {{ for t of txs }}
+            <tr class="hover:bg-base-200/30 border-t border-base-100 text-sm">
+              <td class="pl-6 tabular-nums text-xs text-base-content/70">{{ t.transactionDate }}</td>
+              <td>{{ t.description ?? "-" }}</td>
+              <td class="text-right tabular-nums font-semibold {{ if t.amount >= 0 }}text-success{{ else }}text-error{{ /if }}">
+                {{ t.amount |> formatMoney }}
+              </td>
+              <td>
+                {{ if t.status === "reconciled" }}
+                  {{ include "partials/status_badge.vto" { label: "Conciliado", tone: "success", size: "xs" } }}
+                {{ else }}
+                  <a href="/admin/c/{{ currentCondominiumId }}/reconciliation?bankAccountId={{ account.id }}" class="inline-flex items-center gap-1.5 text-xs font-medium text-warning hover:underline">
+                    <span class="inline-block w-1.5 h-1.5 rounded-full bg-warning"></span>Pendente →
+                  </a>
+                {{ /if }}
+              </td>
+            </tr>
+          {{ /for }}
+        {{ /if }}
+      </tbody>
+    </table>
+  {{ /layout }}
+</div>
+
+<script>
+  // Auto-abre o modal de importação com `?import=1` (atalho da listagem de contas).
+  (function () {
+    var params = new URLSearchParams(window.location.search);
+    if (params.get("import") !== "1") return;
+    var modal = document.getElementById("import_modal");
+    if (modal && typeof modal.showModal === "function") modal.showModal();
+  })();
+</script>
+
+{{ /layout }}

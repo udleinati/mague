@@ -1,0 +1,60 @@
+# Imagem de produção - usada tanto pelo serviço `api` como pelo `panel`
+# (o entrypoint concreto é escolhido em `command:` no docker-compose).
+#
+# Diferença vs. Dockerfile (dev): aqui fazemos cache de ambos os entrypoints
+# para que o arranque em prod não tenha hit a resolver deps. O source vem
+# copiado, sem bind-mount.
+
+FROM denoland/deno:2.7.12
+
+# Mesma lista de pacotes do Dockerfile (dev) - única diferença é o `curl`
+# extra (healthchecks do compose em prod usam HTTP GET /health). Manter
+# alinhado para que o comportamento do PDF/OCR seja idêntico nos dois
+# ambientes.
+#
+# chromium       → render do PDF dos recibos via astral (libs/pdf/render.ts).
+#                  ASTRAL_CHROMIUM_PATH abaixo aponta para este binário do
+#                  sistema, evitando download de ~150MB em runtime. Imagem
+#                  fica reproduzível e arranque rápido.
+# fonts-liberation → fontes Helvetica/Arial-like; sem isto o PDF sai em branco.
+# libnss3 etc    → deps directas do binário Chromium do sistema.
+# poppler-utils  → extracção de texto de PDFs (facturas anexadas).
+# tesseract-ocr  → OCR de facturas digitalizadas (com pacote PT).
+# curl           → healthchecks do compose (HTTP GET /health).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    chromium \
+    fonts-liberation \
+    libnss3 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libgtk-3-0 \
+    libgbm1 \
+    libasound2 \
+    poppler-utils \
+    tesseract-ocr \
+    tesseract-ocr-por \
+  && rm -rf /var/lib/apt/lists/*
+ENV ASTRAL_CHROMIUM_PATH=/usr/bin/chromium
+
+WORKDIR /app
+
+# Manifesto primeiro para aproveitar cache de camadas do Docker.
+COPY deno.json deno.lock* ./
+
+RUN deno cache --reload deno.json || true
+
+# Código
+COPY src/ ./src/
+COPY static/ ./static/
+
+# Pré-cache dos dois entrypoints. Se qualquer um falhar (ex: import
+# dinâmico), continua - o arranque fará fetch em runtime.
+RUN deno cache src/apps/api/main.ts src/apps/panel/main.ts || true
+
+# Sem EXPOSE - as portas ficam apenas na rede interna do compose;
+# só o Caddy publica 80/443.
+
+# CMD default caso o compose não sobreponha - mantemos o entry da API.
+CMD ["deno", "task", "start:api"]

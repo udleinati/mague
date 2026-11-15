@@ -1,0 +1,312 @@
+{{# Renderiza o <dialog> de conciliação. Reutilizado em swap OOB. #}}
+<dialog id="modal_tx_{{ t.id }}" class="modal">
+  <div class="modal-box max-w-lg overflow-visible">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-lg mb-1">Conciliar movimento</h3>
+    {{# Header (data + descrição + valor): a data deixa cruzar com a fatura/quota sem fechar o modal. #}}
+    <p class="text-sm text-base-content/60 mb-4 flex flex-wrap items-baseline gap-x-2">
+      <span class="tabular-nums font-medium text-base-content/80">{{ t.transactionDate |> formatDate }}</span>
+      <span class="text-base-content/40">·</span>
+      <span class="flex-1 min-w-0 truncate">{{ t.description ?? "-" }}</span>
+      <span class="tabular-nums font-semibold {{ if t.amount < 0 }}text-error{{ else }}text-success{{ /if }}">{{ t.amount |> formatMoney }}</span>
+    </p>
+
+    <div role="tablist" class="tabs tabs-boxed tabs-sm mb-4">
+      {{ if t.amount > 0 }}
+        <a role="tab" class="tab tab-active" data-tx-tab="unit" data-tx-id="{{ t.id }}">Fração</a>
+        {{# Tab "Devolução" (só entradas): charge payable+credit + settlement atómico. Ver refund_supplier.ts. #}}
+        <a role="tab" class="tab" data-tx-tab="refund" data-tx-id="{{ t.id }}">Devolução</a>
+        <a role="tab" class="tab" data-tx-tab="manual" data-tx-id="{{ t.id }}">Manual</a>
+      {{ else }}
+        {{# Saídas: só manual. Auto-imputação FIFO escolhia a fatura errada;
+           o user escolhe sempre a charge. Tab "Fornecedor" = painel `manual`. #}}
+        <a role="tab" class="tab tab-active" data-tx-tab="manual" data-tx-id="{{ t.id }}">Fornecedor</a>
+      {{ /if }}
+    </div>
+
+    {{ if t.amount > 0 }}
+      <form hx-post="/admin/c/{{ currentCondominiumId }}/reconciliation/allocate-unit" hx-target="#tx-row-{{ t.id }}" hx-swap="outerHTML"
+            hx-on::after-request="if(event.detail.successful) document.getElementById('modal_tx_{{ t.id }}').close()"
+            class="space-y-3" data-tx-panel="unit" data-tx-id="{{ t.id }}">
+        <input type="hidden" name="bankTransactionId" value="{{ t.id }}">
+        <p class="text-xs text-base-content/60">Aloca automaticamente: juros → overdue → quotas → refaturações.</p>
+        <div class="form-control relative" data-combobox>
+          <label class="label py-1"><span class="label-text-alt">Fração</span></label>
+          <input type="text" data-combobox-search autocomplete="off"
+                 placeholder="Pesquisar fração ou identificador…"
+                 class="input input-sm input-bordered">
+          <input type="hidden" name="unitId" data-combobox-value required
+                 data-tx-unit-select="picker" data-tx-id="{{ t.id }}">
+          <ul data-combobox-list class="hidden absolute top-full left-0 right-0 z-20 mt-1 max-h-72 overflow-y-auto bg-base-100 border border-base-200 rounded-lg shadow-lg py-1">
+            {{ for u of units }}
+              <li data-combobox-option
+                  data-id="{{ u.id }}"
+                  data-label="{{ u.designation }}{{ if u.identifier }} - {{ u.identifier }}{{ /if }}"
+                  data-haystack="{{ (u.designation + ' ' + (u.identifier ?? '')).toLowerCase() }}"
+                  data-occupants='{{ JSON.stringify((u.occupants ?? []).map((o) => ({ relationshipType: o.relationshipType, name: o.occupant.name, email: o.occupant.email, phone: o.occupant.phone }))) }}'
+                  class="px-3 py-2 text-sm hover:bg-base-200 cursor-pointer whitespace-nowrap truncate"
+                  title="{{ u.designation }}{{ if u.identifier }} - {{ u.identifier }}{{ /if }}">
+                <span class="font-semibold">{{ u.designation }}</span>{{ if u.identifier }}<span class="text-base-content/60"> - {{ u.identifier }}</span>{{ /if }}
+              </li>
+            {{ /for }}
+            <li data-combobox-empty class="hidden px-3 py-2 text-sm text-base-content/50 italic">Sem resultados.</li>
+          </ul>
+        </div>
+        {{# Ocupantes da fração - preenchido pelo JS. #}}
+        <div class="hidden rounded-lg bg-base-200/40 border border-base-200 p-3 text-xs"
+             data-tx-occupants="picker" data-tx-id="{{ t.id }}">
+          <div class="text-base-content/60 font-medium mb-1.5">Ocupantes desta fração <span class="text-base-content/40">(cruzar com o nome da transferência)</span></div>
+          <ul class="space-y-1" data-tx-occupants-list></ul>
+        </div>
+        {{# Filtro de tipo (segmentado): restringe a imputação. Submetido com o form
+           (name=chargeTypeFilter) e usado no preview abaixo. "Todas" = prioridade legal completa. #}}
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text-alt">Tipos a imputar</span></label>
+          <div class="join">
+            <input class="join-item btn btn-sm" type="radio" name="chargeTypeFilter" value="all"
+                   aria-label="Todas" checked data-alloc-filter data-tx-id="{{ t.id }}">
+            <input class="join-item btn btn-sm" type="radio" name="chargeTypeFilter" value="quota"
+                   aria-label="Só ordinárias" data-alloc-filter data-tx-id="{{ t.id }}">
+            <input class="join-item btn btn-sm" type="radio" name="chargeTypeFilter" value="extraordinary_quota"
+                   aria-label="Só extraordinárias" data-alloc-filter data-tx-id="{{ t.id }}">
+          </div>
+        </div>
+        {{# Preview (dry-run): quais cobranças serão quitadas (verde total / amarelo parcial).
+           Preenchido via HTMX ao escolher fração ou mudar o filtro. Ver _allocation_preview.vto. #}}
+        <div id="alloc-preview-{{ t.id }}"
+             class="hidden rounded-lg bg-base-200/40 border border-base-200 p-3 text-xs"
+             data-alloc-preview data-tx-id="{{ t.id }}"></div>
+        <button type="submit" class="btn btn-sm btn-primary w-full">Imputar</button>
+      </form>
+
+      {{# Tab "Devolução": charge payable+credit + settlement para abater despesa anterior. Ver refund_supplier.ts. #}}
+      <form hx-post="/admin/c/{{ currentCondominiumId }}/reconciliation/refund-supplier" hx-target="#tx-row-{{ t.id }}" hx-swap="outerHTML"
+            hx-on::after-request="if(event.detail.successful) document.getElementById('modal_tx_{{ t.id }}').close()"
+            class="space-y-3 hidden" data-tx-panel="refund" data-tx-id="{{ t.id }}"
+            data-tx-amount="{{ t.amount }}">
+        <input type="hidden" name="bankTransactionId" value="{{ t.id }}">
+        <input type="hidden" name="settlementDate" value="{{ t.transactionDate }}">
+        <input type="hidden" name="sourceChargeId" value="" data-tx-refund-source="picker" data-tx-id="{{ t.id }}">
+        <p class="text-xs text-base-content/60">Regista esta entrada como devolução de uma despesa anterior - cria nota de crédito + liquidação.</p>
+
+        {{# data-tx-refund-* próprios para não colidir com o supplier-select das saídas. #}}
+        <div class="form-control relative" data-combobox>
+          <label class="label py-1"><span class="label-text-alt">Fornecedor</span></label>
+          <input type="text" data-combobox-search autocomplete="off"
+                 placeholder="Pesquisar fornecedor…"
+                 class="input input-sm input-bordered">
+          <input type="hidden" name="supplierId" data-combobox-value required
+                 data-tx-refund-supplier="picker" data-tx-id="{{ t.id }}">
+          <ul data-combobox-list class="hidden absolute top-full left-0 right-0 z-20 mt-1 max-h-72 overflow-y-auto bg-base-100 border border-base-200 rounded-lg shadow-lg py-1">
+            {{ for s of suppliers }}
+              <li data-combobox-option
+                  data-id="{{ s.id }}"
+                  data-label="{{ s.name }}"
+                  data-haystack="{{ (s.name + ' ' + (s.nif ?? '')).toLowerCase() }}"
+                  data-recent-payables='{{ JSON.stringify(recentPayablesBySupplier[s.id] ?? []) }}'
+                  class="px-3 py-2 text-sm hover:bg-base-200 cursor-pointer whitespace-nowrap truncate"
+                  title="{{ s.name }}{{ if s.nif }} · NIF {{ s.nif }}{{ /if }}">
+                <span class="font-semibold">{{ s.name }}</span>{{ if s.nif }}<span class="text-base-content/60"> · NIF {{ s.nif }}</span>{{ /if }}
+              </li>
+            {{ /for }}
+            <li data-combobox-empty class="hidden px-3 py-2 text-sm text-base-content/50 italic">Sem resultados.</li>
+          </ul>
+        </div>
+
+        {{# Despesas recentes do fornecedor; clicar liga `sourceChargeId` (rastreabilidade) + pré-preenche descrição. #}}
+        <div class="hidden rounded-lg bg-base-200/40 border border-base-200 p-3 text-xs"
+             data-tx-refund-charges="picker" data-tx-id="{{ t.id }}" data-tx-amount="{{ t.amount }}">
+          <div class="text-base-content/60 font-medium mb-1.5">Despesas recentes deste fornecedor <span class="text-base-content/40">(clica para ligar à devolução)</span></div>
+          <ul class="space-y-1" data-tx-refund-charges-list></ul>
+        </div>
+
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text-alt">Valor (€)</span></label>
+          <input type="number" name="amount" step="0.01" required
+                 value="{{ (t.amount / 100).toFixed(2) }}"
+                 class="input input-sm input-bordered">
+        </div>
+
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text-alt">Descrição (opcional)</span></label>
+          <input type="text" name="description" maxlength="500"
+                 placeholder="Ex: Devolução excesso pago na fatura X"
+                 class="input input-sm input-bordered"
+                 data-tx-refund-description data-tx-id="{{ t.id }}">
+        </div>
+
+        <button type="submit" class="btn btn-sm btn-primary w-full">Registar devolução</button>
+      </form>
+    {{ /if }}
+
+    {{# Painel manual: único para saídas (visível); tab "Manual" escondida para entradas (`hidden`). #}}
+    <form hx-post="/admin/c/{{ currentCondominiumId }}/reconciliation/reconcile" hx-target="#tx-row-{{ t.id }}" hx-swap="outerHTML"
+          hx-on::after-request="if(event.detail.successful) document.getElementById('modal_tx_{{ t.id }}').close()"
+          class="space-y-3{{ if t.amount > 0 }} hidden{{ /if }}" data-tx-panel="manual" data-tx-id="{{ t.id }}">
+      <input type="hidden" name="bankTransactionId" value="{{ t.id }}">
+      <input type="hidden" name="settlementDate" value="{{ t.transactionDate }}">
+      <p class="text-xs text-base-content/60">Seleciona uma ou mais charges - são liquidadas pela ordem da lista até esgotar o valor do movimento (a última pode ficar parcial).</p>
+
+      {{# Filtro por sinal: entradas por fração, saídas por fornecedor.
+         `data-manual-filter-scope` diz ao JS que campo da option usar. #}}
+      {{ if t.amount > 0 }}
+        <div class="form-control relative" data-combobox>
+          <label class="label py-1"><span class="label-text-alt">Filtrar charges por fração (opcional)</span></label>
+          <input type="text" data-combobox-search autocomplete="off"
+                 placeholder="Pesquisar fração ou identificador…"
+                 class="input input-sm input-bordered">
+          <input type="hidden" data-combobox-value
+                 data-manual-filter data-manual-filter-scope="unit"
+                 data-tx-unit-select="filter" data-tx-id="{{ t.id }}">
+          <ul data-combobox-list class="hidden absolute top-full left-0 right-0 z-20 mt-1 max-h-72 overflow-y-auto bg-base-100 border border-base-200 rounded-lg shadow-lg py-1">
+            <li data-combobox-option data-id="" data-label="Todas as frações" data-haystack="todas"
+                class="px-3 py-2 text-sm hover:bg-base-200 cursor-pointer text-base-content/60 italic whitespace-nowrap">
+              Todas as frações
+            </li>
+            {{ for u of units }}
+              <li data-combobox-option
+                  data-id="{{ u.id }}"
+                  data-label="{{ u.designation }}{{ if u.identifier }} - {{ u.identifier }}{{ /if }}"
+                  data-haystack="{{ (u.designation + ' ' + (u.identifier ?? '')).toLowerCase() }}"
+                  data-occupants='{{ JSON.stringify((u.occupants ?? []).map((o) => ({ relationshipType: o.relationshipType, name: o.occupant.name, email: o.occupant.email, phone: o.occupant.phone }))) }}'
+                  class="px-3 py-2 text-sm hover:bg-base-200 cursor-pointer whitespace-nowrap truncate"
+                  title="{{ u.designation }}{{ if u.identifier }} - {{ u.identifier }}{{ /if }}">
+                <span class="font-semibold">{{ u.designation }}</span>{{ if u.identifier }}<span class="text-base-content/60"> - {{ u.identifier }}</span>{{ /if }}
+              </li>
+            {{ /for }}
+            <li data-combobox-empty class="hidden px-3 py-2 text-sm text-base-content/50 italic">Sem resultados.</li>
+          </ul>
+        </div>
+        <div class="hidden rounded-lg bg-base-200/40 border border-base-200 p-3 text-xs"
+             data-tx-occupants="filter" data-tx-id="{{ t.id }}">
+          <div class="text-base-content/60 font-medium mb-1.5">Ocupantes desta fração <span class="text-base-content/40">(cruzar com o nome da transferência)</span></div>
+          <ul class="space-y-1" data-tx-occupants-list></ul>
+        </div>
+      {{ else }}
+        <div class="form-control relative" data-combobox>
+          <label class="label py-1"><span class="label-text-alt">Filtrar charges por fornecedor (opcional)</span></label>
+          <input type="text" data-combobox-search autocomplete="off"
+                 placeholder="Pesquisar fornecedor…"
+                 class="input input-sm input-bordered">
+          <input type="hidden" data-combobox-value
+                 data-manual-filter data-manual-filter-scope="supplier"
+                 data-tx-supplier-select="filter" data-tx-id="{{ t.id }}">
+          <ul data-combobox-list class="hidden absolute top-full left-0 right-0 z-20 mt-1 max-h-72 overflow-y-auto bg-base-100 border border-base-200 rounded-lg shadow-lg py-1">
+            <li data-combobox-option data-id="" data-label="Todos os fornecedores" data-haystack="todos"
+                class="px-3 py-2 text-sm hover:bg-base-200 cursor-pointer text-base-content/60 italic whitespace-nowrap">
+              Todos os fornecedores
+            </li>
+            {{ for s of suppliers }}
+              <li data-combobox-option
+                  data-id="{{ s.id }}"
+                  data-label="{{ s.name }}"
+                  data-haystack="{{ (s.name + ' ' + (s.nif ?? '')).toLowerCase() }}"
+                  class="px-3 py-2 text-sm hover:bg-base-200 cursor-pointer whitespace-nowrap truncate"
+                  title="{{ s.name }}{{ if s.nif }} · NIF {{ s.nif }}{{ /if }}">
+                <span class="font-semibold">{{ s.name }}</span>{{ if s.nif }}<span class="text-base-content/60"> · NIF {{ s.nif }}</span>{{ /if }}
+              </li>
+            {{ /for }}
+            <li data-combobox-empty class="hidden px-3 py-2 text-sm text-base-content/50 italic">Sem resultados.</li>
+          </ul>
+        </div>
+      {{ /if }}
+
+      {{# Entradas mostram só receivables/débitos; saídas só payables. #}}
+      {{ set _manualCharges = openCharges.filter((c) => t.amount > 0 ? (c.kind === "receivable" && c.nature === "debit") : (c.kind === "payable")) }}
+      <div class="form-control">
+        <label class="label"><span class="label-text-alt">Charges a conciliar</span></label>
+        <div class="max-h-56 overflow-y-auto rounded-lg border border-base-300 divide-y divide-base-200"
+             data-manual-charge-list data-tx-id="{{ t.id }}">
+          {{ for c of _manualCharges }}
+            <label class="flex items-center gap-2 px-2.5 py-1.5 text-xs cursor-pointer hover:bg-base-200/60"
+                   data-manual-charge-row
+                   data-unit-id="{{ c.unitId ?? '' }}"
+                   data-supplier-id="{{ c.supplierId ?? '' }}">
+              <input type="checkbox" name="chargeIds[]" value="{{ c.id }}"
+                     class="checkbox checkbox-xs checkbox-primary"
+                     data-manual-charge data-tx-id="{{ t.id }}"
+                     data-open-amount="{{ c.openAmount }}"
+                     data-kind="{{ c.kind ?? '' }}"
+                     data-nature="{{ c.nature ?? '' }}"
+                     data-charge-type="{{ c.chargeType ?? '' }}">
+              <span class="flex-1 min-w-0 truncate">{{ if t.amount > 0 && c.unit_label }}[{{ c.unit_label }}] {{ /if }}{{ c.chargeType }} · {{ c.description }}</span>
+              <span class="tabular-nums font-semibold shrink-0">{{ c.openAmount |> formatMoney }}</span>
+            </label>
+          {{ /for }}
+          <div class="{{ if _manualCharges.length > 0 }}hidden {{ /if }}px-2.5 py-2 text-xs italic text-base-content/50"
+               data-manual-charge-empty>Sem charges em aberto para este filtro.</div>
+        </div>
+      </div>
+
+      {{# Resumo vivo: "falta conciliar" parte do por-alocar do movimento e vai
+         abatendo a soma das charges marcadas (JS em list.vto). #}}
+      <div class="rounded-lg bg-base-200/40 border border-base-200 px-3 py-2 text-xs space-y-1"
+           data-manual-summary data-tx-id="{{ t.id }}" data-tx-unallocated="{{ txUnallocated }}">
+        <div class="flex justify-between gap-2">
+          <span class="text-base-content/60">Por conciliar neste movimento</span>
+          <span class="tabular-nums font-semibold">{{ txUnallocated |> formatMoney }}</span>
+        </div>
+        <div class="flex justify-between gap-2">
+          <span class="text-base-content/60">Selecionado (<span data-summary-count>0</span>)</span>
+          <span class="tabular-nums font-semibold" data-summary-selected>0,00 €</span>
+        </div>
+        <div class="flex justify-between gap-2 border-t border-base-300 pt-1">
+          <span class="font-medium">Falta conciliar</span>
+          <span class="tabular-nums font-bold" data-summary-remaining>{{ txUnallocated |> formatMoney }}</span>
+        </div>
+        <div class="hidden text-warning" data-summary-note></div>
+      </div>
+
+      {{# Hidden do atalho "Ajustar + Conciliar" (preenchidos pelo JS; vazios no reconcile normal). #}}
+      <input type="hidden" name="chargeId" value="" data-manual-adjust-charge data-tx-id="{{ t.id }}">
+      <input type="hidden" name="amount" value="" data-manual-adjust-amount data-tx-id="{{ t.id }}">
+
+      <div class="flex gap-2">
+        <button type="submit" class="btn btn-sm btn-primary flex-1" disabled data-manual-submit data-tx-id="{{ t.id }}">Conciliar</button>
+        <button type="button"
+                class="btn btn-sm btn-outline hidden flex-1"
+                data-manual-adjust data-tx-id="{{ t.id }}"
+                data-action="/admin/c/{{ currentCondominiumId }}/reconciliation/adjust-reconcile">
+          Ajustar + Conciliar
+        </button>
+      </div>
+    </form>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+{{# Pre-seleção por match de palavras-chave: dispara change nos hidden dos
+   comboboxes (picker + filter) para preencher label, mostrar ocupantes e
+   filtrar o select de charges. Idem fornecedor. #}}
+{{ if suggestedUnitId }}
+<script>
+  (function () {
+    var hiddens = document.querySelectorAll('[data-tx-unit-select][data-tx-id="{{ t.id }}"]');
+    hiddens.forEach(function (hidden) {
+      var box = hidden.closest('[data-combobox]');
+      var opt = box && box.querySelector('[data-combobox-option][data-id="{{ suggestedUnitId }}"]');
+      if (!opt) return;
+      hidden.value = "{{ suggestedUnitId }}";
+      var search = box.querySelector('[data-combobox-search]');
+      if (search) search.value = opt.dataset.label || "";
+      hidden.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  })();
+</script>
+{{ /if }}
+{{ if suggestedSupplierId }}
+<script>
+  (function () {
+    var hiddens = document.querySelectorAll('[data-tx-supplier-select][data-tx-id="{{ t.id }}"]');
+    hiddens.forEach(function (hidden) {
+      var box = hidden.closest('[data-combobox]');
+      var opt = box && box.querySelector('[data-combobox-option][data-id="{{ suggestedSupplierId }}"]');
+      if (!opt) return;
+      hidden.value = "{{ suggestedSupplierId }}";
+      var search = box.querySelector('[data-combobox-search]');
+      if (search) search.value = opt.dataset.label || "";
+      hidden.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  })();
+</script>
+{{ /if }}

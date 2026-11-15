@@ -1,0 +1,50 @@
+{{ layout "layouts/portal.vto" { title, section, condominium, unit, currentUser, currentPortalUnitId, currentCondominiumId } }}
+
+<div class="max-w-xl mx-auto space-y-6">
+  {{ include "partials/breadcrumbs.vto" {
+    items: [
+      { label: "Seguro", href: "/portal/c/" + currentCondominiumId + "/u/" + currentPortalUnitId + "/insurances" },
+      { label: "Submeter" }
+    ]
+  } }}
+
+  <div>
+    <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/insurances" class="btn btn-sm btn-ghost gap-1">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+      Voltar à listagem de seguros
+    </a>
+  </div>
+
+  <h1 class="text-2xl font-bold">Submeter apólice de seguro</h1>
+
+  <form id="upload-form" method="post" action="upload" enctype="multipart/form-data" class="space-y-4">
+    {{ include "partials/file_dropzone.vto" {
+      name: "file",
+      multiple: true,
+      accept: "application/pdf,image/jpeg,image/png,image/webp,image/heic",
+      helpText: "PDF ou imagem da apólice - podes selecionar vários",
+    } }}
+
+    <button type="submit" id="upload-submit" class="btn btn-primary w-full" data-upload-submit disabled>Submeter</button>
+  </form>
+
+  <div class="text-center">
+    <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/insurances" class="text-sm link">Voltar</a>
+  </div>
+</div>
+
+{{# Feedback de upload via barra global (ADR 0027); botão muda para
+   "A submeter…" para o caso de a barra não estar visível. #}}
+<script>
+  (function () {
+    var form = document.getElementById("upload-form");
+    if (!form) return;
+    var submit = document.getElementById("upload-submit");
+    form.addEventListener("submit", function () {
+      // Barra global (ADR 0027) - mesma usada pelos requests HTMX.
+      if (window.__progress) window.__progress.start();
+      submit.disabled = true;
+      submit.textContent = "A submeter…";
+    });
+  })();
+</script>

@@ -1,0 +1,96 @@
+{{# Corpo do orçamento (rubricas + mapa de quotas por fração + totais), partilhado
+   pelo PDF do orçamento (budget.vto) e pelos anexos da ata (assembly_minutes.vto).
+   Garante valores idênticos nos dois sítios. Estilos escopados em `.orc-doc`:
+   partials/budget_body_styles.vto (incluir 1x no <head>).
+
+   Dados:
+     • budget          -> formatBudgetForResponse()
+     • quotaMap        -> formatBudgetQuotaMapForResponse() OU null
+     • grandTotal      -> totalAmount + fcrAmount (cêntimos)
+     • installmentValue -> valor por prestação (suplementar) OU null
+     • annexLabel      -> prefixo do título (e.g. "Anexo 1") OU undefined
+#}}
+<div class="orc-doc">
+  <h1>{{ if annexLabel }}{{ annexLabel }} - {{ /if }}Orçamento {{ if budget.type === "suplementar" }}Suplementar {{ /if }}{{ budget.year }}</h1>
+  {{ if budget.notes }}<div class="subtitle">{{ budget.notes }}</div>{{ /if }}
+
+  <div class="badges">
+    <span>{{ budget.type === "suplementar" ? "Suplementar" : "Principal" }}</span>
+    <span>{{ budget.status === "approved" ? "Aprovado" : (budget.status === "not_approved" ? "Não aprovado" : "Rascunho") }}</span>
+    {{ if budget.approvedAt }}<span>Aprovado em {{ budget.approvedAt |> formatDate }}</span>{{ /if }}
+    {{ if budget.type === "suplementar" && budget.installments }}<span>{{ budget.installments }} prestações</span>{{ else }}<span>FCR {{ budget.fcrPercentage }}%</span>{{ /if }}
+  </div>
+
+  <h2>Despesas previstas</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 70px">Código</th>
+        <th>Categoria</th>
+        <th class="amount">{{ budget.type === "suplementar" ? "Valor" : "Valor anual" }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ for line of budget.lines }}
+      <tr>
+        <td class="code">{{ line.categoryCode ?? "-" }}</td>
+        <td>{{ line.categoryName ?? "-" }}{{ if line.categoryDescription }}<div class="muted" style="font-size: 8.5pt">{{ line.categoryDescription }}</div>{{ /if }}</td>
+        <td class="amount">{{ line.annualAmount |> formatMoney }}</td>
+      </tr>
+      {{ /for }}
+      {{ if budget.lines.length === 0 }}
+      <tr><td colspan="3" class="muted" style="text-align: center; padding: 16px">Sem rubricas.</td></tr>
+      {{ /if }}
+    </tbody>
+  </table>
+
+  {{ if quotaMap }}
+  <h2>{{ budget.type === "suplementar" ? "Repartição por fração (por prestação)" : "Mapa de quotas por fração (mensal)" }}</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Fração</th>
+        <th class="amount">Permilagem</th>
+        {{ if budget.type !== "suplementar" }}<th class="amount">Mensal base</th><th class="amount">Mensal FCR</th>{{ /if }}
+        <th class="amount">{{ budget.type === "suplementar" ? "Prestação" : "Mensal total" }}</th>
+        <th class="amount">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ for u of quotaMap.units }}
+      <tr>
+        <td><strong>{{ u.unitDesignation }}</strong>{{ if u.identifier }} <span class="muted">- {{ u.identifier }}</span>{{ /if }}</td>
+        <td class="amount">{{ u.unitPermillage }} ‰</td>
+        {{ if budget.type !== "suplementar" }}<td class="amount">{{ u.monthlyBaseCents |> formatMoney }}</td><td class="amount muted">{{ u.monthlyFcrCents |> formatMoney }}</td>{{ /if }}
+        <td class="amount">{{ u.monthlyTotalCents |> formatMoney }}</td>
+        <td class="amount"><strong>{{ u.annualTotalCents |> formatMoney }}</strong></td>
+      </tr>
+      {{ /for }}
+      <tr class="totrow">
+        <td>Totais</td>
+        <td class="amount">{{ quotaMap.totalPermillage }} ‰</td>
+        {{ if budget.type !== "suplementar" }}<td class="amount">{{ quotaMap.totals.monthlyBaseCents |> formatMoney }}</td><td class="amount">{{ quotaMap.totals.monthlyFcrCents |> formatMoney }}</td>{{ /if }}
+        <td class="amount">{{ quotaMap.totals.monthlyTotalCents |> formatMoney }}</td>
+        <td class="amount">{{ quotaMap.totals.annualTotalCents |> formatMoney }}</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="muted" style="font-size:9px;margin-top:4px">
+    {{ quotaMap.fromCharges ? "Valores reais cobrados às frações." : "Valores que serão cobrados a cada fração ao gerar as quotas." }} O total pode diferir alguns cêntimos do total do orçamento: o total anual nem sempre se divide em quotas {{ budget.type === "suplementar" ? "por prestação" : "mensais" }} de cêntimos exatos.
+  </p>
+  {{ /if }}
+
+  <div class="totbox">
+    {{ if budget.type !== "suplementar" }}
+    <div class="r"><span>Total ordinário</span><span class="amount">{{ budget.totalAmount |> formatMoney }}</span></div>
+    <div class="r"><span>FCR ({{ budget.fcrPercentage }}%)</span><span class="amount">{{ budget.fcrAmount |> formatMoney }}</span></div>
+    {{ /if }}
+    <div class="r grand"><span>Total</span><span class="amount">{{ grandTotal |> formatMoney }}</span></div>
+    {{ if quotaMap }}{{ set quotaDiff = quotaMap.totals.annualTotalCents - grandTotal }}{{ if quotaDiff !== 0 }}
+    <div class="r muted"><span>Diferença (arredondamento das quotas)</span><span class="amount">{{ if quotaDiff > 0 }}+{{ /if }}{{ quotaDiff |> formatMoney }}</span></div>
+    {{ /if }}{{ /if }}
+    {{ if installmentValue }}
+    <div class="r muted"><span>{{ budget.installments }} prestações de</span><span class="amount">{{ installmentValue |> formatMoney }}</span></div>
+    {{ /if }}
+  </div>
+</div>

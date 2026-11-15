@@ -1,0 +1,255 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+<div class="max-w-4xl">
+  {{ set _issuedAt = receipt.issuedAt |> formatDate }}
+  {{ layout "partials/page_header.vto" {
+    title: "Recibo",
+    scale: "detail",
+    breadcrumbs: [
+      { label: "Recibos", href: "/admin/c/" + currentCondominiumId + "/receipts" },
+      { label: receipt.number },
+    ],
+    code: receipt.number,
+    codeTone: "neutral",
+    status: receipt.isVoided
+      ? { label: "Anulado", tone: "error" }
+      : { label: "Ativo", tone: "success" },
+    meta: [
+      { value: "Emitido em " + _issuedAt + (receipt.issuedBy ? " por " + receipt.issuedBy.name : ""), plain: true },
+    ]
+  } }}
+    <a href="/admin/c/{{ currentCondominiumId }}/receipts/{{ receipt.id }}/pdf" target="_blank" rel="noopener" class="btn btn-sm">
+      📄 Abrir PDF
+    </a>
+    {{ if !receipt.isVoided }}
+      <button type="button" class="btn btn-sm" onclick="document.getElementById('resend_modal').showModal()">
+        ✉ Re-enviar emails
+      </button>
+      <button type="button" class="btn btn-sm btn-ghost text-error" onclick="document.getElementById('void_modal').showModal()">
+        Anular
+      </button>
+    {{ /if }}
+  {{ /layout }}
+
+  {{# Banner de anulação #}}
+  {{ if receipt.isVoided }}
+    <div class="mb-6 rounded-lg border border-error/30 bg-error/5 px-4 py-3 flex items-start gap-3">
+      <svg class="w-5 h-5 text-error shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+      </svg>
+      <div class="text-sm">
+        <div class="font-medium text-error">Recibo anulado em {{ receipt.voidedAt |> formatDate }}</div>
+        {{ if receipt.voidedBy }}<div class="text-base-content/70 mt-0.5">Por: {{ receipt.voidedBy.name }}{{ if receipt.voidedBy.email }} ({{ receipt.voidedBy.email }}){{ /if }}</div>{{ /if }}
+        {{ if receipt.voidedReason }}<div class="text-base-content/70 mt-1"><strong>Motivo:</strong> {{ receipt.voidedReason }}</div>{{ /if }}
+        <div class="text-xs text-base-content/50 mt-2">
+          O número {{ receipt.number }} fica reservado (sem reciclagem). Para emitir novo recibo deste pagamento, vai à conciliação primeiro.
+        </div>
+      </div>
+    </div>
+  {{ /if }}
+
+  {{# Resumo principal #}}
+  <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-6 mb-6">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div>
+        <div class="text-[10px] uppercase tracking-wider text-base-content/50">Valor</div>
+        <div class="text-3xl font-black tabular-nums mt-1 text-primary">{{ receipt.amountCents |> formatMoney }}</div>
+      </div>
+      <div>
+        <div class="text-[10px] uppercase tracking-wider text-base-content/50">Data pagamento</div>
+        <div class="text-base font-semibold mt-1">{{ receipt.bankTxSnapshot.transactionDate |> formatDate }}</div>
+      </div>
+      <div>
+        <div class="text-[10px] uppercase tracking-wider text-base-content/50">Forma</div>
+        <div class="text-base font-semibold mt-1">
+          {{ if receipt.bankTxSnapshot.accountKind === "cash" }}💵 Numerário{{ else }}🏦 Transferência{{ /if }}
+          <div class="text-xs text-base-content/60 font-normal">{{ receipt.bankTxSnapshot.accountName }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {{# Snapshots - lado esquerdo: recipients + unit; direito: linhas #}}
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+
+    <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm overflow-hidden">
+      <div class="px-5 py-3 border-b border-base-200">
+        <h2 class="text-sm font-bold">Recebido de</h2>
+      </div>
+      <ul class="divide-y divide-base-200">
+        {{ for r of receipt.recipientsSnapshot }}
+          <li class="px-5 py-3 flex items-baseline justify-between gap-3">
+            <div class="min-w-0">
+              <div class="font-medium text-sm">{{ r.name }}</div>
+              <div class="text-xs text-base-content/60 mt-0.5">
+                {{ if r.nif }}NIF {{ r.nif }}{{ else }}<span class="text-warning/80">NIF não registado</span>{{ /if }}
+              </div>
+            </div>
+            <div class="text-xs text-base-content/50 shrink-0">
+              {{ if r.email }}{{ r.email }}{{ /if }}
+            </div>
+          </li>
+        {{ /for }}
+      </ul>
+      <div class="px-5 py-3 border-t border-base-200 text-xs text-base-content/60 bg-base-200/30">
+        Fração
+        <a href="/admin/c/{{ currentCondominiumId }}/units/{{ receipt.unitId }}" class="link link-hover">
+          <span class="font-bold">{{ receipt.unitSnapshot.designation }}</span>{{ if receipt.unitSnapshot.identifier }}<span class="text-base-content/50 font-normal"> - {{ receipt.unitSnapshot.identifier }}</span>{{ /if }}
+        </a>
+        {{ if receipt.unitSnapshot.permillage }} · {{ receipt.unitSnapshot.permillage }}‰{{ /if }}
+      </div>
+    </div>
+
+    <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm overflow-hidden">
+      <div class="px-5 py-3 border-b border-base-200">
+        <h2 class="text-sm font-bold">Discriminação</h2>
+      </div>
+      <ul class="divide-y divide-base-200">
+        {{ for line of receipt.linesSnapshot }}
+          <li class="px-5 py-3 flex items-baseline justify-between gap-3">
+            <div class="min-w-0">
+              <div class="font-medium text-sm">{{ line.description }}</div>
+              {{ if line.fcrAmount && line.fcrAmount > 0 }}
+                <div class="text-xs text-base-content/50 mt-0.5">FCR incluído: {{ line.fcrAmount |> formatMoney }}</div>
+              {{ /if }}
+            </div>
+            <div class="text-sm font-semibold tabular-nums whitespace-nowrap">{{ line.amount |> formatMoney }}</div>
+          </li>
+        {{ /for }}
+        <li class="px-5 py-3 flex items-baseline justify-between gap-3 bg-primary/5 font-bold">
+          <div>TOTAL</div>
+          <div class="tabular-nums text-primary">{{ receipt.amountCents |> formatMoney }}</div>
+        </li>
+      </ul>
+    </div>
+
+  </div>
+
+  {{# Histórico de envio de email #}}
+  {{ if receipt.emailSentTo && receipt.emailSentTo.length > 0 }}
+    <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm overflow-hidden mb-6">
+      <div class="px-5 py-3 border-b border-base-200 flex items-center justify-between">
+        <h2 class="text-sm font-bold">Histórico de envio</h2>
+        {{ if receipt.emailLastAttemptAt }}
+          <span class="text-xs text-base-content/50">Última tentativa: {{ receipt.emailLastAttemptAt |> formatDate }}</span>
+        {{ /if }}
+      </div>
+      <ul class="divide-y divide-base-200 text-sm">
+        {{ for e of receipt.emailSentTo }}
+          <li class="px-5 py-2 flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2">
+              {{ if e.status === "sent" }}
+                <span class="inline-block w-1.5 h-1.5 rounded-full bg-success"></span>
+              {{ else }}
+                <span class="inline-block w-1.5 h-1.5 rounded-full bg-error"></span>
+              {{ /if }}
+              <span>{{ e.email }}</span>
+              {{ if e.status === "failed" && e.error }}
+                <span class="text-xs text-error/80 italic">- {{ e.error }}</span>
+              {{ /if }}
+            </div>
+            <span class="text-xs text-base-content/50">{{ e.sentAt |> formatDate }}</span>
+          </li>
+        {{ /for }}
+      </ul>
+    </div>
+  {{ /if }}
+
+  {{# Histórico de downloads do PDF (primeira vez por occupant).
+     Entries de `recipients_access` JSONB (write-once); sem entry = não descarregou. #}}
+  <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm overflow-hidden mb-6">
+    <div class="px-5 py-3 border-b border-base-200">
+      <h2 class="text-sm font-bold">Acessos ao PDF</h2>
+    </div>
+    <ul class="divide-y divide-base-200 text-sm">
+      {{ for r of receipt.recipientsSnapshot }}
+        {{ set _accessEntry = (receipt.recipientsAccess ?? []).find((a) => a.occupantId === r.occupantId) }}
+        <li class="px-5 py-2 flex items-center justify-between gap-3">
+          <div class="flex items-center gap-2 min-w-0">
+            {{ if _accessEntry }}
+              <span class="inline-block w-1.5 h-1.5 rounded-full bg-success shrink-0"></span>
+              <span class="font-medium truncate">{{ r.name }}</span>
+              <span class="text-xs text-base-content/50">descarregou em</span>
+              <span class="text-xs tabular-nums">{{ _accessEntry.firstDownloadedAt |> formatDate }}</span>
+            {{ else }}
+              <span class="inline-block w-1.5 h-1.5 rounded-full bg-base-300 shrink-0"></span>
+              <span class="font-medium truncate">{{ r.name }}</span>
+              <span class="text-xs text-base-content/40 italic">ainda não descarregou</span>
+            {{ /if }}
+          </div>
+        </li>
+      {{ /for }}
+    </ul>
+  </div>
+
+  {{# Audit técnico #}}
+  <div class="text-xs text-base-content/40 text-center">
+    {{ if receipt.fileSize }}PDF: {{ String(receipt.fileSize) }} bytes{{ /if }}
+    {{ if receipt.storageEtag }} · ETag: <code class="text-[10px]">{{ receipt.storageEtag }}</code>{{ /if }}
+    {{ if receipt.fileSha256 }} · SHA256: <code class="text-[10px]">{{ String(receipt.fileSha256).substring(0, 12) }}…</code>{{ /if }}
+  </div>
+</div>
+
+{{# ═════════ MODAL: Anular recibo ═════════ #}}
+{{ if !receipt.isVoided }}
+  <dialog id="void_modal" class="modal">
+    <div class="modal-box max-w-md">
+      <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+      <h3 class="font-bold text-lg mb-2">Anular recibo {{ receipt.number }}</h3>
+      <div class="rounded-lg border border-error/30 bg-error/5 px-4 py-3 mb-4 flex items-start gap-3">
+        <svg class="w-5 h-5 text-error shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+        </svg>
+        <div class="text-sm">
+          <div class="font-medium text-error">Ação irreversível</div>
+          <div class="text-base-content/70 mt-1">
+            O recibo passa a estado anulado. O número <strong>{{ receipt.number }}</strong> fica reservado e não é reciclado. Para emitir novo, vai à conciliação.
+          </div>
+        </div>
+      </div>
+      <form method="post" action="/admin/c/{{ currentCondominiumId }}/receipts/{{ receipt.id }}/void" class="space-y-3">
+        <div class="form-control">
+          <label class="label py-1" for="void_reason"><span class="label-text text-xs font-medium">Justificação <span class="text-error">*</span></span></label>
+          <textarea id="void_reason" name="reason" rows="3" class="textarea textarea-sm textarea-bordered" required
+                    placeholder="Ex: pagamento foi de outra fração / valor incorreto / pedido do condómino"></textarea>
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('void_modal').close()">Cancelar</button>
+          <button type="submit" class="btn btn-sm btn-error">Anular recibo</button>
+        </div>
+      </form>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+
+  <dialog id="resend_modal" class="modal">
+    <div class="modal-box max-w-md">
+      <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+      <h3 class="font-bold text-lg mb-2">Re-enviar emails do recibo</h3>
+      <p class="text-sm text-base-content/60 mb-4">
+        Vai re-enviar a notificação aos owners com email registado e que
+        atualmente têm "Receber recibos por email" ativo:
+      </p>
+      {{ if activeRecipients.length === 0 }}
+        <p class="text-sm text-base-content/50 italic mb-4 ml-4">
+          Nenhum ocupante do snapshot está disponível para receber agora.
+        </p>
+      {{ else }}
+        <ul class="text-sm space-y-1 mb-4 ml-4">
+          {{ for r of activeRecipients }}
+            <li>• <strong>{{ r.name }}</strong> - {{ r.email }}</li>
+          {{ /for }}
+        </ul>
+      {{ /if }}
+      <form method="post" action="/admin/c/{{ currentCondominiumId }}/receipts/{{ receipt.id }}/resend-email">
+        <div class="flex justify-end gap-2">
+          <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('resend_modal').close()">Cancelar</button>
+          <button type="submit" class="btn btn-sm btn-primary">Re-enviar</button>
+        </div>
+      </form>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+{{ /if }}
+
+{{ /layout }}

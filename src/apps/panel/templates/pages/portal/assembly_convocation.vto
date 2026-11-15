@@ -1,0 +1,123 @@
+{{ layout "layouts/portal.vto" { title, section, condominium, unit, currentUser, currentPortalUnitId, currentCondominiumId } }}
+
+{{# Convocatória read-only do ÚLTIMO `snapshot` enviado (não render ao vivo): o
+   condómino vê o que foi convocado, mesmo após edição do admin. `location` vem
+   do estado atual (não entra no snapshot); snapshot null = estado vazio. #}}
+
+<div class="mb-4">
+  <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/assemblies" class="text-xs text-base-content/60 hover:text-base-content">← Assembleias</a>
+</div>
+
+{{# ─── Cabeçalho ─────────────────────────────────────────────────────── #}}
+<div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-4 sm:p-6 mb-6">
+  <div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+    <div class="min-w-0 flex-1">
+      <div class="text-xs uppercase tracking-wider text-base-content/50 mb-1">Convocatória</div>
+      <h1 class="text-xl sm:text-2xl font-bold flex items-center gap-2 flex-wrap">
+        Assembleia {{ if assembly.type === "ordinary" }}Ordinária{{ else }}Extraordinária{{ /if }}
+        {{ if assembly.minutesNumber }}
+          <span class="text-xs font-normal text-base-content/60">Ata nº {{ assembly.minutesNumber }}</span>
+        {{ /if }}
+      </h1>
+    </div>
+    {{# Badge do estado atual: a página é a convocatória, mas o estado pode já
+       ter avançado (realizada/cancelada) - o badge reflete-o. #}}
+    {{ if assembly.status === "held" }}
+      <span class="inline-flex items-center gap-1.5 text-sm font-medium text-success shrink-0">
+        <span class="inline-block w-2 h-2 rounded-full bg-success"></span>Realizada
+      </span>
+    {{ else if assembly.status === "cancelled" }}
+      <span class="inline-flex items-center gap-1.5 text-sm font-medium text-error shrink-0">
+        <span class="inline-block w-2 h-2 rounded-full bg-error"></span>Cancelada
+      </span>
+    {{ else }}
+      <span class="inline-flex items-center gap-1.5 text-sm font-medium text-warning shrink-0">
+        <span class="inline-block w-2 h-2 rounded-full bg-warning"></span>Convocada
+      </span>
+    {{ /if }}
+  </div>
+
+  {{ if snapshot }}
+    {{# Datas das 1ª/2ª convocações (do snapshot) + local (estado atual). #}}
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 pt-4 mt-4 border-t border-base-200">
+      <div class="min-w-0">
+        <div class="text-[10px] uppercase tracking-wider text-base-content/50">1ª convocatória</div>
+        <div class="text-sm font-bold tabular-nums mt-1">{{ snapshot.scheduledAt |> formatDateTime }}</div>
+      </div>
+      <div class="min-w-0">
+        <div class="text-[10px] uppercase tracking-wider text-base-content/50">2ª convocatória</div>
+        <div class="text-sm font-bold tabular-nums mt-1">
+          {{ if snapshot.secondConvocationAt }}{{ snapshot.secondConvocationAt |> formatDateTime }}{{ else }}<span class="text-base-content/40 font-normal">-</span>{{ /if }}
+        </div>
+      </div>
+      <div class="min-w-0">
+        <div class="text-[10px] uppercase tracking-wider text-base-content/50">Local</div>
+        <div class="text-sm font-bold mt-1 break-words">
+          {{ if assembly.location }}{{ assembly.location }}{{ else }}<span class="text-base-content/40 font-normal">-</span>{{ /if }}
+        </div>
+      </div>
+    </div>
+
+    {{ if sentAt }}
+      <div class="mt-4 pt-4 border-t border-base-200 text-[11px] text-base-content/50">
+        Convocatória enviada em <strong class="text-base-content/70 tabular-nums">{{ sentAt |> formatDateTime }}</strong>.
+      </div>
+    {{ /if }}
+  {{ /if }}
+</div>
+
+{{ if !snapshot }}
+  {{# Estado vazio: convocada mas sem convocatória enviada (ou sem snapshot). #}}
+  <div class="bg-base-100 rounded-xl border border-base-200 p-8 sm:p-12 text-center">
+    <div class="text-4xl mb-3 opacity-30">📨</div>
+    <p class="text-base-content/60 text-sm">
+      Ainda não foi enviada a convocatória desta assembleia.
+    </p>
+  </div>
+{{ else }}
+  {{# ─── Abertura ──────────────────────────────────────────────────────── #}}
+  {{ if snapshot.convocationIntro }}
+    <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-4 sm:p-6 mb-6">
+      <div class="text-[10px] uppercase tracking-widest font-bold text-base-content/50 mb-2">Abertura</div>
+      <p class="text-sm text-base-content/80 leading-relaxed whitespace-pre-line">{{ snapshot.convocationIntro }}</p>
+    </div>
+  {{ /if }}
+
+  {{# ─── Ordem do dia ──────────────────────────────────────────────────── #}}
+  <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm overflow-hidden mb-6">
+    <div class="px-4 sm:px-6 py-3 border-b border-base-200">
+      <div class="text-[10px] uppercase tracking-widest font-bold text-base-content/50">
+        Ordem do dia <span class="text-base-content/30 font-normal normal-case tracking-normal">· {{ String(snapshot.agenda.length) }}</span>
+      </div>
+    </div>
+    {{ if snapshot.agenda.length > 0 }}
+      <ul class="divide-y divide-base-200">
+        {{ for d of snapshot.agenda }}
+          <li class="px-4 sm:px-6 py-4">
+            <div class="flex items-baseline gap-3">
+              <span class="text-base-content/40 tabular-nums text-sm font-semibold shrink-0">{{ if d.sequence != null }}{{ String(d.sequence) }}{{ else }}-{{ /if }}</span>
+              <div class="min-w-0 flex-1">
+                {{# Só o assunto: a convocatória não mostra a nota/texto de cada ponto. #}}
+                <span class="font-semibold text-sm break-words">{{ d.subject }}</span>
+              </div>
+            </div>
+          </li>
+        {{ /for }}
+      </ul>
+    {{ else }}
+      <div class="px-4 sm:px-6 py-6 text-xs text-base-content/50 text-center">
+        Sem pontos na ordem do dia.
+      </div>
+    {{ /if }}
+  </div>
+
+  {{# ─── Rodapé ────────────────────────────────────────────────────────── #}}
+  {{ if snapshot.convocationFooter }}
+    <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-4 sm:p-6 mb-6">
+      <div class="text-[10px] uppercase tracking-widest font-bold text-base-content/50 mb-2">Informações</div>
+      <p class="text-sm text-base-content/80 leading-relaxed whitespace-pre-line">{{ snapshot.convocationFooter }}</p>
+    </div>
+  {{ /if }}
+{{ /if }}
+
+{{ /layout }}

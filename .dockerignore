@@ -1,0 +1,17 @@
+.git
+.github
+.claude
+.env
+.env.*
+!.env.example
+!.env.prod.example
+node_modules
+*.log
+docs
+test_e2e
+test_sql/seeds*
+README*.md
+CLAUDE.md
+AGENTS.md
+.vscode
+.idea

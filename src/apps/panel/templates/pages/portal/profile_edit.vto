@@ -1,0 +1,86 @@
+{{ layout "layouts/portal.vto" { title, section, condominium, unit, currentUser, currentPortalUnitId, currentCondominiumId } }}
+
+<div class="max-w-xl">
+  {{ include "partials/breadcrumbs.vto" {
+    items: [
+      { label: "Perfil", href: "/portal/c/" + currentCondominiumId + "/u/" + currentPortalUnitId + "/profile" },
+      { label: "Editar" }
+    ]
+  } }}
+
+  <div class="mb-4">
+    <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/profile" class="btn btn-sm btn-ghost gap-1">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+      Voltar ao perfil
+    </a>
+  </div>
+
+  <h1 class="text-2xl sm:text-3xl font-black mb-1">Editar perfil</h1>
+  <p class="text-sm text-base-content/60 mb-6">
+    Os teus dados nesta fração. NIF tem fluxo separado (write-once, no menu superior).
+  </p>
+
+  <form method="post" action="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/profile/edit"
+        class="card bg-base-100 shadow-sm border border-base-200 p-6 space-y-4">
+    <div class="form-control">
+      <label class="label pb-1" for="name"><span class="label-text font-medium">Nome *</span></label>
+      <input type="text" id="name" name="name" required maxlength="255"
+             value="{{ me.name ?? '' }}"
+             class="input input-bordered w-full">
+    </div>
+
+    <div class="form-control">
+      <label class="label pb-1" for="email"><span class="label-text font-medium">Email</span></label>
+      <input type="email" id="email" name="email" maxlength="255"
+             value="{{ me.email ?? '' }}"
+             class="input input-bordered w-full">
+      <p class="text-xs text-base-content/50 mt-1">
+        Usado pela administração para enviar recibos e comunicações. Deixa em branco se não quiseres receber emails do condomínio.
+      </p>
+    </div>
+
+    <div class="form-control">
+      <label class="label pb-1" for="phone"><span class="label-text font-medium">Telefone</span></label>
+      <input type="tel" id="phone" name="phone" maxlength="30"
+             value="{{ me.phone ?? '' }}"
+             placeholder="+351 …"
+             class="input input-bordered w-full">
+    </div>
+
+    {{# NIF write-once: read-only + link para o modal global (portal.vto). Editar = contactar admin. #}}
+    <div class="form-control">
+      <label class="label pb-1"><span class="label-text font-medium">NIF</span></label>
+      {{ if me.nif }}
+        <div class="flex items-center gap-2">
+          <input type="text" disabled readonly value="{{ me.nif }}" class="input input-bordered w-full tabular-nums">
+        </div>
+        <p class="text-xs text-base-content/50 mt-1">NIF é write-once. Para alterar contacta a administração.</p>
+      {{ else }}
+        <button type="button" class="btn btn-sm btn-warning self-start"
+                onclick="document.getElementById('modal_set_nif').showModal()">Preencher NIF agora</button>
+        <p class="text-xs text-base-content/50 mt-1">9 dígitos. Validamos o check-digit português.</p>
+      {{ /if }}
+    </div>
+
+    {{# Preferência de recibos por email - só owners (recibos só são emitidos a owners). #}}
+    {{ if relationshipType === "owner" }}
+      <div class="form-control bg-base-200/40 rounded-lg px-3 py-2">
+        <label class="label cursor-pointer py-1 justify-start gap-3">
+          <input type="checkbox" name="receiveReceiptEmails" value="1" class="checkbox checkbox-primary checkbox-sm"
+                 {{ if me.receiveReceiptEmails }}checked{{ /if }}>
+          <span class="label-text">
+            <span class="font-medium">Receber recibos por email</span><br>
+            <span class="text-xs text-base-content/60">Quando desligado, os recibos continuam disponíveis no portal mas não chegam por email.</span>
+          </span>
+        </label>
+      </div>
+    {{ /if }}
+
+    <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
+      <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/profile" class="btn btn-sm btn-ghost">Cancelar</a>
+      <button type="submit" class="btn btn-sm btn-primary">Guardar alterações</button>
+    </div>
+  </form>
+</div>
+
+{{ /layout }}

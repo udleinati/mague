@@ -1,0 +1,141 @@
+{{# Partial do `<tbody>` da ordem do dia. POST /agenda-items[/:id/update]
+   (HX-Request) faz outerHTML swap deste `<tbody>`. `data-next-sequence`: o
+   JS lê-o ao abrir o modal 'create' (var hardcoded ficaria stale após swap). #}}
+<tbody id="agenda-tbody"
+       data-next-sequence="{{ String((target.agendaItems ?? []).length + 1) }}">
+  {{ if target.agendaItems && target.agendaItems.length > 0 }}
+    {{ for d of target.agendaItems }}
+      {{# Votos null/undefined/"" → "-". #}}
+      {{ set vFav = (d.votesInFavor != null && d.votesInFavor !== "") ? d.votesInFavor : "-" }}
+      {{ set vAg = (d.votesAgainst != null && d.votesAgainst !== "") ? d.votesAgainst : "-" }}
+      {{ set vAb = (d.votesAbstain != null && d.votesAbstain !== "") ? d.votesAbstain : "-" }}
+      {{ set votesHidden = d.itemType === "info" || (vFav === "-" && vAg === "-" && vAb === "-") }}
+      <tr class="hover:bg-base-200/30 border-t border-base-100 text-sm align-top">
+        <td class="pl-6 tabular-nums text-base-content/60 pt-3">{{ d.sequence }}</td>
+        <td class="pt-3 pr-4">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="font-medium">{{ d.subject }}</span>
+            {{ if d.itemType === "approve_budget" }}<span class="inline-flex items-center rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-info/10 text-info border border-info/20 whitespace-nowrap">Aprovar orçamento</span>
+            {{ else if d.itemType === "accounts_approval" }}<span class="inline-flex items-center rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-success/10 text-success border border-success/20 whitespace-nowrap">Aprovação de contas</span>
+            {{ else if d.itemType === "admin_election" }}<span class="inline-flex items-center rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-primary/10 text-primary border border-primary/20 whitespace-nowrap">Eleição administração</span>
+            {{ else if d.itemType === "approve_fcr_usage" }}<span class="inline-flex items-center rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-amber-100 border border-amber-200 whitespace-nowrap" style="color:#854D0E">Aprovar uso FCR</span>
+            {{ else if d.itemType === "other" }}<span class="inline-flex items-center rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-base-200 text-base-content/70 border border-base-300 whitespace-nowrap">Outra</span>
+            {{ /if }}
+            {{ if d.refType === "budget" && d.refId }}
+              {{ set linkedBudget = budgets.find((b) => b.id === d.refId) }}
+              {{ if linkedBudget }}
+                <a href="/admin/c/{{ currentCondominiumId }}/budget/{{ linkedBudget.id }}"
+                   class="btn btn-xs btn-primary">
+                  Ver orçamento →
+                </a>
+              {{ /if }}
+            {{ /if }}
+          </div>
+          {{ if d.description }}
+            {{ set descLong = d.description.length > 120 }}
+            {{ set preview = descLong ? d.description.substring(0, 120) + "…" : d.description }}
+            <div class="text-xs text-base-content/60 mt-1">
+              <span>{{ preview }}</span>
+              {{ if descLong }}
+                <button type="button"
+                        class="link link-primary link-hover text-xs font-medium ml-0.5"
+                        data-view-subject="{{ d.subject }}"
+                        data-view-desc="{{ d.description }}"
+                        onclick="openViewModal(this)">Ver mais</button>
+              {{ /if }}
+            </div>
+          {{ /if }}
+        </td>
+        <td class="text-right pt-3">
+          {{ if d.itemType === "info" }}
+            <span class="inline-flex items-center gap-1.5 text-xs text-base-content/60">
+              <span class="inline-block w-1.5 h-1.5 rounded-full bg-info"></span>Informativo
+            </span>
+          {{ else if d.approved === true }}
+            <span class="inline-flex items-center gap-1.5 text-xs font-medium text-success">
+              <span class="inline-block w-1.5 h-1.5 rounded-full bg-success"></span>Aprovada
+            </span>
+          {{ else if d.approved === false }}
+            <span class="inline-flex items-center gap-1.5 text-xs font-medium text-error">
+              <span class="inline-block w-1.5 h-1.5 rounded-full bg-error"></span>Rejeitada
+            </span>
+          {{ else }}
+            <span class="inline-flex items-center gap-1.5 text-xs text-base-content/60">
+              <span class="inline-block w-1.5 h-1.5 rounded-full bg-base-content/40"></span>Pendente
+            </span>
+          {{ /if }}
+          {{ if !votesHidden }}
+            <div class="text-[10px] tabular-nums text-base-content/50 mt-0.5" title="Fav / Contra / Abstenções">
+              {{ vFav }} / {{ vAg }} / {{ vAb }}
+            </div>
+          {{ /if }}
+        </td>
+        {{ if canEdit }}
+          <td class="pr-6 text-right pt-2">
+            <div class="flex gap-1 justify-end">
+              {{# Rascunho: edita o ponto. Convocada: delibera-se; pontos `info`
+                 não se votam, mas registam a nota (descrição) na deliberação. #}}
+              <button type="button" class="btn btn-xs btn-ghost"
+                data-agenda-item-id="{{ d.id }}"
+                data-sequence="{{ d.sequence }}"
+                data-subject="{{ d.subject }}"
+                data-description="{{ d.description ?? '' }}"
+                data-item-type="{{ d.itemType ?? '' }}"
+                data-ref-type="{{ d.refType ?? '' }}"
+                data-ref-id="{{ d.refId ?? '' }}"
+                data-votes-favor="{{ d.votesInFavor ?? '' }}"
+                data-votes-against="{{ d.votesAgainst ?? '' }}"
+                data-votes-abstain="{{ d.votesAbstain ?? '' }}"
+                data-vote-note="{{ d.voteNote ?? '' }}"
+                data-votes-by-unit='{{ JSON.stringify((d.votes ?? []).reduce((m, v) => { m[v.unitId] = v.vote; return m; }, {})) }}'
+                onclick="openAgendaItemModal('edit', this)">
+                {{ if canEditAgenda }}Editar{{ else if d.itemType === "info" }}Nota{{ else }}Deliberar{{ /if }}
+              </button>
+              {{# Remover um ponto = mexer na ordem do dia → só em rascunho. #}}
+              {{ if canEditAgenda }}
+                <form method="post" action="/admin/c/{{ currentCondominiumId }}/assembly/{{ target.id }}/agenda-items/{{ d.id }}/delete"
+                      hx-post="/admin/c/{{ currentCondominiumId }}/assembly/{{ target.id }}/agenda-items/{{ d.id }}/delete"
+                      hx-target="#agenda-tbody"
+                      hx-swap="outerHTML"
+                      class="inline"
+                      data-confirm-title="Remover ponto da ordem do dia"
+                      data-confirm-body="Queres mesmo remover este ponto da ordem do dia? Esta ação é irreversível."
+                      data-confirm-ok="Remover"
+                      data-confirm-danger="true">
+                  <button type="submit" class="btn btn-xs btn-ghost text-error">Remover</button>
+                </form>
+              {{ /if }}
+            </div>
+          </td>
+        {{ /if }}
+      </tr>
+    {{ /for }}
+  {{ else }}
+    <tr>
+      <td colspan="{{ canEdit ? '4' : '3' }}" class="p-8 text-center text-base-content/50 text-sm">
+        Sem pontos na ordem do dia.
+        {{ if canEditAgenda }}
+          Para pontos apenas mencionados (sem votação), usa o tipo <strong class="text-info">Informativo</strong>.
+        {{ /if }}
+      </td>
+    </tr>
+  {{ /if }}
+</tbody>
+
+{{# Toast OOB para #toast-container (auto-dismiss via JS global, admin.vto). #}}
+{{ if toast }}
+  <div id="toast-container" hx-swap-oob="beforeend">
+    <div class="rounded-lg bg-base-100 shadow-lg min-w-[260px]" data-auto-dismiss="4000">
+      <div class="relative overflow-hidden rounded-lg bg-success/10 border border-success/30 pl-4 pr-8 py-3 flex items-start gap-3">
+        <span class="text-success text-lg leading-none">✓</span>
+        <span class="text-sm font-medium text-base-content">{{ toast.message }}</span>
+        <button type="button"
+                class="absolute right-2 top-2 text-success opacity-50 hover:opacity-100 text-sm leading-none"
+                aria-label="Fechar"
+                data-toast-close>✕</button>
+        <div class="absolute bottom-0 left-0 h-0.5 bg-success opacity-60"
+             style="width: 0%" data-toast-progress></div>
+      </div>
+    </div>
+  </div>
+{{ /if }}

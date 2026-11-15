@@ -1,0 +1,591 @@
+{{ set totalOpen = charges.reduce((s, c) => s + Number(c.openAmount || 0), 0) }}
+{{ set totalOriginal = charges.reduce((s, c) => s + Number(c.originalAmount || 0), 0) }}
+{{# Vencido = regra do cutoff (ADR 0037), nunca o status gravado. #}}
+{{ set _cutoff = condominium.reconciledThroughDate ?? null }}
+{{ set overdueCount = charges.filter((c) => isChargeOverdue(c, _cutoff)).length }}
+{{ set paidCount = charges.filter((c) => c.status === "paid").length }}
+{{ set isCredit = nature === "credit" }}
+
+{{ include "partials/page_header.vto" { title } }}
+  {{ set _totalOpenValue = totalOpen |> formatMoney }}
+  {{ set _totalOriginalValue = totalOriginal |> formatMoney }}
+  {{ set _openLabel = isCredit ? "Saldo disponível" : "Em aberto" }}
+  {{ set _openCaption = isCredit ? ("de " + _totalOriginalValue + " atribuído") : ("de " + _totalOriginalValue + " emitidos") }}
+
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+  {{ include "partials/kpi_card.vto" {
+    tone: "primary", label: "Total", value: String(charges.length),
+    caption: isCredit ? "créditos a frações" : ("cobranças (" + kind + ")")
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "success",
+    label: isCredit ? "Aplicadas" : "Pagas",
+    value: String(paidCount),
+    caption: isCredit ? "já compensadas contra dívidas" : "liquidadas por completo"
+  } }}
+  {{ if isCredit }}
+    {{ include "partials/kpi_card.vto" {
+      tone: "info", label: "Por aplicar", value: String(charges.length - paidCount), caption: "a aguardar cobranças futuras"
+    } }}
+  {{ else }}
+    {{ include "partials/kpi_card.vto" {
+      tone: "error", label: "Vencidas", value: String(overdueCount), caption: "fora do prazo", highlightValue: true
+    } }}
+  {{ /if }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "warning", label: _openLabel, value: _totalOpenValue, caption: _openCaption
+  } }}
+</div>
+
+{{# Suffix ?year= propagado nas tabs/links; "Todos" envia vazio para evitar fallback. #}}
+{{ set _yearQs = filterYear === null ? "&year=" : ("&year=" + String(filterYear)) }}
+
+{{# ─── Barra de filtros: Ano | Tabs ────────────────────────────────────
+   Cada controlo faz hx-get + swap em #charges-fragment + push-url.
+   `<a href>` mantém-se para cmd+click abrir nova aba (não interfere com hx-get). #}}
+<div class="flex flex-wrap items-center gap-2 mb-4">
+  {{# Form único: hx-include="closest form" para cada controlo enviar o estado completo. #}}
+  <form action="/admin/c/{{ currentCondominiumId }}/charges" class="flex items-center gap-2">
+    <input type="hidden" name="kind" value="{{ kind }}">
+    {{ if nature }}<input type="hidden" name="nature" value="{{ nature }}">{{ /if }}
+    <span class="text-xs uppercase tracking-wider font-bold text-base-content/60">Ano</span>
+    <select name="year" class="select select-sm select-bordered"
+            hx-get="/admin/c/{{ currentCondominiumId }}/charges"
+            hx-include="closest form"
+            hx-target="#charges-fragment"
+            hx-swap="innerHTML"
+            hx-push-url="true"
+            hx-trigger="change">
+      <option value="" {{ if filterYear === null }}selected{{ /if }}>Todos</option>
+      {{ for y of availableYears }}
+        <option value="{{ String(y) }}" {{ if filterYear === y }}selected{{ /if }}>{{ String(y) }}</option>
+      {{ /for }}
+    </select>
+
+    {{# Status: filtro adicional. open_any agrega open+partial+overdue (vem do
+       banner "X em aberto noutros anos"); valores singulares filtram exato. #}}
+    <span class="text-xs uppercase tracking-wider font-bold text-base-content/60 ml-2">Estado</span>
+    <select name="status" class="select select-sm select-bordered"
+            hx-get="/admin/c/{{ currentCondominiumId }}/charges"
+            hx-include="closest form"
+            hx-target="#charges-fragment"
+            hx-swap="innerHTML"
+            hx-push-url="true"
+            hx-trigger="change">
+      <option value="" {{ if !filterStatus }}selected{{ /if }}>Todos</option>
+      <option value="open_any" {{ if filterStatus === "open_any" }}selected{{ /if }}>Em aberto (qualquer)</option>
+      <option value="open" {{ if filterStatus === "open" }}selected{{ /if }}>{{ if isCredit }}Por aplicar{{ else }}Aberto{{ /if }}</option>
+      <option value="overdue" {{ if filterStatus === "overdue" }}selected{{ /if }}>Vencido</option>
+      <option value="partial" {{ if filterStatus === "partial" }}selected{{ /if }}>Parcial</option>
+      <option value="paid" {{ if filterStatus === "paid" }}selected{{ /if }}>{{ if isCredit }}Aplicado{{ else }}Pago{{ /if }}</option>
+      <option value="cancelled" {{ if filterStatus === "cancelled" }}selected{{ /if }}>Cancelado</option>
+    </select>
+
+    {{# Tipo: separa quotas ordinárias das extraordinárias; "Outras" = tudo o
+       resto (juros, refaturações, saldos anteriores, penalizações) por exclusão
+       na API. Só na vista "A Receber" - em despesas/créditos não há quotas. #}}
+    {{ if kind === "receivable" && nature === "debit" }}
+      <span class="text-xs uppercase tracking-wider font-bold text-base-content/60 ml-2">Tipo</span>
+      <select name="chargeType" class="select select-sm select-bordered"
+              hx-get="/admin/c/{{ currentCondominiumId }}/charges"
+              hx-include="closest form"
+              hx-target="#charges-fragment"
+              hx-swap="innerHTML"
+              hx-push-url="true"
+              hx-trigger="change">
+        <option value="" {{ if !filterChargeType }}selected{{ /if }}>Todos</option>
+        <option value="quota" {{ if filterChargeType === "quota" }}selected{{ /if }}>Quota ordinária</option>
+        <option value="extraordinary_quota" {{ if filterChargeType === "extraordinary_quota" }}selected{{ /if }}>Quota extraordinária</option>
+        <option value="other" {{ if filterChargeType === "other" }}selected{{ /if }}>Outras</option>
+      </select>
+    {{ /if }}
+
+    {{# Pesquisa server-side: ILIKE code+description na API (não filtro só da
+       página corrente). Debounce 400ms; participa do `closest form` como os
+       outros filtros, por isso ano/estado preservam-se mutuamente. #}}
+    <span class="text-xs uppercase tracking-wider font-bold text-base-content/60 ml-2">Pesquisa</span>
+    {{# hx-preserve: o swap re-renderiza este input (está dentro do fragment);
+       sem preserve, perdia foco/cursor a cada tecla. HTMX mantém o nó vivo. #}}
+    <input type="search" name="search" value="{{ filterSearch }}"
+           id="charges-search-input" hx-preserve="true"
+           placeholder="Código ou descrição…"
+           class="input input-sm input-bordered w-44"
+           hx-get="/admin/c/{{ currentCondominiumId }}/charges"
+           hx-include="closest form"
+           hx-target="#charges-fragment"
+           hx-swap="innerHTML"
+           hx-push-url="true"
+           hx-trigger="keyup changed delay:400ms, search">
+  </form>
+
+  <div class="divider divider-horizontal mx-1 h-8"></div>
+
+  <div class="tabs tabs-boxed bg-base-200/50">
+    <a href="/admin/c/{{ currentCondominiumId }}/charges?kind=receivable&nature=debit{{ _yearQs }}"
+       hx-get="/admin/c/{{ currentCondominiumId }}/charges?kind=receivable&nature=debit{{ _yearQs }}"
+       hx-target="#charges-fragment" hx-swap="innerHTML" hx-push-url="true"
+       class="tab tab-sm {{ if kind === 'receivable' && nature === 'debit' }}tab-active{{ /if }}">A Receber</a>
+    <a href="/admin/c/{{ currentCondominiumId }}/charges?kind=payable{{ _yearQs }}"
+       hx-get="/admin/c/{{ currentCondominiumId }}/charges?kind=payable{{ _yearQs }}"
+       hx-target="#charges-fragment" hx-swap="innerHTML" hx-push-url="true"
+       class="tab tab-sm {{ if kind === 'payable' }}tab-active{{ /if }}">A Pagar</a>
+    <a href="/admin/c/{{ currentCondominiumId }}/charges?kind=receivable&nature=credit{{ _yearQs }}"
+       hx-get="/admin/c/{{ currentCondominiumId }}/charges?kind=receivable&nature=credit{{ _yearQs }}"
+       hx-target="#charges-fragment" hx-swap="innerHTML" hx-push-url="true"
+       class="tab tab-sm {{ if kind === 'receivable' && nature === 'credit' }}tab-active{{ /if }}">Créditos</a>
+  </div>
+
+  {{# "Limpar filtros adicionais": mantém o ano, retira status e tipo. #}}
+  {{ if filterStatus || filterChargeType }}
+    {{ set _clearUrl = "/admin/c/" + currentCondominiumId + "/charges?kind=" + kind + (nature ? ("&nature=" + nature) : "") + _yearQs }}
+    <a href="{{ _clearUrl }}"
+       hx-get="{{ _clearUrl }}"
+       hx-target="#charges-fragment" hx-swap="innerHTML" hx-push-url="true"
+       class="btn btn-sm btn-ghost ml-auto">Limpar filtros adicionais</a>
+  {{ /if }}
+</div>
+
+{{# ─── Banner: em aberto fora do ano filtrado ──────────────────────────
+   Click leva a year=Todos + status=open_any para ver tudo o pendente. #}}
+{{ if outOfYear && outOfYear.count > 0 }}
+  {{ set _bannerUrl = "/admin/c/" + currentCondominiumId + "/charges?kind=" + kind + (nature ? ("&nature=" + nature) : "") + "&year=&status=open_any" }}
+  <a href="{{ _bannerUrl }}"
+     hx-get="{{ _bannerUrl }}"
+     hx-target="#charges-fragment" hx-swap="innerHTML" hx-push-url="true"
+     class="block mb-4 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 hover:bg-warning/15 transition-colors no-underline">
+    <div class="flex items-center justify-between gap-3">
+      <div class="text-sm">
+        <span class="font-semibold text-base-content"><span class="text-warning">⚠</span> {{ String(outOfYear.count) }} {{ if isCredit }}{{ if outOfYear.count === 1 }}crédito por aplicar{{ else }}créditos por aplicar{{ /if }}{{ else }}{{ if outOfYear.count === 1 }}cobrança em aberto{{ else }}cobranças em aberto{{ /if }}{{ /if }}</span>
+        <span class="text-base-content/70"> de outros anos · </span>
+        <strong class="tabular-nums text-base-content">{{ outOfYear.totalOpenCents |> formatMoney }}</strong>
+      </div>
+      <span class="text-xs font-medium text-base-content/70">ver tudo →</span>
+    </div>
+  </a>
+{{ /if }}
+
+{{ if kind === "payable" }}
+  <div class="flex justify-end mb-3">
+    <button type="button" onclick="document.getElementById('new_expense_modal').showModal()" class="btn btn-sm btn-primary">+ Nova despesa</button>
+  </div>
+
+  {{# Modal: nova despesa. Fornecedor via combobox pesquisável. #}}
+  <dialog id="new_expense_modal" class="modal">
+    <div class="modal-box max-w-2xl overflow-visible">
+      <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+      <h3 class="font-bold text-lg mb-1">Nova despesa</h3>
+      <p class="text-sm text-base-content/60 mb-4">Fatura manual de um fornecedor (não-recorrente). Para serviços recorrentes, usa Despesas → Recorrências.</p>
+      <form method="post" action="/admin/c/{{ currentCondominiumId }}/charges" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <input type="hidden" name="kind" value="payable">
+        {{# chargeType decidido pelo controller (supplier_service vs expense); sem hidden aqui. #}}
+        <div class="form-control md:col-span-2">
+          <label class="label py-1"><span class="label-text text-xs">Descrição</span></label>
+          <input type="text" name="description" class="input input-sm input-bordered" required placeholder="Ex: EDP Abril 2026">
+        </div>
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Valor (€)</span></label>
+          <input type="text" name="amount" inputmode="decimal" class="input input-sm input-bordered" required placeholder="0,00">
+        </div>
+        <div class="form-control">
+          <label class="label py-1">
+            <span class="label-text text-xs">Competência <span class="text-base-content/40">(mês)</span></span>
+          </label>
+          <input type="month" name="competencePeriodMonth" class="input input-sm input-bordered" required
+                 data-competence-month
+                 title="Mês a que esta despesa diz respeito (pode ser diferente do mês da fatura).">
+        </div>
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Data fatura</span></label>
+          <input type="date" name="issueDate" class="input input-sm input-bordered" value="{{ today }}" required
+                 data-issue-date>
+        </div>
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Vencimento</span></label>
+          <input type="date" name="dueDate" class="input input-sm input-bordered">
+        </div>
+
+        {{# Fornecedor: combobox; hidden carrega o id, input é só visual. #}}
+        <div class="form-control md:col-span-2 relative" data-combobox>
+          <label class="label py-1"><span class="label-text text-xs">Fornecedor</span></label>
+          <input type="text" data-combobox-search autocomplete="off"
+                 placeholder="Pesquisar fornecedor… (deixa vazio para nenhum)"
+                 class="input input-sm input-bordered">
+          <input type="hidden" name="supplierId" data-combobox-value>
+          <ul data-combobox-list class="hidden absolute top-full left-0 right-0 z-30 mt-1 max-h-72 overflow-y-auto bg-base-100 border border-base-200 rounded-lg shadow-lg py-1">
+            <li data-combobox-option data-id="" data-label="- sem fornecedor -" data-haystack="sem"
+                class="px-3 py-2 text-sm hover:bg-base-200 cursor-pointer text-base-content/60 italic whitespace-nowrap">
+              - sem fornecedor -
+            </li>
+            {{ for s of suppliers }}
+              <li data-combobox-option
+                  data-id="{{ s.id }}"
+                  data-label="{{ s.name }}"
+                  data-haystack="{{ (s.name + ' ' + (s.nif ?? '')).toLowerCase() }}"
+                  class="px-3 py-2 text-sm hover:bg-base-200 cursor-pointer whitespace-nowrap truncate"
+                  title="{{ s.name }}{{ if s.nif }} · NIF {{ s.nif }}{{ /if }}">
+                <span class="font-semibold">{{ s.name }}</span>{{ if s.nif }}<span class="text-base-content/60"> · NIF {{ s.nif }}</span>{{ /if }}
+              </li>
+            {{ /for }}
+            <li data-combobox-empty class="hidden px-3 py-2 text-sm text-base-content/50 italic">Sem resultados.</li>
+          </ul>
+        </div>
+        {{# Categoria: combobox; filtra só accounts type="expense". #}}
+        <div class="form-control md:col-span-2 relative" data-combobox>
+          <label class="label py-1"><span class="label-text text-xs">Categoria</span></label>
+          <input type="text" data-combobox-search autocomplete="off"
+                 placeholder="Pesquisar por código ou nome…"
+                 class="input input-sm input-bordered">
+          <input type="hidden" name="accountId" data-combobox-value>
+          <ul data-combobox-list class="hidden absolute top-full left-0 right-0 z-30 mt-1 max-h-72 overflow-y-auto bg-base-100 border border-base-200 rounded-lg shadow-lg py-1">
+            <li data-combobox-option data-id="" data-label="- sem categoria -" data-haystack="sem"
+                class="px-3 py-2 text-sm hover:bg-base-200 cursor-pointer text-base-content/60 italic whitespace-nowrap">
+              - sem categoria -
+            </li>
+            {{ for a of accounts }}
+              {{ if a.type === "expense" }}
+                <li data-combobox-option
+                    data-id="{{ a.id }}"
+                    data-label="{{ a.code }} - {{ a.name }}"
+                    data-haystack="{{ ((a.code ?? '') + ' ' + (a.name ?? '')).toLowerCase() }}"
+                    class="px-3 py-2 text-sm hover:bg-base-200 cursor-pointer whitespace-nowrap truncate"
+                    title="{{ a.code }} - {{ a.name }}">
+                  <span class="font-mono text-xs text-base-content/60">{{ a.code }}</span> <span class="font-medium">{{ a.name }}</span>
+                </li>
+              {{ /if }}
+            {{ /for }}
+            <li data-combobox-empty class="hidden px-3 py-2 text-sm text-base-content/50 italic">Sem resultados.</li>
+          </ul>
+        </div>
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Nº fatura (opcional)</span></label>
+          <input type="text" name="invoiceNumber" class="input input-sm input-bordered">
+        </div>
+        {{# Método de pagamento (snapshot na charge), default Manual.
+           Ver CONTEXT.md "Payment method (da charge)". #}}
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Pagamento</span></label>
+          <select name="paymentMethod" class="select select-sm select-bordered">
+            <option value="manual">Manual</option>
+            <option value="direct_debit">Débito Direto</option>
+            <option value="auto_transfer">Transferência Automática</option>
+          </select>
+        </div>
+        {{# Nota interna - só admin. Não chega ao portal do condómino. #}}
+        <div class="form-control md:col-span-2">
+          <label class="label py-1">
+            <span class="label-text text-xs">Nota interna <span class="text-base-content/40">(só admin)</span></span>
+          </label>
+          <textarea name="note" rows="2" maxlength="2000"
+                    placeholder="Ex: confirmar desconto antes de pagar, esperar nota de crédito..."
+                    class="textarea textarea-sm textarea-bordered leading-snug"></textarea>
+        </div>
+        <div class="md:col-span-2 flex justify-end gap-2 pt-3 border-t border-base-200 mt-2">
+          <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('new_expense_modal').close()">Cancelar</button>
+          <button type="submit" class="btn btn-sm btn-primary">Adicionar despesa</button>
+        </div>
+      </form>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+{{ /if }}
+
+<div class="bg-base-100 rounded-xl border border-base-200 overflow-hidden shadow-sm" data-month-scope{{ if filterSearch }} data-search-active{{ /if }}>
+  <div class="flex justify-between items-center p-4 border-b border-base-200 gap-3 flex-wrap">
+    <div class="text-sm font-semibold">Lista <span class="text-base-content/50 font-normal">·
+      {{ if pagination && pagination.totalPages > 1 }}{{ String(pagination.total) }}{{ else }}{{ charges.length }}{{ /if }}
+    </span></div>
+    <div class="flex items-center gap-2 flex-wrap">
+      {{# Expandir/Recolher tudo - mesmo padrão de portal/statement.vto. #}}
+      {{ if monthGroups.length > 0 }}
+        <button type="button" data-month-toggle-all class="btn btn-sm btn-ghost gap-1" data-state="closed">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+          </svg>
+          <span data-toggle-label>Expandir tudo</span>
+        </button>
+      {{ /if }}
+    </div>
+  </div>
+  <div class="table-scroll">
+  <table class="table table-sm">
+    <thead>
+      <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+        <th class="pl-4">Competência</th>
+        {{# Code humano: Dxxxxx payable / Rxxxxx receivable. #}}
+        <th>Código</th>
+        {{ if kind === "receivable" }}<th>Fração</th>{{ /if }}
+        {{ if kind !== "payable" }}<th>Tipo</th>{{ /if }}
+        {{# Payable funde descrição + categoria + fornecedor numa só coluna. #}}
+        <th>{{ kind === "payable" ? "Despesa" : "Descrição" }}</th>
+        <th class="text-right">Original</th>
+        <th class="text-right">Aberto</th>
+        <th>Estado</th>
+        {{ if nature !== "credit" }}<th>Venc.</th>{{ /if }}
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{# nCols: payable=8, receivable credit=9, receivable normal=10. #}}
+      {{ set nCols = kind === "payable" ? 8 : (nature === "credit" ? 9 : 10) }}
+      {{ if charges.length === 0 }}
+        <tr><td colspan="{{ String(nCols) }}" class="p-8 text-center text-base-content/50">Sem cobranças ({{ kind }}).</td></tr>
+      {{ else }}
+        {{# Grupos de mês: header clicável + N data rows escondidas. Search itera
+           tBodies[0] (admin.vto), por isso o interleave header/rows funciona. #}}
+        {{ for g of monthGroups }}
+          {{ set _gid = "mg-" + g.month }}
+          {{ set _hasOpen = g.openSum !== 0 || g.overdueSum !== 0 }}
+          <tr data-month-header data-month="{{ g.month }}" class="bg-base-200/40 hover:bg-base-200/70 cursor-pointer border-t-2 border-base-300">
+            <td colspan="{{ String(nCols) }}" class="px-4 py-2.5">
+              <button type="button" class="w-full flex items-center gap-3 text-left" aria-expanded="false" aria-controls="{{ _gid }}">
+                <svg class="w-3.5 h-3.5 text-base-content/60 shrink-0 transition-transform" data-chevron fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                </svg>
+                {{# `min-w-[8.5rem]`: alinha o resto (·, count, badges) no mesmo x entre meses. #}}
+                <span class="font-bold text-sm tabular-nums min-w-[8.5rem]">{{ g.label }}</span>
+                <span class="text-xs text-base-content/50">·</span>
+                <span class="text-xs text-base-content/70 tabular-nums">{{ String(g.count) }} movimento{{ if g.count !== 1 }}s{{ /if }}</span>
+                {{# Resumo mensal: 4 slots de largura fixa (Vencido|Parcial|Aberto|Pago).
+                   Slots com soma zero ficam `invisible` para alinhar o x entre meses. #}}
+                <div class="ml-auto flex items-center text-xs">
+                  <div class="w-48 whitespace-nowrap {{ if g.overdueSum === 0 }}invisible{{ /if }}">
+                    <span class="inline-flex items-center gap-1.5 font-medium text-error">
+                      <span class="inline-block w-1.5 h-1.5 rounded-full bg-error shrink-0"></span>
+                      <span class="text-base-content/60 font-normal">Vencido</span>
+                      <span class="tabular-nums">{{ g.overdueSum |> formatMoney }}</span>
+                    </span>
+                  </div>
+                  <div class="w-48 whitespace-nowrap {{ if g.partialSum === 0 }}invisible{{ /if }}">
+                    <span class="inline-flex items-center gap-1.5 font-medium" style="color:#A16207">
+                      <span class="inline-block w-1.5 h-1.5 rounded-full shrink-0" style="background:#A16207"></span>
+                      <span class="text-base-content/60 font-normal">Parcial</span>
+                      <span class="tabular-nums">{{ g.partialSum |> formatMoney }}</span>
+                    </span>
+                  </div>
+                  <div class="w-48 whitespace-nowrap {{ if g.openSum === 0 }}invisible{{ /if }}">
+                    <span class="inline-flex items-center gap-1.5 font-medium text-base-content/70">
+                      <span class="inline-block w-1.5 h-1.5 rounded-full bg-base-content/40 shrink-0"></span>
+                      <span class="text-base-content/60 font-normal">{{ if nature === "credit" }}Por aplicar{{ else }}Em aberto{{ /if }}</span>
+                      <span class="tabular-nums">{{ g.openSum |> formatMoney }}</span>
+                    </span>
+                  </div>
+                  <div class="w-48 whitespace-nowrap {{ if g.paidSum === 0 }}invisible{{ /if }}">
+                    <span class="inline-flex items-center gap-1.5 font-medium text-success">
+                      <span class="inline-block w-1.5 h-1.5 rounded-full bg-success shrink-0"></span>
+                      <span class="text-base-content/60 font-normal">{{ if nature === "credit" }}Aplicado{{ else }}Pago{{ /if }}</span>
+                      <span class="tabular-nums">{{ g.paidSum |> formatMoney }}</span>
+                    </span>
+                  </div>
+                </div>
+              </button>
+            </td>
+          </tr>
+        {{ for c of g.items }}
+          {{# Nested direto da API (charge.unit/supplier/account); sem mapas locais. #}}
+          {{ set u = c.unit ?? null }}
+          {{ set supplierName = c.supplier ? c.supplier.name : "" }}
+          {{ set accountName = c.account ? c.account.name : "" }}
+          {{ set accountLabel = c.account ? (c.account.code + " - " + c.account.name) : "" }}
+          <tr data-month-row data-month="{{ g.month }}" class="hidden hover:bg-base-200/30 border-t border-base-100 text-sm">
+            <td class="pl-4 text-base-content/70 whitespace-nowrap tabular-nums" data-search>
+              {{# Competência YYYY-MM (já truncado pelo serializer). #}}
+              {{ c.competencePeriod ?? "" }}
+            </td>
+            <td data-search class="whitespace-nowrap font-mono text-xs font-semibold tabular-nums">
+              {{# Code clicável - leva ao detalhe, como o botão "ver". #}}
+              {{ if c.code }}
+                <a href="/admin/c/{{ currentCondominiumId }}/charges/{{ c.id }}" class="link link-hover link-primary">{{ c.code }}</a>
+              {{ else }}
+                <span class="text-base-content/30">-</span>
+              {{ /if }}
+            </td>
+            {{ if kind === "receivable" }}
+              <td data-search class="whitespace-nowrap">
+                {{ if u }}
+                  <a href="/admin/c/{{ currentCondominiumId }}/units/{{ c.unitId }}" class="link link-hover">
+                    <span class="font-medium">{{ u.designation }}</span>{{ if u.identifier }}<span class="text-base-content/50"> - {{ u.identifier }}</span>{{ /if }}
+                  </a>
+                {{ else }}
+                  <span class="text-base-content/40">-</span>
+                {{ /if }}
+              </td>
+            {{ /if }}
+            {{ if kind !== "payable" }}
+              <td class="text-base-content/70 whitespace-nowrap" data-search>{{ c.chargeType }}</td>
+            {{ /if }}
+            {{ if kind === "payable" }}
+              {{# Descrição · categoria · fornecedor numa linha truncada.
+                 `data-search-extra` leva categoria-completa + supplier para o filtro. #}}
+              {{ set _hoverTitle = (c.description ?? "") + (accountName ? (" · " + accountName) : "") + (supplierName ? (" · " + supplierName) : "") }}
+              <td data-search class="max-w-[460px]" data-search-extra="{{ accountLabel }} {{ supplierName }}" title="{{ _hoverTitle }}">
+                <div class="flex items-center gap-1.5 min-w-0">
+                  <div class="truncate min-w-0">
+                    <span class="font-medium">{{ c.description }}</span>{{ if accountName }}<span class="text-base-content/50"> · {{ accountName }}</span>{{ /if }}{{ if supplierName }}<span class="text-base-content/60"> · {{ supplierName }}</span>{{ /if }}
+                  </div>
+                  {{# Badge só para métodos automáticos (DD/TA); Manual é default. #}}
+                  {{ if c.paymentMethod === "direct_debit" }}
+                    <span class="tooltip tooltip-top cursor-help shrink-0 inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-info/10 text-info border border-info/20 before:normal-case before:tracking-normal"
+                          data-tip="Débito Direto">DD</span>
+                  {{ else if c.paymentMethod === "auto_transfer" }}
+                    <span class="tooltip tooltip-top cursor-help shrink-0 inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-success/10 text-success border border-success/20 before:normal-case before:tracking-normal"
+                          data-tip="Transferência Automática">TA</span>
+                  {{ /if }}
+                  {{ include "partials/charge_note_icon.vto" { note: c.note } }}
+                </div>
+              </td>
+            {{ else }}
+              <td data-search class="max-w-[280px]" title="{{ c.description ?? '' }}">
+                <div class="flex items-center gap-1.5 min-w-0">
+                  <div class="truncate min-w-0">{{ c.description }}</div>
+                  {{ include "partials/charge_note_icon.vto" { note: c.note } }}
+                </div>
+              </td>
+            {{ /if }}
+            {{# nature='credit' (redução de dívida/despesa): mostrado com sinal negativo. #}}
+            {{ set _sign = c.nature === "credit" ? -1 : 1 }}
+            <td class="text-right tabular-nums whitespace-nowrap {{ if c.nature === 'credit' }}text-error{{ /if }}">{{ (_sign * c.originalAmount) |> formatMoney }}</td>
+            <td class="text-right tabular-nums font-semibold whitespace-nowrap {{ if c.nature === 'credit' }}text-error{{ /if }}">{{ (_sign * c.openAmount) |> formatMoney }}</td>
+            <td>
+              {{# Estado efetivo (ADR 0037); créditos usam Aplicado/Por aplicar. #}}
+              {{ set _b = chargeStatusBadge(c, _cutoff, nature === "credit" ? { paidLabel: "Aplicado", openLabel: "Por aplicar" } : null) }}
+              {{ include "partials/status_badge.vto" { label: _b.label, tone: _b.tone, size: "xs" } }}
+            </td>
+            {{ if nature !== "credit" }}
+              <td class="text-xs text-base-content/70 whitespace-nowrap">{{ c.dueDate ?? "-" }}</td>
+            {{ /if }}
+            <td class="pr-4 text-right">
+              {{ include "partials/action_link.vto" {
+                kind: "view",
+                href: "/admin/c/" + currentCondominiumId + "/charges/" + c.id,
+              } }}
+            </td>
+          </tr>
+        {{ /for }}{{# fim items do grupo de mês #}}
+        {{ /for }}{{# fim monthGroups #}}
+      {{ /if }}
+    </tbody>
+  </table>
+  </div>
+
+  {{# Paginação inferior: mesmo partial. Border-top para separar da tabela. #}}
+  {{ if pagination && pagination.totalPages > 1 }}
+    <div class="border-t border-base-200">
+      {{ include "partials/pagination.vto" { pagination } }}
+    </div>
+  {{ /if }}
+</div>
+
+{{# Modal único das notas (ícone "i"). Vive fora da tabela (cells têm overflow:hidden). #}}
+<dialog id="charge_note_modal" class="modal">
+  <div class="modal-box max-w-md">
+    <form method="dialog">
+      <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
+    </form>
+    <h3 class="font-bold text-lg mb-3">Nota</h3>
+    <p class="text-sm whitespace-pre-wrap text-base-content/80" data-note-body></p>
+    <div class="modal-action">
+      <form method="dialog"><button class="btn btn-sm">Fechar</button></form>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<script>
+  // Auto-sync Competência ↔ Data fatura, exceto se o user editou a competência
+  // (data-user-touched). No submit serializa YYYY-MM → YYYY-MM-01 (API Zod).
+  (function () {
+    var issue = document.querySelector("[data-issue-date]");
+    var month = document.querySelector("[data-competence-month]");
+    if (!issue || !month) return;
+    function syncFromIssue() {
+      if (month.dataset.userTouched === "true") return;
+      month.value = (issue.value || "").slice(0, 7);
+    }
+    issue.addEventListener("input", syncFromIssue);
+    month.addEventListener("input", function () { month.dataset.userTouched = "true"; });
+    // Inicial (caso issueDate tenha value="today").
+    syncFromIssue();
+
+    // No submit injecta hidden `competencePeriod` (YYYY-MM-01) e remove o input month.
+    var form = month.closest("form");
+    if (form) {
+      form.addEventListener("submit", function () {
+        if (!month.value) return;
+        var hidden = form.querySelector('input[name="competencePeriod"]');
+        if (!hidden) {
+          hidden = document.createElement("input");
+          hidden.type = "hidden";
+          hidden.name = "competencePeriod";
+          form.appendChild(hidden);
+        }
+        hidden.value = month.value + "-01";
+        month.removeAttribute("name"); // não enviar o YYYY-MM cru
+      });
+    }
+  })();
+
+  // ── Grupos de mês: collapse/expand (toggle local + global) ──────────
+  // GUARD anti-duplicação: HTMX re-injecta este fragment a cada tab/filtro;
+  // sem o flag global, cada swap dobrava o listener e os toggles cancelavam-se.
+  if (!window.__mgChargesMonthGroupInit) {
+    window.__mgChargesMonthGroupInit = true;
+  (function () {
+    function setGroupState(scope, month, open) {
+      var header = scope.querySelector('[data-month-header][data-month="' + month + '"]');
+      var rows = scope.querySelectorAll('[data-month-row][data-month="' + month + '"]');
+      if (header) {
+        var btn = header.querySelector('button[aria-expanded]');
+        if (btn) btn.setAttribute('aria-expanded', String(!!open));
+        var chevron = header.querySelector('[data-chevron]');
+        if (chevron) chevron.style.transform = open ? 'rotate(90deg)' : '';
+      }
+      rows.forEach(function (r) { r.classList.toggle('hidden', !open); });
+    }
+    document.addEventListener('click', function (e) {
+      var t = e.target instanceof Element ? e.target : null;
+      if (!t) return;
+      // 1) Click num header → toggle do grupo
+      var header = t.closest('[data-month-header]');
+      if (header) {
+        var month = header.getAttribute('data-month') || '';
+        var scope = header.closest('[data-month-scope]') || document;
+        var btn = header.querySelector('button[aria-expanded]');
+        var open = btn && btn.getAttribute('aria-expanded') === 'true';
+        setGroupState(scope, month, !open);
+        return;
+      }
+      // 2) Click no botão "Expandir/Recolher tudo" → toggle global
+      var toggleAll = t.closest('[data-month-toggle-all]');
+      if (toggleAll) {
+        var scopeAll = toggleAll.closest('[data-month-scope]') || document;
+        var willOpen = toggleAll.dataset.state === 'closed';
+        scopeAll.querySelectorAll('[data-month-header]').forEach(function (h) {
+          var m = h.getAttribute('data-month') || '';
+          setGroupState(scopeAll, m, willOpen);
+        });
+        toggleAll.dataset.state = willOpen ? 'open' : 'closed';
+        var label = toggleAll.querySelector('[data-toggle-label]');
+        if (label) label.textContent = willOpen ? 'Recolher tudo' : 'Expandir tudo';
+      }
+    });
+
+  })();
+  }
+
+  {{# Pesquisa server-side ativa: a API já devolveu só os matches; expandimos
+     todos os grupos no load para ficarem visíveis (corre a cada swap, sem guard). #}}
+  {{ if filterSearch }}
+  (function () {
+    var scope = document.querySelector('[data-month-scope][data-search-active]');
+    if (!scope) return;
+    scope.querySelectorAll('[data-month-row]').forEach(function (r) { r.classList.remove('hidden'); });
+    scope.querySelectorAll('[data-month-header] button[aria-expanded]').forEach(function (b) {
+      b.setAttribute('aria-expanded', 'true');
+    });
+    scope.querySelectorAll('[data-month-header] [data-chevron]').forEach(function (c) {
+      c.style.transform = 'rotate(90deg)';
+    });
+  })();
+  {{ /if }}
+</script>
+

@@ -1,0 +1,93 @@
+{{# Modal criar/editar documento partilhado por list.vto e show.vto.
+   `openDocModal('create'|'edit', el)` ajusta action/título e pré-preenche via `data-*`.
+   Requer currentCondominiumId, categoryLabels. #}}
+
+<dialog id="modal_document" class="modal">
+  <div class="modal-box max-w-2xl">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-lg mb-1" id="modal_document_title">Novo documento</h3>
+    <p class="text-xs text-base-content/60 mb-4">Arquivo do condomínio. Públicos são visíveis no portal do condómino.</p>
+    <form method="post" id="document_form" class="space-y-4">
+      {{# Sentinel: sem isto o backend não distingue checkbox desmarcada de campo omitido. #}}
+      <input type="hidden" name="isPublicSubmitted" value="1">
+
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text text-xs">Título *</span></label>
+        <input type="text" id="doc_title" name="title" required maxlength="255"
+               placeholder="Ex: Ata da Assembleia 2026"
+               class="input input-sm input-bordered">
+      </div>
+
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text text-xs">Descrição</span></label>
+        <textarea id="doc_description" name="description" rows="3" maxlength="2000"
+                  placeholder="Notas opcionais"
+                  class="textarea textarea-sm textarea-bordered"></textarea>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Categoria *</span></label>
+          <select id="doc_category" name="category" required class="select select-sm select-bordered">
+            {{ for cat of ["minutes", "regulation", "contract", "budget", "insurance", "plant", "other"] }}
+              <option value="{{ cat }}">{{ categoryLabels[cat] }}</option>
+            {{ /for }}
+          </select>
+        </div>
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Data oficial <span class="text-base-content/40 font-normal">(opcional)</span></span></label>
+          <input type="date" id="doc_publishedAt" name="publishedAt" lang="pt-PT"
+                 class="input input-sm input-bordered">
+        </div>
+      </div>
+
+      <div class="form-control bg-base-200/40 rounded-lg px-3 py-2">
+        <label class="label cursor-pointer py-1">
+          <span class="label-text">
+            <span class="font-medium">Documento público</span><br>
+            <span class="text-xs text-base-content/60">Visível no portal do condómino. Privado = só admin.</span>
+          </span>
+          <input type="checkbox" id="doc_isPublic" name="isPublic" value="1" class="checkbox checkbox-primary checkbox-sm">
+        </label>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-3 border-t border-base-200">
+        <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('modal_document').close()">Cancelar</button>
+        <button type="submit" id="document_submit" class="btn btn-sm btn-primary">Criar documento</button>
+      </div>
+    </form>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<script>
+  (function () {
+    var condoPrefix = "/admin/c/{{ currentCondominiumId }}/documents";
+    var modal = document.getElementById("modal_document");
+    var form = document.getElementById("document_form");
+    var title = document.getElementById("modal_document_title");
+    var submit = document.getElementById("document_submit");
+
+    window.openDocModal = function (mode, el) {
+      form.reset();
+
+      if (mode === "create") {
+        title.textContent = "Novo documento";
+        submit.textContent = "Criar documento";
+        form.action = condoPrefix;
+        document.getElementById("doc_category").value = "other";
+      } else {
+        title.textContent = "Editar documento";
+        submit.textContent = "Guardar alterações";
+        form.action = condoPrefix + "/" + el.getAttribute("data-doc-id") + "/update";
+        document.getElementById("doc_title").value = el.getAttribute("data-title") || "";
+        document.getElementById("doc_description").value = el.getAttribute("data-description") || "";
+        document.getElementById("doc_category").value = el.getAttribute("data-category") || "other";
+        // `data-published-at` vem em YYYY-MM-DD (formato do input type=date) ou vazio.
+        document.getElementById("doc_publishedAt").value = el.getAttribute("data-published-at") || "";
+        document.getElementById("doc_isPublic").checked = el.getAttribute("data-is-public") === "true";
+      }
+      modal.showModal();
+    };
+  })();
+</script>

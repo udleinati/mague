@@ -1,0 +1,73 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+<div class="max-w-2xl">
+  {{ include "partials/page_header.vto" {
+    title: "Novo condomínio",
+    scale: "detail",
+    breadcrumbs: [
+      { label: "Condomínios", href: "/admin/c/" + currentCondominiumId + "/condominiums" },
+      { label: "Novo" },
+    ]
+  } }}
+  <form method="post" action="/admin/c/{{ currentCondominiumId }}/condominiums" class="card bg-base-100 shadow-sm border border-base-200 p-6 space-y-4">
+    <div class="grid grid-cols-[1fr_200px] gap-4">
+      <div class="form-control">
+        <label class="label" for="name"><span class="label-text font-medium">Nome</span></label>
+        <input type="text" id="name" name="name" class="input input-bordered" required maxlength="100" autofocus>
+      </div>
+      <div class="form-control">
+        <label class="label" for="designationType"><span class="label-text font-medium">Designação</span></label>
+        <select id="designationType" name="designationType" class="select select-bordered">
+          <option value="condominium" selected>Condomínio</option>
+          <option value="building">Edifício</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div class="form-control">
+        <label class="label" for="email"><span class="label-text font-medium">Email de contacto</span></label>
+        <input type="email" id="email" name="email" class="input input-bordered" maxlength="255" placeholder="geral@condominio.pt">
+        <label class="label">
+          <span class="label-text-alt text-base-content/60">
+            Recebe as ocorrências novas registadas no portal e as respostas dos condóminos. Sem endereço, nada é notificado.
+          </span>
+        </label>
+      </div>
+      <div class="form-control">
+        <label class="label" for="fiscalNumber"><span class="label-text font-medium">NIF</span></label>
+        <input type="text" id="fiscalNumber" name="fiscalNumber" class="input input-bordered" maxlength="9" pattern="\d{9}" placeholder="9 dígitos">
+      </div>
+    </div>
+
+    <div class="form-control">
+      <label class="label" for="address"><span class="label-text font-medium">Morada</span></label>
+      <input type="text" id="address" name="address" class="input input-bordered" maxlength="200">
+    </div>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div class="form-control">
+        <label class="label" for="city"><span class="label-text font-medium">Cidade</span></label>
+        <input type="text" id="city" name="city" class="input input-bordered" maxlength="100">
+      </div>
+      <div class="form-control">
+        <label class="label" for="postalCode"><span class="label-text font-medium">Código postal</span></label>
+        <input type="text" id="postalCode" name="postalCode" class="input input-bordered" pattern="\d{4}-\d{3}" placeholder="1234-567">
+      </div>
+    </div>
+
+    <div class="form-control">
+      <label class="label" for="quotaDayOfMonth"><span class="label-text font-medium">Dia de cobrança</span></label>
+      <input type="number" id="quotaDayOfMonth" name="quotaDayOfMonth" class="input input-bordered w-24" min="1" max="31" value="1">
+    </div>
+
+    <p class="text-xs text-base-content/60">BCC e Reply-To dos emails configuram-se depois, na edição do condomínio.</p>
+
+    <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
+      <a href="/admin/c/{{ currentCondominiumId }}/condominiums" class="btn btn-sm btn-ghost">Cancelar</a>
+      <button type="submit" class="btn btn-sm btn-primary">Criar condomínio</button>
+    </div>
+  </form>
+</div>
+
+{{ /layout }}

@@ -1,0 +1,63 @@
+{{# KPI card - label uppercase + valor grande + descrição (ADR 0029).
+
+   Inputs:
+     • tone        → "success" | "warning" | "error" | "info" | "primary" | "neutral"
+                     Default: "primary". Controla gradient + border + label color.
+     • label       → texto curto uppercase (e.g. "Em atraso")
+     • value       → string já formatada (ex: "1.234,56 €", "42")
+     • caption?    → descrição abaixo do valor (opcional)
+     • highlightValue? → se true, tinge o `value` no mesmo tom do label
+                         (default: false, valor fica em cor neutra)
+     • valueClass? → escape hatch para classes extra no `value` (ex: "truncate")
+
+   `tone` pode ser runtime; o mapeamento abaixo usa literais (Tailwind JIT só vê
+   literais). Ex: KPI "Em atraso" de units/show.vto.
+#}}
+{{ set _tone = tone ?? "primary" }}
+{{ set _label = label ?? "" }}
+{{ set _value = value ?? "" }}
+{{ set _caption = caption ?? null }}
+{{ set _highlight = highlightValue ?? false }}
+{{ set _valueExtraClass = valueClass ?? "whitespace-nowrap" }}
+
+{{# Mapping tone → classes com literais (Tailwind JIT só vê literais). #}}
+{{ if _tone === "success" }}
+  {{ set _gradient = "from-success/10 to-success/5" }}
+  {{ set _border = "border-success/20" }}
+  {{ set _labelColor = "text-success/80" }}
+  {{ set _valueColor = "text-success/90" }}
+{{ else if _tone === "warning" }}
+  {{ set _gradient = "from-warning/10 to-warning/5" }}
+  {{ set _border = "border-warning/20" }}
+  {{ set _labelColor = "text-warning/80" }}
+  {{ set _valueColor = "text-warning/90" }}
+{{ else if _tone === "error" }}
+  {{ set _gradient = "from-error/10 to-error/5" }}
+  {{ set _border = "border-error/20" }}
+  {{ set _labelColor = "text-error/80" }}
+  {{ set _valueColor = "text-error/90" }}
+{{ else if _tone === "info" }}
+  {{ set _gradient = "from-info/10 to-info/5" }}
+  {{ set _border = "border-info/20" }}
+  {{ set _labelColor = "text-info/80" }}
+  {{ set _valueColor = "text-info/90" }}
+{{ else if _tone === "neutral" }}
+  {{ set _gradient = "from-base-200/60 to-base-200/30" }}
+  {{ set _border = "border-base-300" }}
+  {{ set _labelColor = "text-base-content/60" }}
+  {{ set _valueColor = "" }}
+{{ else }}
+  {{# default = primary #}}
+  {{ set _gradient = "from-primary/10 to-primary/5" }}
+  {{ set _border = "border-primary/20" }}
+  {{ set _labelColor = "text-primary/80" }}
+  {{ set _valueColor = "text-primary" }}
+{{ /if }}
+
+<div class="bg-gradient-to-br {{ _gradient }} rounded-xl border {{ _border }} p-5">
+  <div class="text-xs uppercase font-bold {{ _labelColor }} tracking-wider">{{ _label }}</div>
+  <div class="text-xl sm:text-2xl xl:text-3xl font-black mt-2 {{ _valueExtraClass }}{{ if _highlight }} {{ _valueColor }}{{ /if }}">{{ value |> safe }}</div>
+  {{ if _caption !== null }}
+    <div class="text-xs text-base-content/60 mt-1">{{ _caption }}</div>
+  {{ /if }}
+</div>

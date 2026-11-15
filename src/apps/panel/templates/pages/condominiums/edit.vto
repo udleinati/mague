@@ -1,0 +1,102 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+<div class="max-w-2xl">
+  {{ include "partials/page_header.vto" {
+    title: "Editar condomínio",
+    scale: "detail",
+    breadcrumbs: [
+      { label: "Condomínios", href: "/admin/c/" + currentCondominiumId + "/condominiums" },
+      { label: target.name, href: "/admin/c/" + currentCondominiumId + "/condominiums/" + target.id },
+      { label: "Editar" },
+    ],
+  } }}
+  <form method="post" action="/admin/c/{{ currentCondominiumId }}/condominiums/{{ target.id }}/update" class="card bg-base-100 shadow-sm border border-base-200 p-6 space-y-4">
+    <div class="grid grid-cols-[1fr_200px] gap-4">
+      <div class="form-control">
+        <label class="label" for="name"><span class="label-text font-medium">Nome</span></label>
+        <input type="text" id="name" name="name" class="input input-bordered" required maxlength="100" value="{{ target.name ?? '' }}">
+      </div>
+      <div class="form-control">
+        <label class="label" for="designationType"><span class="label-text font-medium">Designação</span></label>
+        <select id="designationType" name="designationType" class="select select-bordered">
+          <option value="condominium" {{ if (target.designationType ?? 'condominium') === 'condominium' }}selected{{ /if }}>Condomínio</option>
+          <option value="building" {{ if target.designationType === 'building' }}selected{{ /if }}>Edifício</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div class="form-control">
+        <label class="label" for="email"><span class="label-text font-medium">Email de contacto</span></label>
+        <input type="email" id="email" name="email" class="input input-bordered" maxlength="255" value="{{ target.email ?? '' }}" placeholder="geral@condominio.pt">
+        <label class="label">
+          <span class="label-text-alt text-base-content/60">
+            Recebe as ocorrências novas registadas no portal e as respostas dos condóminos. Sem endereço, nada é notificado.
+          </span>
+        </label>
+      </div>
+      <div class="form-control">
+        <label class="label" for="fiscalNumber"><span class="label-text font-medium">NIF</span></label>
+        <input type="text" id="fiscalNumber" name="fiscalNumber" class="input input-bordered" maxlength="9" pattern="\d{9}" value="{{ target.fiscalNumber ?? '' }}" placeholder="9 dígitos">
+      </div>
+    </div>
+
+    {{# BCC em todos os emails do condomínio exceto reset password. #}}
+    <div class="form-control">
+      <label class="label" for="bccEmail">
+        <span class="label-text font-medium">Receber cópia (BCC) de todos os emails</span>
+      </label>
+      <input type="email" id="bccEmail" name="bccEmail" class="input input-bordered" maxlength="255"
+             value="{{ target.bccEmail ?? '' }}"
+             placeholder="copia@condominio.pt (opcional)">
+      <label class="label">
+        <span class="label-text-alt text-base-content/60">
+          Se preenchido, este endereço recebe BCC dos emails (recibos, convites, lembretes de seguro). Reset de password é excluído por segurança.
+        </span>
+      </label>
+    </div>
+
+    {{# Reply-To redireciona respostas para este endereço (exceto reset password). #}}
+    <div class="form-control">
+      <label class="label" for="replyToEmail">
+        <span class="label-text font-medium">Responder para (Reply-To)</span>
+      </label>
+      <input type="email" id="replyToEmail" name="replyToEmail" class="input input-bordered" maxlength="255"
+             value="{{ target.replyToEmail ?? '' }}"
+             placeholder="admin@condominio.pt (opcional)">
+      <label class="label">
+        <span class="label-text-alt text-base-content/60">
+          Quando o condómino responde a um email do condomínio, a resposta vai para este endereço (em vez do remetente noreply). Reset de password é excluído.
+        </span>
+      </label>
+    </div>
+
+    <div class="form-control">
+      <label class="label" for="address"><span class="label-text font-medium">Morada</span></label>
+      <input type="text" id="address" name="address" class="input input-bordered" maxlength="200" value="{{ target.address ?? '' }}">
+    </div>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div class="form-control">
+        <label class="label" for="city"><span class="label-text font-medium">Cidade</span></label>
+        <input type="text" id="city" name="city" class="input input-bordered" maxlength="100" value="{{ target.city ?? '' }}">
+      </div>
+      <div class="form-control">
+        <label class="label" for="postalCode"><span class="label-text font-medium">Código postal</span></label>
+        <input type="text" id="postalCode" name="postalCode" class="input input-bordered" pattern="\d{4}-\d{3}" value="{{ target.postalCode ?? '' }}" placeholder="1234-567">
+      </div>
+    </div>
+
+    <div class="form-control">
+      <label class="label" for="quotaDayOfMonth"><span class="label-text font-medium">Dia de cobrança</span></label>
+      <input type="number" id="quotaDayOfMonth" name="quotaDayOfMonth" class="input input-bordered w-24" min="1" max="31" value="{{ target.quotaDayOfMonth }}">
+    </div>
+
+    <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
+      <a href="/admin/c/{{ currentCondominiumId }}/condominiums/{{ target.id }}" class="btn btn-sm btn-ghost">Cancelar</a>
+      <button type="submit" class="btn btn-sm btn-primary">Guardar alterações</button>
+    </div>
+  </form>
+</div>
+
+{{ /layout }}

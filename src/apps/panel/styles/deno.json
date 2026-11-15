@@ -1,0 +1,7 @@
+{
+  "nodeModulesDir": "auto",
+  "imports": {
+    "tailwindcss": "npm:tailwindcss@3.4.17",
+    "daisyui": "npm:daisyui@4.12.10"
+  }
+}

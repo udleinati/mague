@@ -1,0 +1,118 @@
+{{# Modais da página de detalhe da fração (units/show.vto). Incluído no fim
+   da página - os botões que os abrem vivem no page_header (coluna de ações).
+   Espera: currentCondominiumId, unitId, unit, activePaymentPlan. #}}
+
+<dialog id="add_charge_modal" class="modal">
+  <div class="modal-box max-w-md">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-lg mb-1">Adicionar cobrança à fração {{ unit.designation }}</h3>
+    <p class="text-sm text-base-content/60 mb-4">Útil para imputar dívidas herdadas de antes do sistema (saldo anterior). Cria uma charge receivable aberta.</p>
+    <form method="post" action="/admin/c/{{ currentCondominiumId }}/units/{{ unitId }}/charges" class="space-y-3">
+      <input type="hidden" name="chargeType" value="opening_balance_debit">
+      <div class="form-control">
+        <label class="label py-1" for="description"><span class="label-text font-medium">Descrição</span></label>
+        <input type="text" id="description" name="description" class="input input-sm input-bordered" required placeholder="Ex: Dívida de quotas 2025">
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div class="form-control">
+          <label class="label py-1" for="amount"><span class="label-text font-medium">Valor (€)</span></label>
+          <input type="text" id="amount" name="amount" inputmode="decimal" class="input input-sm input-bordered" required placeholder="0,00">
+        </div>
+        <div class="form-control">
+          <label class="label py-1" for="issueDate"><span class="label-text font-medium">Data de emissão</span></label>
+          <input type="date" id="issueDate" name="issueDate" class="input input-sm input-bordered" required>
+        </div>
+      </div>
+      <div class="form-control">
+        <label class="label py-1" for="dueDate"><span class="label-text font-medium">Vencimento (opcional)</span></label>
+        <input type="date" id="dueDate" name="dueDate" class="input input-sm input-bordered">
+      </div>
+      <div class="flex justify-end gap-2 pt-2">
+        <button type="button" onclick="document.getElementById('add_charge_modal').close()" class="btn btn-sm btn-ghost">Cancelar</button>
+        <button type="submit" class="btn btn-sm btn-primary">Adicionar cobrança</button>
+      </div>
+    </form>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<dialog id="add_credit_modal" class="modal">
+  <div class="modal-box max-w-md">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-lg mb-1">Adicionar crédito à fração {{ unit.designation }}</h3>
+    <p class="text-sm text-base-content/60 mb-4">
+      Cria um crédito a favor da fração. O valor compensa automaticamente dívidas em aberto
+      (prioridade: juros → atrasadas → recentes) e o remanescente fica a aguardar quotas futuras.
+      Casos típicos: reembolso, adiantamento, ajuste.
+    </p>
+    <form method="post" action="/admin/c/{{ currentCondominiumId }}/units/{{ unitId }}/credits" class="space-y-3">
+      <div class="form-control">
+        <label class="label py-1" for="credit_description"><span class="label-text font-medium">Descrição</span></label>
+        <input type="text" id="credit_description" name="description" class="input input-sm input-bordered" required placeholder="Ex: Reembolso de obra 2025">
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div class="form-control">
+          <label class="label py-1" for="credit_amount"><span class="label-text font-medium">Valor (€)</span></label>
+          <input type="text" id="credit_amount" name="amount" inputmode="decimal" class="input input-sm input-bordered" required placeholder="0,00">
+        </div>
+        <div class="form-control">
+          <label class="label py-1" for="credit_issueDate"><span class="label-text font-medium">Data de emissão</span></label>
+          <input type="date" id="credit_issueDate" name="issueDate" class="input input-sm input-bordered" required>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 pt-2">
+        <button type="button" onclick="document.getElementById('add_credit_modal').close()" class="btn btn-sm btn-ghost">Cancelar</button>
+        <button type="submit" class="btn btn-sm btn-primary">Adicionar crédito</button>
+      </div>
+    </form>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+{{# Plano de pagamento (ADR 0039) - criar. #}}
+<dialog id="payment_plan_create_modal" class="modal">
+  <div class="modal-box max-w-md">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-lg mb-1">Plano de pagamento - {{ unit.designation }}</h3>
+    <p class="text-sm text-base-content/60 mb-4">
+      Descreve como o plano se vai dar (valores, prestações, prazos). É informativo -
+      não gera cobranças nem altera a dívida. Preenche pelo menos uma das notas.
+    </p>
+    <form method="post" action="/admin/c/{{ currentCondominiumId }}/units/{{ unitId }}/payment-plans" class="space-y-3">
+      {{ include "pages/units/_payment_plan_notes.vto" { idPrefix: "pp", plan: null } }}
+      <div class="form-control">
+        <label class="label py-1" for="pp_endDate"><span class="label-text font-medium">Data final (opcional)</span></label>
+        <input type="date" id="pp_endDate" name="endDate" class="input input-sm input-bordered">
+      </div>
+      <div class="flex justify-end gap-2 pt-2">
+        <button type="button" onclick="document.getElementById('payment_plan_create_modal').close()" class="btn btn-sm btn-ghost">Cancelar</button>
+        <button type="submit" class="btn btn-sm btn-primary">Criar plano</button>
+      </div>
+    </form>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+{{# Plano de pagamento (ADR 0039) - editar (só quando há plano ativo). #}}
+{{ if activePaymentPlan }}
+<dialog id="payment_plan_edit_modal" class="modal">
+  <div class="modal-box max-w-md">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-lg mb-1">Editar plano de pagamento</h3>
+    <p class="text-sm text-base-content/60 mb-4">Atualiza as notas ou a data final do plano ativo. Preenche pelo menos uma das notas.</p>
+    <form method="post" action="/admin/c/{{ currentCondominiumId }}/units/{{ unitId }}/payment-plans/{{ activePaymentPlan.id }}/edit" class="space-y-3">
+      {{ include "pages/units/_payment_plan_notes.vto" { idPrefix: "pp_edit", plan: activePaymentPlan } }}
+      <div class="form-control">
+        <label class="label py-1" for="pp_edit_endDate"><span class="label-text font-medium">Data final (opcional)</span></label>
+        <input type="date" id="pp_edit_endDate" name="endDate" class="input input-sm input-bordered"
+               value="{{ if activePaymentPlan.endDate }}{{ activePaymentPlan.endDate }}{{ /if }}">
+      </div>
+      <div class="flex justify-end gap-2 pt-2">
+        <button type="button" onclick="document.getElementById('payment_plan_edit_modal').close()" class="btn btn-sm btn-ghost">Cancelar</button>
+        <button type="submit" class="btn btn-sm btn-primary">Guardar</button>
+      </div>
+    </form>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+{{ /if }}

@@ -1,0 +1,8 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{# Wrapper HTMX: server deteta `HX-Request` e devolve só o fragment (sem layout). #}}
+<div id="charges-fragment">
+  {{ include "pages/charges/_list_fragment.vto" }}
+</div>
+
+{{ /layout }}

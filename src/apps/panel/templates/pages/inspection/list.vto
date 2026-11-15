@@ -1,0 +1,104 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{ layout "partials/page_header.vto" { title: "Inspeções" } }}
+  <a href="{{ '/inspections/new' |> condoPath }}" class="btn btn-sm btn-primary">Nova inspeção</a>
+{{ /layout }}
+
+{{ if inspections.length === 0 }}
+  <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-12 text-center">
+    <div class="text-5xl mb-3 text-base-content/30">🔍</div>
+    <h2 class="text-xl font-bold mb-1">Sem inspeções registadas</h2>
+    <p class="text-sm text-base-content/60 max-w-md mx-auto">Adiciona a primeira obrigação periódica (extintores, elevador, gás, etc.).</p>
+    <a href="{{ '/inspections/new' |> condoPath }}" class="btn btn-sm btn-primary mt-4">Nova inspeção</a>
+  </div>
+{{ else }}
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+    {{ include "partials/kpi_card.vto" {
+      tone: "success", label: "Em ordem", value: String(summary.ok),
+      caption: "fora da janela de aviso", highlightValue: summary.ok > 0
+    } }}
+    {{ include "partials/kpi_card.vto" {
+      tone: "warning", label: "A vencer", value: String(summary.due_soon),
+      caption: "dentro da janela de aviso", highlightValue: summary.due_soon > 0
+    } }}
+    {{ include "partials/kpi_card.vto" {
+      tone: "error", label: "Vencidas", value: String(summary.expired),
+      caption: "passaram da validade", highlightValue: summary.expired > 0
+    } }}
+    {{ include "partials/kpi_card.vto" {
+      tone: "neutral", label: "Desactivadas", value: String(summary.inactive),
+      caption: "não contam para alertas"
+    } }}
+  </div>
+
+  {{ layout "partials/table_card.vto" { title: "Lista de inspeções", count: inspections.length, searchable: true } }}
+    <table class="table table-sm">
+      <thead>
+        <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+          <th class="pl-4">Código</th>
+          <th>Categoria</th>
+          <th>Descrição</th>
+          <th>Estado</th>
+          <th>Última inspeção</th>
+          <th>Válida até</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ for i of inspections }}
+          <tr class="hover:bg-base-200/30 border-t border-base-100 text-sm {{ if !i.isActive }}opacity-50{{ /if }}">
+            <td class="pl-4 whitespace-nowrap font-mono text-xs font-semibold tabular-nums" data-search>
+              <a href="{{ ('/inspections/' + i.id) |> condoPath }}" class="link link-hover link-primary">{{ i.code ?? "-" }}</a>
+            </td>
+            <td class="whitespace-nowrap text-xs uppercase tracking-wider text-base-content/60" data-search>
+              {{ categoryLabels[i.category] || i.category }}
+            </td>
+            <td data-search>
+              <a href="{{ ('/inspections/' + i.id) |> condoPath }}" class="link link-primary font-medium no-underline hover:underline">{{ i.description }}</a>
+              {{ if i.attachments.length > 0 }}
+                <span class="ml-2 inline-flex items-center gap-1 text-[10px] text-base-content/50">
+                  <span class="inline-block w-1.5 h-1.5 rounded-full bg-base-content/40"></span>
+                  {{ String(i.attachments.length) }} anexo{{ if i.attachments.length !== 1 }}s{{ /if }}
+                </span>
+              {{ /if }}
+              {{ if i.supplier }}
+                <div class="text-[11px] text-base-content/50 truncate" title="{{ i.supplier.name }}">{{ i.supplier.name }}</div>
+              {{ /if }}
+            </td>
+            <td>
+              {{ if i.status === "inactive" }}
+                {{ include "partials/status_badge.vto" { label: "Desactivada", tone: "muted", size: "xs" } }}
+              {{ else if i.status === "ok" }}
+                {{ include "partials/status_badge.vto" { label: "Em ordem", tone: "success", size: "xs" } }}
+              {{ else if i.status === "due_soon" }}
+                {{ include "partials/status_badge.vto" { label: "A vencer", tone: "warning", size: "xs" } }}
+              {{ else if i.status === "expired" }}
+                {{ include "partials/status_badge.vto" { label: "Vencida", tone: "error", size: "xs" } }}
+              {{ else }}
+                <span class="text-base-content/30">-</span>
+              {{ /if }}
+            </td>
+            <td class="tabular-nums">
+              {{ if i.lastDoneDate }}
+                {{ i.lastDoneDate |> formatDate }}
+              {{ else }}
+                <span class="text-base-content/30">-</span>
+              {{ /if }}
+            </td>
+            <td class="tabular-nums">
+              {{ i.validUntil |> formatDate }}
+            </td>
+            <td class="pr-4 text-right whitespace-nowrap">
+              {{ include "partials/action_link.vto" {
+                kind: "view",
+                href: "/admin/c/" + currentCondominiumId + "/inspections/" + i.id,
+              } }}
+            </td>
+          </tr>
+        {{ /for }}
+      </tbody>
+    </table>
+  {{ /layout }}
+{{ /if }}
+
+{{ /layout }}

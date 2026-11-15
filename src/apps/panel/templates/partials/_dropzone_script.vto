@@ -1,0 +1,116 @@
+{{# JS global canónico para `[data-file-dropzone]` (markup em file_dropzone.vto).
+   Incluído em admin.vto E portal.vto - um só partial evita deriva entre cópias.
+   Event delegation no `document` sobrevive a HTMX swaps (sem `htmx.onLoad`). #}}
+<script>
+  (function () {
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, function (c) {
+        return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+      });
+    }
+
+    function formatBytes(b) {
+      if (b < 1024) return b + " B";
+      if (b < 1048576) return (b / 1024).toFixed(1) + " KB";
+      return (b / 1048576).toFixed(1) + " MB";
+    }
+
+    var fileIconSvg =
+      '<svg class="w-3 h-3 text-base-content/50 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">' +
+      '<path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"/>' +
+      "</svg>";
+
+    function renderDropzone(dz) {
+      if (!dz) return;
+      var input = dz.querySelector("[data-file-input]");
+      var empty = dz.querySelector("[data-dropzone-empty]");
+      var filled = dz.querySelector("[data-dropzone-filled]");
+      var preview = dz.querySelector("[data-file-preview]");
+      var countEl = dz.querySelector("[data-file-count]");
+      var files = (input && input.files) ? input.files : [];
+      var has = files.length > 0;
+
+      if (empty) empty.classList.toggle("hidden", has);
+      if (filled) filled.classList.toggle("hidden", !has);
+      if (preview) preview.innerHTML = "";
+
+      if (has) {
+        if (countEl) {
+          countEl.textContent = files.length === 1 ? "1 ficheiro" : files.length + " ficheiros";
+        }
+        for (var i = 0; i < files.length; i++) {
+          var f = files[i];
+          var chip = document.createElement("span");
+          chip.className = "inline-flex items-center gap-1.5 rounded-full bg-base-200/70 px-2.5 py-1 text-xs max-w-[220px] border border-base-300/40";
+          chip.innerHTML = fileIconSvg +
+            '<span class="truncate font-medium">' + escapeHtml(f.name) + "</span>" +
+            '<span class="text-base-content/50 font-mono text-[10px] shrink-0">' + formatBytes(f.size) + "</span>";
+          if (preview) preview.appendChild(chip);
+        }
+      }
+
+      var form = dz.closest("form");
+      if (form) {
+        var submit = form.querySelector("[data-upload-submit]");
+        if (submit) submit.disabled = !has;
+      }
+    }
+
+    document.addEventListener("change", function (e) {
+      var input = e.target.closest && e.target.closest("[data-file-input]");
+      if (!input) return;
+      renderDropzone(input.closest("[data-file-dropzone]"));
+    });
+
+    document.addEventListener("dragover", function (e) {
+      var dz = e.target.closest && e.target.closest("[data-file-dropzone]");
+      if (!dz) return;
+      e.preventDefault();
+      var label = dz.querySelector("[data-dropzone-label]");
+      if (label) {
+        label.classList.add("border-primary", "bg-primary/[0.04]");
+        label.classList.remove("border-base-300", "hover:border-primary/50", "hover:bg-base-200/30");
+      }
+    });
+
+    document.addEventListener("dragleave", function (e) {
+      var dz = e.target.closest && e.target.closest("[data-file-dropzone]");
+      if (!dz) return;
+      // Só reset se sair completamente da dropzone (não ao entrar num filho).
+      if (e.relatedTarget && dz.contains(e.relatedTarget)) return;
+      var label = dz.querySelector("[data-dropzone-label]");
+      if (label) {
+        label.classList.remove("border-primary", "bg-primary/[0.04]");
+        label.classList.add("border-base-300", "hover:border-primary/50", "hover:bg-base-200/30");
+      }
+    });
+
+    document.addEventListener("drop", function (e) {
+      var dz = e.target.closest && e.target.closest("[data-file-dropzone]");
+      if (!dz) return;
+      e.preventDefault();
+      var label = dz.querySelector("[data-dropzone-label]");
+      if (label) {
+        label.classList.remove("border-primary", "bg-primary/[0.04]");
+        label.classList.add("border-base-300", "hover:border-primary/50", "hover:bg-base-200/30");
+      }
+      var input = dz.querySelector("[data-file-input]");
+      if (input && e.dataTransfer && e.dataTransfer.files) {
+        input.files = e.dataTransfer.files;
+        renderDropzone(dz);
+      }
+    });
+
+    document.addEventListener("click", function (e) {
+      var clearBtn = e.target.closest && e.target.closest("[data-clear-files]");
+      if (!clearBtn) return;
+      e.preventDefault();
+      var dz = clearBtn.closest("[data-file-dropzone]");
+      var input = dz && dz.querySelector("[data-file-input]");
+      if (input) {
+        input.value = "";
+        renderDropzone(dz);
+      }
+    });
+  })();
+</script>

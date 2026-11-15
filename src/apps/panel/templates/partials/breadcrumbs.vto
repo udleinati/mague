@@ -1,0 +1,19 @@
+{{# Breadcrumbs reutilizável. `items: [{ label, href? }]`.
+    Item com `href` = clicável; último item (sem href) = página atual, texto muted.
+    Primeira entrada = raiz da secção (ex.: Documentos), não o painel completo. #}}
+
+{{ if items && items.length > 0 }}
+  <div class="text-xs sm:text-sm breadcrumbs mb-3 text-base-content/60">
+    <ul>
+      {{ for item of items }}
+        <li>
+          {{ if item.href }}
+            <a href="{{ item.href }}" class="hover:text-base-content hover:underline">{{ item.label }}</a>
+          {{ else }}
+            <span class="text-base-content/80">{{ item.label }}</span>
+          {{ /if }}
+        </li>
+      {{ /for }}
+    </ul>
+  </div>
+{{ /if }}

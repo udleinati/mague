@@ -1,0 +1,188 @@
+{{ set hasSettlements = t.settlements && t.settlements.length > 0 }}
+{{ set hasMatch = t.suggestedUnitId || t.suggestedSupplierId }}
+{{ set hasConflict = !hasMatch && t.matchConflictCount }}
+{{# Barra colorida à esquerda: verde = match único, amarelo = conflito. #}}
+<tr id="tx-row-{{ t.id }}" class="hover:bg-base-200/30 border-t border-base-100 text-sm {{ if hasMatch }}border-l-4 border-l-success{{ else if hasConflict }}border-l-4 border-l-warning{{ /if }}">
+  <td class="pl-4 text-base-content/70" data-search>{{ t.transactionDate }}</td>
+  <td data-search>
+    {{ if hasMatch }}
+      {{# Match de fração tem link para a página; fornecedor não tem página, fica span. #}}
+      {{ if t.suggestedKind === "unit" && t.suggestedUnitId }}
+        <a href="/admin/c/{{ currentCondominiumId }}/units/{{ t.suggestedUnitId }}"
+           onclick="event.stopPropagation()"
+           class="inline-flex items-center gap-1 align-middle mr-2 px-2 py-0.5 rounded-md bg-success/15 text-success hover:bg-success/25 text-[11px] font-semibold uppercase tracking-wide transition-colors"
+           title="Ir para a página da fração">
+          <svg class="w-3 h-3 shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M16.7 5.3a1 1 0 010 1.4l-7.5 7.5a1 1 0 01-1.4 0L3.3 9.7a1 1 0 011.4-1.4L8.5 12l6.8-6.8a1 1 0 011.4 0z"/>
+          </svg>
+          <span class="normal-case tracking-normal font-semibold">
+            Fração <span class="underline underline-offset-2 font-bold">{{ t.suggestedLabel }}</span>
+          </span>
+        </a>
+      {{ else }}
+        <span class="inline-flex items-center gap-1 align-middle mr-2 px-2 py-0.5 rounded-md bg-success/15 text-success text-[11px] font-semibold uppercase tracking-wide"
+              title="Match automático - a sugestão está pre-selecionada no modal">
+          <svg class="w-3 h-3 shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M16.7 5.3a1 1 0 010 1.4l-7.5 7.5a1 1 0 01-1.4 0L3.3 9.7a1 1 0 011.4-1.4L8.5 12l6.8-6.8a1 1 0 011.4 0z"/>
+          </svg>
+          <span class="normal-case tracking-normal font-semibold">
+            Fornecedor <span class="text-success/80 font-bold">{{ t.suggestedLabel }}</span>
+          </span>
+        </span>
+      {{ /if }}
+    {{ else if hasConflict }}
+      <span class="inline-flex items-center gap-1 align-middle mr-2 px-2 py-0.5 rounded-md bg-amber-100 text-[11px] font-semibold uppercase tracking-wide"
+            style="color:#854D0E"
+            title="Match ambíguo: {{ String(t.matchConflictCount) }} entidades têm palavras-chave que batem nesta descrição">
+        <svg class="w-3 h-3 shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+          <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a1 1 0 011 1v3a1 1 0 11-2 0V7a1 1 0 011-1zm0 8a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/>
+        </svg>
+        Conflito <span class="normal-case font-bold">({{ String(t.matchConflictCount) }})</span>
+      </span>
+    {{ /if }}
+    {{ if hasSettlements }}
+      <button type="button"
+              class="inline-flex items-center gap-1 hover:text-primary cursor-pointer"
+              onclick="var d=document.getElementById('tx-detail-{{ t.id }}');d.classList.toggle('hidden');this.querySelector('svg').classList.toggle('rotate-90');">
+        <svg class="w-3 h-3 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        <span>{{ t.description ?? "-" }}</span>
+      </button>
+    {{ else }}
+      {{ t.description ?? "-" }}
+    {{ /if }}
+  </td>
+  <td class="text-right tabular-nums font-semibold {{ if t.amount < 0 }}text-error{{ else }}text-success{{ /if }}">
+    {{ t.amount |> formatMoney }}
+  </td>
+  <td>
+    {{ if t.status === "reconciled" }}
+      <span class="inline-flex items-center gap-1.5 text-xs font-medium text-success">
+        <span class="inline-block w-1.5 h-1.5 rounded-full bg-success"></span> Conciliado
+      </span>
+    {{ else if t.status === "partial" }}
+      <span class="inline-flex items-center gap-1.5 text-xs font-medium text-warning">
+        <span class="inline-block w-1.5 h-1.5 rounded-full bg-warning"></span> Parcial
+      </span>
+    {{ else if t.status === "ignored" }}
+      <span class="inline-flex items-center gap-1.5 text-xs text-base-content/50">
+        <span class="inline-block w-1.5 h-1.5 rounded-full bg-base-300"></span> Ignorado
+      </span>
+    {{ else if t.status === "reversed" }}
+      <span class="inline-flex items-center gap-1.5 text-xs font-medium text-error/70"
+            title="{{ t.reversalReason ?? "Movimento revertido" }}">
+        <span class="inline-block w-1.5 h-1.5 rounded-full bg-error/70"></span> Revertido
+      </span>
+    {{ else }}
+      <span class="inline-flex items-center gap-1.5 text-xs font-medium text-error">
+        <span class="inline-block w-1.5 h-1.5 rounded-full bg-error"></span> Pendente
+      </span>
+    {{ /if }}
+  </td>
+  <td class="pr-4 text-right">
+    <div class="inline-flex items-center gap-3">
+      {{# Tx revertida pode reconciliar de novo: fn_settlement_ai repõe bank_tx.status
+         ao inserir novo settlement, sem nada extra no backend. #}}
+      {{ if t.status === "unreconciled" || t.status === "partial" || t.status === "reversed" || !t.status }}
+        <button type="button" class="link link-primary text-xs"
+                hx-get="/admin/c/{{ currentCondominiumId }}/reconciliation/tx/{{ t.id }}/modal"
+                hx-target="#modal_tx_placeholder"
+                hx-swap="innerHTML">
+          conciliar
+        </button>
+        {{# "Ignorar" (ex: transferência interna). hx-confirm usa modal global com
+           whitespace-pre-line, por isso os \n da mensagem são preservados. #}}
+        <button type="button" class="link text-xs text-base-content/60 hover:text-warning"
+                hx-post="/admin/c/{{ currentCondominiumId }}/reconciliation/tx/{{ t.id }}/ignore"
+                hx-target="#tx-row-{{ t.id }}"
+                hx-swap="outerHTML"
+                hx-confirm="Tens a certeza que queres ignorar este movimento?
+
+📅 {{ t.transactionDate |> formatDate }}
+📝 {{ t.description ?? "-" }}
+💶 {{ t.amount |> formatMoney }}
+
+Ele sai da lista 'Por conciliar'. Podes retomar depois na aba 'Ignorados'."
+                data-confirm-title="Ignorar movimento"
+                data-confirm-ok="Sim, ignorar"
+                data-confirm-cancel="Cancelar"
+                title="Marcar como ignorado (transferência interna, não precisa de conciliação)">
+          ignorar
+        </button>
+      {{ else if t.status === "ignored" }}
+        <button type="button" class="link link-primary text-xs"
+                hx-post="/admin/c/{{ currentCondominiumId }}/reconciliation/tx/{{ t.id }}/unignore"
+                hx-target="#tx-row-{{ t.id }}"
+                hx-swap="outerHTML"
+                title="Retomar - volta a aparecer como pendente">
+          retomar
+        </button>
+      {{ /if }}
+      {{# Reverter - só tx conciliadas. Backend cascateia settlements/charges/ledger/recibos. #}}
+      {{ if t.status === "reconciled" || t.status === "partial" }}
+        <button type="button" class="link text-xs text-error hover:text-error/80"
+                hx-get="/admin/c/{{ currentCondominiumId }}/reconciliation/tx/{{ t.id }}/reverse-modal"
+                hx-target="#modal_tx_placeholder"
+                hx-swap="innerHTML"
+                title="Reverter conciliação - repõe charges, estorna ledger, anula recibos.">
+          reverter
+        </button>
+      {{ /if }}
+    </div>
+  </td>
+</tr>
+{{ if hasSettlements }}
+  <tr id="tx-detail-{{ t.id }}" class="hidden bg-base-200/30">
+    <td colspan="5" class="px-4 py-3">
+      <div class="text-xs font-semibold text-base-content/60 uppercase tracking-wider mb-2">
+        {{ t.settlements.length }} conciliação{{ if t.settlements.length !== 1 }}ões{{ /if }}
+      </div>
+      <div class="space-y-2">
+        {{ for s of t.settlements }}
+          <div class="flex items-center justify-between gap-3 text-xs bg-base-100 rounded-lg px-3 py-2 border border-base-200">
+            <div class="flex items-center gap-2 min-w-0 flex-1 flex-wrap">
+              {{ if s.status === "reversed" }}
+                <span class="inline-flex items-center gap-1 text-error/80 font-medium whitespace-nowrap">
+                  <span class="inline-block w-1.5 h-1.5 rounded-full bg-error"></span> Estornada
+                </span>
+              {{ else }}
+                <span class="inline-flex items-center gap-1 text-success/80 whitespace-nowrap">
+                  <span class="inline-block w-1.5 h-1.5 rounded-full bg-success"></span> Ativa
+                </span>
+              {{ /if }}
+              <span class="text-base-content/50">·</span>
+              {{ if s.settlementType === "bank_reconciliation" }}
+                <span class="text-base-content/60">Conciliação bancária</span>
+              {{ else if s.settlementType === "bank_deposit_credit" }}
+                <span class="text-base-content/60">Crédito (excedente)</span>
+              {{ else if s.settlementType === "charge_offset" }}
+                <span class="text-base-content/60">Compensação interna</span>
+              {{ else }}
+                <span class="text-base-content/60">{{ s.settlementType }}</span>
+              {{ /if }}
+              {{ if s.unit_label }}
+                <span class="text-base-content/50">·</span>
+                {{ if s.unit_id }}
+                  <a href="/admin/c/{{ currentCondominiumId }}/units/{{ s.unit_id }}"
+                     class="hover:text-primary">
+                    Fração <span class="font-semibold underline-offset-2 hover:underline">{{ s.unit_label }}</span>
+                  </a>
+                {{ else }}
+                  <span>Fração <span class="font-semibold">{{ s.unit_label }}</span></span>
+                {{ /if }}
+              {{ /if }}
+              {{ if s.supplier_label }}
+                <span class="text-base-content/50">·</span>
+                <span>Fornecedor <span class="font-semibold">{{ s.supplier_label }}</span></span>
+              {{ /if }}
+              {{ if s.charge_description }}
+                <span class="text-base-content/50">·</span>
+                <span class="truncate">{{ s.charge_description }}</span>
+              {{ /if }}
+            </div>
+            <div class="text-right tabular-nums font-semibold whitespace-nowrap">{{ s.amount |> formatMoney }}</div>
+          </div>
+        {{ /for }}
+      </div>
+    </td>
+  </tr>
+{{ /if }}

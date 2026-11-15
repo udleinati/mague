@@ -1,0 +1,27 @@
+{{# OOB swap: restaura a cell de ação (após retomar uma linha ignorada
+   inline na tab "Pendentes"). O confirm é genérico aqui - os detalhes
+   da row já foram vistos pelo user na primeira ignorada. #}}
+<td id="pending-action-{{ bankTransactionId }}-{{ unitId }}"
+    hx-swap-oob="outerHTML"
+    class="pr-4 text-right whitespace-nowrap">
+  <div class="inline-flex items-center gap-3">
+    <button type="button" class="link text-xs text-base-content/60 hover:text-warning"
+            hx-post="/admin/c/{{ currentCondominiumId }}/receipts/skip"
+            hx-vals='{"bankTransactionId": "{{ bankTransactionId }}", "unitId": "{{ unitId }}"}'
+            hx-target="#pending-action-{{ bankTransactionId }}-{{ unitId }}"
+            hx-swap="none"
+            hx-confirm="Ignorar esta linha? Sai da fila de pendentes mas pode retomar a qualquer momento."
+            data-confirm-title="Ignorar pendente"
+            data-confirm-ok="Sim, ignorar"
+            data-confirm-cancel="Cancelar"
+            title="Ignorar - sai da fila, retomável depois">
+      ignorar
+    </button>
+    <button type="button" class="btn btn-xs btn-primary"
+            hx-post="/admin/c/{{ currentCondominiumId }}/receipts/emit"
+            hx-vals='{"bankTransactionId": "{{ bankTransactionId }}", "unitId": "{{ unitId }}"}'
+            hx-swap="none">
+      Emitir
+    </button>
+  </div>
+</td>

@@ -1,0 +1,100 @@
+{{# Modal criar/editar ocupante partilhado por list.vto e show.vto.
+   `openOccupantModal('create'|'edit', el)` ajusta action/título e pré-preenche via `data-*`.
+   Requer currentCondominiumId. #}}
+
+<dialog id="modal_occupant" class="modal">
+  <div class="modal-box max-w-2xl">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-lg mb-1" id="modal_occupant_title">Novo ocupante</h3>
+    <p class="text-xs text-base-content/60 mb-4">A relação à fração (proprietário/inquilino/residente) define-se na ligação - cada associação tem o seu tipo.</p>
+    <form method="post" id="occupant_form" class="space-y-4">
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text text-xs">Nome *</span></label>
+        <input type="text" id="occ_name" name="name" required placeholder="Nome completo"
+               class="input input-sm input-bordered">
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Email</span></label>
+          <input type="email" id="occ_email" name="email" placeholder="email@exemplo.com"
+                 class="input input-sm input-bordered">
+        </div>
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Telemóvel</span></label>
+          <input type="tel" id="occ_phone" name="phone" placeholder="+351 912 345 678"
+                 class="input input-sm input-bordered">
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">NIF</span></label>
+          <input type="text" id="occ_nif" name="nif" placeholder="123456789"
+                 class="input input-sm input-bordered">
+        </div>
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Natureza jurídica</span></label>
+          <select id="occ_person_type" name="personType" class="select select-sm select-bordered">
+            <option value="singular">Pessoa singular</option>
+            <option value="collective">Pessoa coletiva (empresa)</option>
+          </select>
+          <span class="text-[11px] text-base-content/50 mt-1">Define a redação da procuração (NIF / NIPC).</span>
+        </div>
+      </div>
+
+      {{# Hidden "off" antes da checkbox: browser não envia unchecked; sem ele o
+         controller não distingue "off" de "omitido". #}}
+      <div class="form-control bg-base-200/40 rounded-lg px-3 py-2" id="occ_emails_card">
+        <label class="label cursor-pointer py-1 justify-start gap-3">
+          <input type="hidden" name="receiveReceiptEmails" value="off">
+          <input type="checkbox" id="occ_receiveEmails" name="receiveReceiptEmails" value="on" checked
+                 class="checkbox checkbox-primary checkbox-sm">
+          <span class="label-text">
+            <span class="font-medium">Receber recibos por email</span><br>
+            <span class="text-xs text-base-content/60">Só se aplica a proprietários - apenas eles recebem recibos.</span>
+          </span>
+        </label>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-3 border-t border-base-200">
+        <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('modal_occupant').close()">Cancelar</button>
+        <button type="submit" id="occupant_submit" class="btn btn-sm btn-primary">Criar ocupante</button>
+      </div>
+    </form>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<script>
+  (function () {
+    var condoPrefix = "/admin/c/{{ currentCondominiumId }}/occupants";
+    var modal = document.getElementById("modal_occupant");
+    var form = document.getElementById("occupant_form");
+    var title = document.getElementById("modal_occupant_title");
+    var submit = document.getElementById("occupant_submit");
+    var receiveEmails = document.getElementById("occ_receiveEmails");
+
+    window.openOccupantModal = function (mode, el) {
+      form.reset();
+
+      if (mode === "create") {
+        title.textContent = "Novo ocupante";
+        submit.textContent = "Criar ocupante";
+        form.action = condoPrefix;
+        receiveEmails.checked = true;
+      } else {
+        title.textContent = "Editar ocupante";
+        submit.textContent = "Guardar alterações";
+        form.action = condoPrefix + "/" + el.getAttribute("data-occ-id") + "/update";
+        document.getElementById("occ_name").value = el.getAttribute("data-name") || "";
+        document.getElementById("occ_email").value = el.getAttribute("data-email") || "";
+        document.getElementById("occ_phone").value = el.getAttribute("data-phone") || "";
+        document.getElementById("occ_nif").value = el.getAttribute("data-nif") || "";
+        document.getElementById("occ_person_type").value = el.getAttribute("data-person-type") || "singular";
+        receiveEmails.checked = el.getAttribute("data-receive-emails") === "true";
+      }
+      modal.showModal();
+    };
+  })();
+</script>

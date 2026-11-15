@@ -1,0 +1,759 @@
+{{# Layout do portal do condómino (tabs simples, sem sidebar).
+    Variáveis: title, section, condominium, unit, currentUser, currentPortalUnitId. #}}
+
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} - Portal · {{ condominium.name }}</title>
+  {{# Favicon + ícone homescreen iOS/Android. Servidos por main.ts em
+     paths absolutos (sem auth). #}}
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="alternate icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <meta name="theme-color" content="#0d9488">
+  <meta name="apple-mobile-web-app-title" content="Mague">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  {{# Aplica o tema (light/dark) antes da pintura - evita flash.
+     Prioridade: currentUser.theme (DB) > cookie > 'light'. #}}
+  <script>
+  (function () {
+    try {
+      var server = {{ JSON.stringify(currentUser && currentUser.theme || null) |> safe }};
+      var m = document.cookie.match(/(?:^|; )theme=([^;]+)/);
+      var t = server || (m ? decodeURIComponent(m[1]) : 'light');
+      document.documentElement.setAttribute('data-theme', t === 'dark' ? 'dim' : 'light');
+      if (server) {
+        document.cookie = 'theme=' + encodeURIComponent(server) + '; path=/; max-age=31536000; SameSite=Lax';
+      }
+    } catch (e) { document.documentElement.setAttribute('data-theme', 'light'); }
+  })();
+  </script>
+  <link href="/app.css" rel="stylesheet">
+  {{# Override do error/warning-content só no light theme (contraste ~3:1).
+     Mesma regra que admin.vto. #}}
+  <style>
+    [data-theme="light"] .btn-error,
+    [data-theme="light"] .text-error-content,
+    [data-theme="light"] .badge-error {
+      color: #fff !important;
+    }
+    [data-theme="light"] .btn-warning,
+    [data-theme="light"] .text-warning-content,
+    [data-theme="light"] .badge-warning {
+      color: #422006 !important;
+    }
+    /* Suprime disclosure triangle nativo dos <details> que usam list-none.
+       Necessário para Safari < 17 / WebKit. Replicado de admin.vto (ADR 0013). */
+    summary.list-none::-webkit-details-marker { display: none; }
+  </style>
+</head>
+<body class="bg-base-200/40 min-h-screen">
+
+  {{# ─── Barra de progresso HTMX (igual ao admin layout) ─────────────────
+     Padrão NProgress (sem dep). Ver ADR 0027. #}}
+  <div id="htmx-progress-bar"
+       style="position:fixed; top:0; left:0; right:auto; bottom:auto;
+              height:3px; width:0; opacity:0; pointer-events:none;
+              background:#f43f5e; box-shadow:0 0 8px rgba(244,63,94,0.6);
+              z-index:9999; will-change:width,opacity;"></div>
+  <script>
+    (function () {
+      var bar = document.getElementById("htmx-progress-bar");
+      if (!bar) return;
+      var resetTimer = null;
+      function start() {
+        if (resetTimer) { clearTimeout(resetTimer); resetTimer = null; }
+        bar.style.transition = "none";
+        bar.style.width = "0";
+        bar.style.opacity = "1";
+        void bar.offsetWidth;
+        bar.style.transition = "width 0.15s ease-out";
+        bar.style.width = "30%";
+        setTimeout(function () {
+          bar.style.transition = "width 4s cubic-bezier(0.05, 0.7, 0.1, 1.0)";
+          bar.style.width = "90%";
+        }, 160);
+      }
+      function finish() {
+        bar.style.transition = "width 0.2s ease-out, opacity 0.4s 0.2s";
+        bar.style.width = "100%";
+        bar.style.opacity = "0";
+        resetTimer = setTimeout(function () {
+          bar.style.transition = "none";
+          bar.style.width = "0";
+        }, 700);
+      }
+      document.body.addEventListener("htmx:beforeRequest", start);
+      document.body.addEventListener("htmx:afterRequest", finish);
+      document.body.addEventListener("htmx:sendError", finish);
+      document.body.addEventListener("htmx:timeout", finish);
+      // API global para usos manuais (uploads via fetch JS sequencial,
+      // operações longas iniciadas por código - não-htmx). Garante que TODO
+      // request usa a mesma barra (ADR 0027), evita markup+JS duplicado.
+      window.__progress = { start: start, finish: finish };
+    })();
+  </script>
+
+  {{# Banners de impersonate + owner-window: só quando o user é super ou
+     manager (entrou "como condómino" via admin). Occupant real não os vê. #}}
+  {{ set _isImpersonating = currentUser && (currentUser.role === "super" || (currentUser.managedCondominiumIds && currentUser.managedCondominiumIds.length > 0)) }}
+
+  {{ if _isImpersonating }}
+    <div class="bg-warning/20 border-b border-warning/40 text-base-content">
+      <div class="max-w-5xl mx-auto px-4 py-2 flex items-center justify-between gap-3 text-sm flex-wrap">
+        <div class="flex items-center gap-2 min-w-0 truncate">
+          <svg class="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2a8 8 0 100 16 8 8 0 000-16zm-1 5a1 1 0 112 0v4a1 1 0 11-2 0V7zm1 7a1 1 0 100 2 1 1 0 000-2z"/></svg>
+          <span class="truncate">
+            <strong>Modo impersonate</strong> · portal de
+            <strong>{{ unit.designation }}{{ if unit.identifier }} · {{ unit.identifier }}{{ /if }}</strong>
+          </span>
+        </div>
+        <form method="post" action="/portal/exit" class="flex-shrink-0">
+          <button type="submit" class="btn btn-xs btn-warning">Voltar ao painel administrativo</button>
+        </form>
+      </div>
+    </div>
+  {{ /if }}
+
+  {{# Owner-window: período de propriedade do condómino que o admin está a ver.
+     Só em impersonate. `globalOwnerWindow` injetado pelo render.ts em todo o portal. #}}
+  {{ if _isImpersonating && globalOwnerWindow }}
+    <div class="bg-base-200/50 border-b border-base-300/50">
+      <div class="max-w-5xl mx-auto px-4 py-2 flex items-center justify-between gap-3 text-xs text-base-content/70 flex-wrap">
+        <div class="flex items-center gap-2 min-w-0">
+          <svg class="w-3.5 h-3.5 opacity-60 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd"/></svg>
+          <span>
+            A ver dados como
+            <strong class="text-base-content/90">{{ globalOwnerWindow.occupantName }}</strong>
+            entre <strong class="tabular-nums">{{ globalOwnerWindow.startDate |> formatDate }}</strong>
+            e <strong class="tabular-nums">{{ if globalOwnerWindow.endDate }}{{ globalOwnerWindow.endDate |> formatDate }}{{ else }}hoje{{ /if }}</strong>
+          </span>
+        </div>
+      </div>
+    </div>
+  {{ /if }}
+
+  <nav class="bg-base-100 border-b border-base-200 sticky top-0 z-20">
+    <div class="max-w-5xl mx-auto px-3 sm:px-4 md:px-6 py-3">
+      <div class="flex items-center justify-between gap-2 sm:gap-3 mb-3">
+        <div class="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+          {{# Hamburger (mobile). Toggle do drawer #portal-nav via JS no fim do body. #}}
+          <button type="button" id="portal-nav-toggle" aria-controls="portal-nav" aria-expanded="false"
+                  class="md:hidden p-2 -ml-2 rounded-lg hover:bg-base-200 transition-colors shrink-0" aria-label="Abrir menu">
+            <svg id="portal-nav-icon-open" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+            <svg id="portal-nav-icon-close" class="w-6 h-6 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+          <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}" class="text-lg sm:text-xl font-black text-teal-600 tracking-tighter shrink-0 leading-none">MAGUE</a>
+          <span class="text-base-content/30 hidden sm:inline shrink-0">/</span>
+          {{# `min-w-0` na própria span - sem isto, flex item tem min-width: auto
+             e não encolhe abaixo do tamanho natural do texto, fazendo com que o
+             nome longo do condomínio empurre a área do user à direita. #}}
+          <span class="text-xs sm:text-sm text-base-content/60 truncate min-w-0">{{ condominium.name }}</span>
+        </div>
+        <div class="flex items-center gap-2 sm:gap-3 text-sm text-base-content/70 shrink-0">
+          {{# Selector de fração: só com >1 fração ativa. Path-based - cada item
+             é um <a> direto, permitindo mudar de condo no mesmo gesto. #}}
+          {{ if currentUser && currentUser.occupantUnits && currentUser.occupantUnits.length > 1 }}
+            {{# Detecta se as frações estão em condomínios diferentes - se sim,
+               mostramos o nome do condo em cada item para evitar ambiguidade. #}}
+            {{ set distinctCondos = new Set(currentUser.occupantUnits.map((u) => u.condominiumId)).size }}
+            <div class="dropdown dropdown-end">
+              <label tabindex="0" class="btn btn-sm btn-outline btn-primary inline-flex items-center gap-2 flex-nowrap normal-case font-medium">
+                <span class="text-xs uppercase tracking-wider opacity-70">Fração</span>
+                <strong class="text-sm">{{ unit.designation }}</strong>
+                {{ if unit.identifier }}<span class="text-xs opacity-70 hidden lg:inline">{{ unit.identifier }}</span>{{ /if }}
+                <svg class="w-3.5 h-3.5 shrink-0 opacity-70" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
+              </label>
+              <ul tabindex="0" class="dropdown-content menu menu-sm bg-base-100 rounded-box shadow-lg border border-base-200 mt-2 z-30 w-72 p-2">
+                <li class="menu-title px-3 pt-1 pb-2">
+                  <span class="text-[10px] uppercase tracking-wider text-base-content/40">Trocar de fração ({{ String(currentUser.occupantUnits.length) }})</span>
+                </li>
+                {{ for ou of currentUser.occupantUnits }}
+                  {{ if ou.unitId === unit.id }}
+                    <li>
+                      <span class="flex items-start justify-between gap-2 bg-primary/10 text-primary font-semibold pointer-events-none rounded-md">
+                        <span class="flex items-start gap-2 min-w-0 flex-1">
+                          <svg class="w-4 h-4 shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.7 5.3a1 1 0 010 1.4l-7.5 7.5a1 1 0 01-1.4 0L3.3 9.7a1 1 0 011.4-1.4L8.5 12l6.8-6.8a1 1 0 011.4 0z" clip-rule="evenodd"/></svg>
+                          <span class="flex flex-col gap-0 min-w-0">
+                            <span class="leading-tight">Fração {{ ou.designation }}{{ if ou.identifier }} <span class="font-normal opacity-70">- {{ ou.identifier }}</span>{{ /if }}</span>
+                            {{ if distinctCondos > 1 && ou.condominiumName }}
+                              <span class="text-[10px] font-normal opacity-60 truncate">{{ ou.condominiumName }}</span>
+                            {{ /if }}
+                          </span>
+                        </span>
+                        <span class="text-[10px] uppercase tracking-wider opacity-60 shrink-0 mt-0.5">a ver</span>
+                      </span>
+                    </li>
+                  {{ else }}
+                    <li>
+                      <a href="/portal/c/{{ ou.condominiumId }}/u/{{ ou.unitId }}" class="flex items-start gap-2">
+                        <span class="w-4 h-4 shrink-0 mt-0.5"></span>
+                        <span class="flex flex-col gap-0 min-w-0">
+                          <span class="leading-tight">Fração {{ ou.designation }}{{ if ou.identifier }} <span class="text-base-content/60 font-normal">- {{ ou.identifier }}</span>{{ /if }}</span>
+                          {{ if distinctCondos > 1 && ou.condominiumName }}
+                            <span class="text-[10px] text-base-content/50 truncate">{{ ou.condominiumName }}</span>
+                          {{ /if }}
+                        </span>
+                      </a>
+                    </li>
+                  {{ /if }}
+                {{ /for }}
+              </ul>
+            </div>
+          {{ else }}
+            <div class="hidden md:flex items-baseline gap-1.5 px-2 py-1 rounded-md bg-base-200/50">
+              <span class="text-xs uppercase tracking-wider text-base-content/50">Fração</span>
+              <strong class="text-sm text-base-content/90">{{ unit.designation }}</strong>
+              {{ if unit.identifier }}<span class="text-base-content/40 text-xs">- {{ unit.identifier }}</span>{{ /if }}
+            </div>
+          {{ /if }}
+          {{# Menu do user real do JWT (logout efetivo). Em impersonate, o "Sair
+             do portal" vive no banner amarelo. #}}
+          {{ if currentUser }}
+            <div class="dropdown dropdown-end">
+              {{# `inline-flex flex-nowrap` explícito (override ao `flex-wrap`
+                 default do daisyUI .btn); `leading-none` tira o line-height
+                 extra que desnivela o centro ótico do chevron. #}}
+              <label tabindex="0" class="btn btn-sm btn-ghost inline-flex items-center gap-1.5 flex-nowrap">
+                <span class="hidden sm:inline-block truncate max-w-[140px] leading-none">{{ currentUser.name }}</span>
+                <svg class="w-3.5 h-3.5 shrink-0 opacity-60" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
+              </label>
+              <ul tabindex="0" class="dropdown-content menu menu-sm bg-base-100 rounded-box shadow border border-base-200 mt-2 z-30 w-56 p-2">
+                <li class="menu-title px-3 pt-1 pb-2">
+                  <span class="text-[10px] uppercase tracking-wider text-base-content/40">{{ currentUser.email ?? "" }}</span>
+                </li>
+                <li>
+                  <button type="button" class="w-full text-left flex items-center justify-between gap-3" data-theme-toggle>
+                    <span data-theme-label>Modo escuro</span>
+                    <span data-theme-icon class="text-base-content/50">☾</span>
+                  </button>
+                </li>
+                {{# Aviso de NIF em falta vive só no banner da home da fração
+                   (pages/portal/dashboard.vto). No menu superior fica só
+                   "Alterar senha" para evitar duplicação. #}}
+                <li>
+                  <button type="button" class="w-full text-left" onclick="document.getElementById('modal_change_password').showModal()">Alterar senha</button>
+                </li>
+                <li><a href="/logout" class="text-error">Sair</a></li>
+              </ul>
+            </div>
+
+            {{# Modal alterar senha: cópia do admin.vto para paridade de UX.
+               POST /change-password aceita qualquer user logado. #}}
+            <dialog id="modal_change_password" class="modal">
+              <div class="modal-box max-w-md">
+                <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+                <h3 class="font-bold text-lg mb-1">Alterar senha</h3>
+                <p class="text-sm text-base-content/60 mb-4">Confirma a senha atual e escreve a nova duas vezes. Mínimo 8 caracteres.</p>
+                <form method="post" action="/change-password" class="space-y-3">
+                  <div class="form-control">
+                    <label class="label" for="currentPassword"><span class="label-text font-medium">Senha atual</span></label>
+                    <input type="password" id="currentPassword" name="currentPassword" class="input input-bordered" required autocomplete="current-password">
+                  </div>
+                  <div class="form-control">
+                    <label class="label" for="newPassword">
+                      <span class="label-text font-medium">Nova senha</span>
+                      <span class="label-text-alt text-base-content/50">mín. 8 caracteres</span>
+                    </label>
+                    <input type="password" id="newPassword" name="newPassword" class="input input-bordered" required minlength="8" autocomplete="new-password">
+                  </div>
+                  <div class="form-control">
+                    <label class="label" for="confirm_password"><span class="label-text font-medium">Confirmar nova senha</span></label>
+                    <input type="password" id="confirm_password" name="confirm_password" class="input input-bordered" required minlength="8" autocomplete="new-password">
+                  </div>
+                  <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
+                    <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('modal_change_password').close()">Cancelar</button>
+                    <button type="submit" class="btn btn-sm btn-primary">Alterar senha</button>
+                  </div>
+                </form>
+              </div>
+              <form method="dialog" class="modal-backdrop"><button>close</button></form>
+            </dialog>
+          {{ /if }}
+        </div>
+      </div>
+      {{ set _pBase = "/portal/c/" + currentCondominiumId + "/u/" + currentPortalUnitId }}
+
+      {{# ─── Navegação ──────────────────────────────────────────────────────
+         Desktop: tabs horizontais. Mobile: drawer #portal-nav (sem scroll
+         lateral, que escondia tabs). #}}
+      <div class="hidden md:block overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
+        <div role="tablist" class="tabs tabs-boxed bg-base-200/60 w-fit whitespace-nowrap">
+          <a role="tab" href="{{ _pBase }}"
+             class="tab tab-sm {{ if section === 'dashboard' }}tab-active{{ /if }}">Painel</a>
+          <a role="tab" href="{{ _pBase }}/charges"
+             class="tab tab-sm {{ if section === 'charges' }}tab-active{{ /if }}">Cobranças</a>
+          <a role="tab" href="{{ _pBase }}/statement"
+             class="tab tab-sm {{ if section === 'statement' }}tab-active{{ /if }}">Extrato</a>
+          <a role="tab" href="{{ _pBase }}/assemblies"
+             class="tab tab-sm {{ if section === 'assemblies' }}tab-active{{ /if }}">Assembleias</a>
+          <a role="tab" href="{{ _pBase }}/insurances"
+             class="tab tab-sm {{ if section === 'insurance' }}tab-active{{ /if }}">Seguro</a>
+          <a role="tab" href="{{ _pBase }}/tickets"
+             class="tab tab-sm {{ if section === 'tickets' }}tab-active{{ /if }}">Ocorrências</a>
+          <a role="tab" href="{{ _pBase }}/pathologies"
+             class="tab tab-sm {{ if section === 'pathologies' }}tab-active{{ /if }}">Patologias</a>
+          <a role="tab" href="{{ _pBase }}/documents"
+             class="tab tab-sm {{ if section === 'documents' }}tab-active{{ /if }}">Documentos</a>
+          <a role="tab" href="{{ _pBase }}/profile"
+             class="tab tab-sm {{ if section === 'profile' }}tab-active{{ /if }}">Perfil</a>
+        </div>
+      </div>
+
+      {{# Drawer mobile (flat, sem submenus). Hidden por defeito; JS toggle. #}}
+      <div id="portal-nav" class="hidden md:hidden mt-3 pt-3 border-t border-base-200 space-y-1 text-sm">
+        <a href="{{ _pBase }}" class="block px-3 py-2 rounded-lg {{ if section === 'dashboard' }}bg-primary/10 text-primary font-semibold{{ else }}hover:bg-base-200 text-base-content/80{{ /if }}">Painel</a>
+        <a href="{{ _pBase }}/charges" class="block px-3 py-2 rounded-lg {{ if section === 'charges' }}bg-primary/10 text-primary font-semibold{{ else }}hover:bg-base-200 text-base-content/80{{ /if }}">Cobranças</a>
+        <a href="{{ _pBase }}/statement" class="block px-3 py-2 rounded-lg {{ if section === 'statement' }}bg-primary/10 text-primary font-semibold{{ else }}hover:bg-base-200 text-base-content/80{{ /if }}">Extrato</a>
+        <a href="{{ _pBase }}/assemblies" class="block px-3 py-2 rounded-lg {{ if section === 'assemblies' }}bg-primary/10 text-primary font-semibold{{ else }}hover:bg-base-200 text-base-content/80{{ /if }}">Assembleias</a>
+        <a href="{{ _pBase }}/insurances" class="block px-3 py-2 rounded-lg {{ if section === 'insurance' }}bg-primary/10 text-primary font-semibold{{ else }}hover:bg-base-200 text-base-content/80{{ /if }}">Seguro</a>
+        <a href="{{ _pBase }}/tickets" class="block px-3 py-2 rounded-lg {{ if section === 'tickets' }}bg-primary/10 text-primary font-semibold{{ else }}hover:bg-base-200 text-base-content/80{{ /if }}">Ocorrências</a>
+        <a href="{{ _pBase }}/pathologies" class="block px-3 py-2 rounded-lg {{ if section === 'pathologies' }}bg-primary/10 text-primary font-semibold{{ else }}hover:bg-base-200 text-base-content/80{{ /if }}">Patologias</a>
+        <a href="{{ _pBase }}/documents" class="block px-3 py-2 rounded-lg {{ if section === 'documents' }}bg-primary/10 text-primary font-semibold{{ else }}hover:bg-base-200 text-base-content/80{{ /if }}">Documentos</a>
+        <a href="{{ _pBase }}/profile" class="block px-3 py-2 rounded-lg {{ if section === 'profile' }}bg-primary/10 text-primary font-semibold{{ else }}hover:bg-base-200 text-base-content/80{{ /if }}">Perfil</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="max-w-5xl mx-auto px-3 sm:px-4 md:px-6 py-6 sm:py-8">
+    {{# Flash global vindo do ALS - toast simples no topo. #}}
+    {{ if globalFlash }}
+      <div class="mb-4 rounded-lg border px-4 py-3 text-sm
+                  text-base-content
+                  {{ if globalFlash.type === 'success' }}bg-success/10 border-success/30{{ /if }}
+                  {{ if globalFlash.type === 'error' }}bg-error/10 border-error/30{{ /if }}
+                  {{ if globalFlash.type === 'warning' }}bg-warning/10 border-warning/30{{ /if }}
+                  {{ if globalFlash.type === 'info' }}bg-info/10 border-info/30{{ /if }}">
+        {{ globalFlash.message }}
+      </div>
+    {{ /if }}
+
+    {{ content |> safe }}
+  </main>
+
+  {{# Modal: preencher NIF do occupant - write-once por occupant.
+      `currentPortalOccupant.nif` vem do ALS via render.ts (cross-ref de
+      currentPortalUnitId com user.occupantUnits). #}}
+  <dialog id="modal_set_nif" class="modal">
+    <div class="modal-box max-w-md">
+      <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+      <h3 class="font-bold text-lg mb-1">{{ if currentPortalOccupant && currentPortalOccupant.nif }}NIF preenchido{{ else }}Preencher NIF{{ /if }}</h3>
+      <p class="text-sm text-base-content/60 mb-4">9 dígitos. Validamos o check-digit português antes de guardar. Write-once por fração.</p>
+      <form method="post" action="/set-nif" class="space-y-3">
+        <input type="hidden" name="cid" value="{{ currentCondominiumId }}">
+        <input type="hidden" name="unitId" value="{{ currentPortalUnitId }}">
+        <div class="form-control">
+          <label class="label py-1" for="nif_input"><span class="label-text font-medium">NIF</span></label>
+          <input type="text" id="nif_input" name="nif"
+                 inputmode="numeric" pattern="[0-9]{9}" maxlength="9" required
+                 placeholder="000000000"
+                 value="{{ currentPortalOccupant && currentPortalOccupant.nif ? currentPortalOccupant.nif : '' }}"
+                 {{ if currentPortalOccupant && currentPortalOccupant.nif }}readonly{{ /if }}
+                 class="input input-bordered tabular-nums">
+        </div>
+        <div class="flex justify-end gap-2 pt-2 border-t border-base-200">
+          <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('modal_set_nif').close()">Cancelar</button>
+          {{ if !currentPortalOccupant || !currentPortalOccupant.nif }}
+            <button type="submit" class="btn btn-sm btn-primary">Guardar</button>
+          {{ /if }}
+        </div>
+      </form>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+
+  <footer class="border-t border-base-200 mt-12 py-6 text-center text-xs text-base-content/40">
+    {{ condominium.name }} · Portal do condómino
+    <span class="mx-1.5 text-base-content/20">·</span>
+    <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/privacy"
+       class="hover:text-base-content/60 hover:underline">Privacidade</a>
+  </footer>
+
+  {{# ═════════ MODAL de confirmação global ═════════
+     Substitui window.confirm(). Declarativo (`data-confirm-*`) ou imperativo
+     (`window.confirmAction`). Replicado de admin.vto. Ver ADR 0013. #}}
+  <dialog id="modal_confirm" class="modal">
+    <div class="modal-box max-w-md">
+      <div id="confirm_normal_state">
+        {{# Header: ícone circular (só em danger) + título + body. Ver ADR 0013. #}}
+        <div class="flex items-start gap-3 mb-4">
+          <div id="confirm_header_icon" class="hidden shrink-0 mt-0.5 w-9 h-9 rounded-full bg-error/10 ring-1 ring-error/25 inline-flex items-center justify-center">
+            <svg class="w-4 h-4 text-error" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+              <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/>
+            </svg>
+          </div>
+          <div class="flex-1 min-w-0">
+            <h3 class="font-bold text-base leading-tight" id="confirm_title">Confirmar</h3>
+            <p class="mt-1 text-sm text-base-content/70 whitespace-pre-line leading-relaxed" id="confirm_body">Tens a certeza?</p>
+          </div>
+        </div>
+        {{# Linha de atribuição em ações destrutivas (ADR 0025).
+           Replicado de admin.vto - manter em sync (ADR 0013). #}}
+        {{ if currentUser && currentUser.email }}
+          <div id="confirm_attribution" class="hidden mb-3 flex items-center gap-2 px-3 py-2 rounded-md bg-base-200/60 text-[11px]">
+            <svg class="w-3.5 h-3.5 text-base-content/40 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>
+            </svg>
+            <span class="text-base-content/55">Executado por</span>
+            <span class="font-semibold font-mono text-base-content/85 truncate">{{ currentUser.email }}</span>
+          </div>
+        {{ /if }}
+        {{# Input do user: textarea para razão livre, input single-line
+           para typed-match (ADR 0025). Apenas um visível ao mesmo tempo. #}}
+        <div id="confirm_prompt_wrap" class="hidden mb-4">
+          <label class="block text-[11px] uppercase tracking-[0.14em] font-semibold text-base-content/55 mb-1.5" id="confirm_prompt_label">Razão</label>
+          <div id="confirm_prompt_chips" class="flex flex-wrap gap-1.5 mb-2 hidden"></div>
+          <textarea id="confirm_prompt" class="hidden textarea textarea-bordered textarea-sm w-full" rows="3" placeholder=""></textarea>
+          <input id="confirm_typed" type="text" class="hidden input input-bordered input-sm w-full font-mono tracking-[0.08em]" autocomplete="off" autocapitalize="characters" spellcheck="false">
+          <p class="text-xs text-error mt-1.5 hidden" id="confirm_prompt_error">Por favor preenche este campo.</p>
+        </div>
+        <div class="flex justify-end gap-2">
+          <button type="button" class="btn btn-sm btn-ghost" id="confirm_cancel">Não</button>
+          <button type="button" class="btn btn-sm btn-primary" id="confirm_ok">Sim</button>
+        </div>
+      </div>
+      {{# Estado "a processar" - ligado quando o form/JS opta por busy mode.
+         O modal mantém-se aberto até a navegação do browser tomar conta. #}}
+      <div id="confirm_busy_state" class="hidden text-center py-2">
+        <span class="loading loading-spinner loading-lg text-primary"></span>
+        <p class="mt-3 text-sm font-medium" id="confirm_busy_message">A processar…</p>
+        <p class="mt-2 text-xs text-base-content/60">
+          Decorridos <span id="confirm_busy_counter" class="tabular-nums font-semibold">0:00</span>
+        </p>
+        <p class="mt-1 text-xs text-base-content/50" id="confirm_busy_tip">Não fechar a janela.</p>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+
+  <script>
+    (function () {
+      var modal = document.getElementById("modal_confirm");
+      var normalState = document.getElementById("confirm_normal_state");
+      var busyState = document.getElementById("confirm_busy_state");
+      var busyMsgEl = document.getElementById("confirm_busy_message");
+      var busyTipEl = document.getElementById("confirm_busy_tip");
+      var busyCounterEl = document.getElementById("confirm_busy_counter");
+      // Atribuição em ações destrutivas (ADR 0025). Pode não existir se
+      // `currentUser` não estiver populado no contexto do request.
+      var attributionEl = document.getElementById("confirm_attribution");
+      // Ícone circular vermelho no header (só em danger / typed-match).
+      var headerIconEl = document.getElementById("confirm_header_icon");
+      var titleEl = document.getElementById("confirm_title");
+      var bodyEl = document.getElementById("confirm_body");
+      var okBtn = document.getElementById("confirm_ok");
+      var cancelBtn = document.getElementById("confirm_cancel");
+      var promptWrap = document.getElementById("confirm_prompt_wrap");
+      var promptEl = document.getElementById("confirm_prompt");
+      var typedEl = document.getElementById("confirm_typed");
+      var promptLabel = document.getElementById("confirm_prompt_label");
+      var promptError = document.getElementById("confirm_prompt_error");
+      var promptChips = document.getElementById("confirm_prompt_chips");
+      var resolver = null;
+      function activeInputEl() {
+        return typedEl.classList.contains("hidden") ? promptEl : typedEl;
+      }
+      var currentPrompt = null;
+      var busyOpts = null;
+      var busyTimer = null;
+      var busyCancelHandler = null;
+
+      function pad2(n) { return n < 10 ? "0" + n : "" + n; }
+      function fmtElapsed(seconds) {
+        var h = Math.floor(seconds / 3600);
+        var m = Math.floor((seconds % 3600) / 60);
+        var s = seconds % 60;
+        return h > 0 ? (h + ":" + pad2(m) + ":" + pad2(s)) : (m + ":" + pad2(s));
+      }
+
+      function enterBusyMode() {
+        normalState.classList.add("hidden");
+        busyState.classList.remove("hidden");
+        busyMsgEl.textContent = (busyOpts && busyOpts.message) || "A processar…";
+        busyTipEl.textContent = (busyOpts && busyOpts.tip) || "Não fechar a janela.";
+        var startedAt = Date.now();
+        busyCounterEl.textContent = "0:00";
+        busyTimer = setInterval(function () {
+          var elapsed = Math.floor((Date.now() - startedAt) / 1000);
+          busyCounterEl.textContent = fmtElapsed(elapsed);
+        }, 1000);
+        busyCancelHandler = function (ev) { ev.preventDefault(); };
+        modal.addEventListener("cancel", busyCancelHandler);
+      }
+
+      function exitBusyMode() {
+        if (busyTimer) { clearInterval(busyTimer); busyTimer = null; }
+        if (busyCancelHandler) {
+          modal.removeEventListener("cancel", busyCancelHandler);
+          busyCancelHandler = null;
+        }
+        busyState.classList.add("hidden");
+        normalState.classList.remove("hidden");
+        busyOpts = null;
+      }
+
+      function finish(result) {
+        if (busyOpts) return;
+        if (resolver) { var r = resolver; resolver = null; r(result); }
+        currentPrompt = null;
+        if (modal.open) modal.close();
+      }
+
+      okBtn.addEventListener("click", function () {
+        if (currentPrompt) {
+          var inputEl = activeInputEl();
+          var errorClass = inputEl === typedEl ? "input-error" : "textarea-error";
+          var v = (inputEl.value || "").trim();
+          // Modo "typed match": user tem de digitar EXACTAMENTE o valor de
+          // `typedMatch` (case-sensitive). Usado para confirmações destrutivas.
+          if (currentPrompt.typedMatch) {
+            if (v !== currentPrompt.typedMatch) {
+              inputEl.classList.add(errorClass);
+              promptError.textContent = 'Tens de escrever exatamente "' + currentPrompt.typedMatch + '".';
+              promptError.classList.remove("hidden");
+              inputEl.focus();
+              return;
+            }
+          } else if (!v) {
+            inputEl.classList.add(errorClass);
+            promptError.textContent = "Por favor preenche este campo.";
+            promptError.classList.remove("hidden");
+            inputEl.focus();
+            return;
+          }
+          var pr = { ok: true, value: v };
+          if (resolver) { var r = resolver; resolver = null; r(pr); }
+          currentPrompt = null;
+          if (busyOpts) { enterBusyMode(); return; }
+          if (modal.open) modal.close();
+        } else {
+          if (busyOpts) {
+            if (resolver) { var rB = resolver; resolver = null; rB(true); }
+            enterBusyMode();
+            return;
+          }
+          finish(true);
+        }
+      });
+      cancelBtn.addEventListener("click", function () {
+        if (busyOpts) return;
+        finish(currentPrompt ? { ok: false } : false);
+      });
+      modal.addEventListener("cancel", function () {
+        if (busyOpts) return;
+        finish(currentPrompt ? { ok: false } : false);
+      });
+
+      window.confirmAction = function (opts) {
+        var o = (typeof opts === "string") ? { body: opts } : (opts || {});
+        exitBusyMode();
+        busyOpts = o.busy ? {
+          message: o.busy.message || "A processar…",
+          tip: o.busy.tip || "Não fechar a janela.",
+        } : null;
+        titleEl.textContent = o.title || "Confirmar";
+        bodyEl.textContent = o.body || "Tens a certeza?";
+        // Defaults afinados para danger: copy mais clara que "Sim/Não".
+        var isDanger = !!o.danger || !!o.typedMatch;
+        okBtn.textContent = o.okText || (isDanger ? "Eliminar" : "Sim");
+        cancelBtn.textContent = o.cancelText || (isDanger ? "Cancelar" : "Não");
+        okBtn.classList.toggle("btn-error", isDanger);
+        okBtn.classList.toggle("btn-primary", !isDanger);
+        // ADR 0025: ícone circular vermelho + atribuição em danger/typed-match.
+        if (headerIconEl) headerIconEl.classList.toggle("hidden", !isDanger);
+        if (attributionEl) attributionEl.classList.toggle("hidden", !isDanger);
+        promptEl.value = "";
+        typedEl.value = "";
+        promptEl.classList.remove("textarea-error");
+        typedEl.classList.remove("input-error");
+        promptError.classList.add("hidden");
+        if (o.promptName || o.typedMatch) {
+          currentPrompt = {
+            name: o.promptName,
+            label: o.promptLabel,
+            placeholder: o.promptPlaceholder,
+            typedMatch: o.typedMatch || null,
+          };
+          promptLabel.textContent = o.promptLabel || (o.typedMatch ? ("Para confirmar, escreve " + o.typedMatch) : "Razão");
+          promptWrap.classList.remove("hidden");
+          // typed-match → input single-line. Razão livre → textarea + chips.
+          if (o.typedMatch) {
+            typedEl.placeholder = o.promptPlaceholder || o.typedMatch;
+            typedEl.classList.remove("hidden");
+            promptEl.classList.add("hidden");
+            promptChips.classList.add("hidden");
+            return; // skip a renderização de chips/options abaixo
+          }
+          promptEl.placeholder = o.promptPlaceholder || "";
+          promptEl.classList.remove("hidden");
+          typedEl.classList.add("hidden");
+          promptChips.innerHTML = "";
+          var opts = (o.promptOptions || "").split("|").map(function (s) { return s.trim(); }).filter(Boolean);
+          if (opts.length > 0) {
+            opts.forEach(function (opt) {
+              var btn = document.createElement("button");
+              btn.type = "button";
+              btn.className = "btn btn-xs btn-outline";
+              btn.textContent = opt;
+              btn.addEventListener("click", function () {
+                promptEl.value = opt;
+                promptEl.classList.remove("textarea-error");
+                promptError.classList.add("hidden");
+                promptEl.focus();
+              });
+              promptChips.appendChild(btn);
+            });
+            promptChips.classList.remove("hidden");
+          } else {
+            promptChips.classList.add("hidden");
+          }
+        } else {
+          currentPrompt = null;
+          promptWrap.classList.add("hidden");
+        }
+        return new Promise(function (resolve) {
+          resolver = resolve;
+          modal.showModal();
+          if (o.promptName) setTimeout(function () { promptEl.focus(); }, 50);
+        });
+      };
+
+      // Intercepta submits declarativos (forms com data-confirm-title / data-confirm-body).
+      document.addEventListener("submit", function (e) {
+        var form = e.target;
+        if (!(form instanceof HTMLFormElement)) return;
+        var title = form.getAttribute("data-confirm-title");
+        var body = form.getAttribute("data-confirm-body");
+        if (!title && !body) return;
+        if (form.dataset.__confirmed === "true") {
+          delete form.dataset.__confirmed;
+          return;
+        }
+        e.preventDefault();
+        var promptName = form.getAttribute("data-confirm-prompt");
+        var busyFlag = form.getAttribute("data-confirm-busy") === "true";
+        var busyOpts2 = busyFlag ? {
+          message: form.getAttribute("data-confirm-busy-message") || undefined,
+          tip: form.getAttribute("data-confirm-busy-tip") || undefined,
+        } : null;
+        window.confirmAction({
+          title: title || undefined,
+          body: body || undefined,
+          danger: form.getAttribute("data-confirm-danger") === "true",
+          okText: form.getAttribute("data-confirm-ok") || undefined,
+          cancelText: form.getAttribute("data-confirm-cancel") || undefined,
+          promptName: promptName || undefined,
+          promptLabel: form.getAttribute("data-confirm-prompt-label") || undefined,
+          promptPlaceholder: form.getAttribute("data-confirm-prompt-placeholder") || undefined,
+          promptOptions: form.getAttribute("data-confirm-prompt-options") || undefined,
+          typedMatch: form.getAttribute("data-confirm-typed-match") || undefined,
+          busy: busyOpts2,
+        }).then(function (result) {
+          var ok = (result && typeof result === "object") ? result.ok : !!result;
+          if (!ok) return;
+          if (promptName && result && result.value) {
+            var existing = form.querySelector('input[name="' + promptName + '"][data-confirm-injected]');
+            if (existing) existing.remove();
+            var hidden = document.createElement("input");
+            hidden.type = "hidden";
+            hidden.name = promptName;
+            hidden.value = result.value;
+            hidden.setAttribute("data-confirm-injected", "true");
+            form.appendChild(hidden);
+          }
+          form.dataset.__confirmed = "true";
+          if (typeof form.requestSubmit === "function") form.requestSubmit();
+          else form.submit();
+        });
+      }, true);
+
+      // HTMX hook: interceta antes de qualquer request HTMX. Dispara
+      // o modal declarativo quando há `hx-confirm` OR `data-confirm-*` no
+      // elemento/form. Forms com `hx-post` não emitem `submit` nativo - este
+      // é o único hook que tem chance de correr antes da request (ver ADR 0013).
+      document.body.addEventListener("htmx:confirm", function (evt) {
+        var question = evt.detail.question;
+        var el = evt.detail.elt || {};
+        function attr(name) {
+          if (el.getAttribute && el.getAttribute(name)) return el.getAttribute(name);
+          var f = el.closest && el.closest("form");
+          if (f && f.getAttribute(name)) return f.getAttribute(name);
+          return null;
+        }
+        var declarativeTitle = attr("data-confirm-title");
+        var declarativeBody = attr("data-confirm-body");
+        if (!question && !declarativeTitle && !declarativeBody) return;
+        evt.preventDefault();
+        window.confirmAction({
+          title: declarativeTitle || "Confirmar",
+          body: declarativeBody || question,
+          danger: attr("data-confirm-danger") === "true",
+          okText: attr("data-confirm-ok") || undefined,
+          cancelText: attr("data-confirm-cancel") || undefined,
+        }).then(function (ok) {
+          if (ok) evt.detail.issueRequest(true);
+        });
+      });
+    })();
+  </script>
+
+  {{# Theme toggle (idêntico ao admin.vto). #}}
+  <script>
+  (function () {
+    function isDarkApplied() {
+      var t = document.documentElement.getAttribute('data-theme');
+      return t === 'dim' || t === 'dark';
+    }
+    function syncLabel() {
+      var label = document.querySelector('[data-theme-label]');
+      var icon  = document.querySelector('[data-theme-icon]');
+      var dark = isDarkApplied();
+      if (label) label.textContent = dark ? 'Modo claro' : 'Modo escuro';
+      if (icon)  icon.textContent  = dark ? '☼' : '☾';
+    }
+    syncLabel();
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-theme-toggle]');
+      if (!btn) return;
+      var nextCookie = isDarkApplied() ? 'light' : 'dark';
+      var nextTheme  = nextCookie === 'dark' ? 'dim' : 'light';
+      document.documentElement.setAttribute('data-theme', nextTheme);
+      document.cookie = 'theme=' + encodeURIComponent(nextCookie) + '; path=/; max-age=31536000; SameSite=Lax';
+      syncLabel();
+      fetch('/set-theme', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ theme: nextCookie }),
+        credentials: 'same-origin'
+      }).catch(function () {});
+    });
+  })();
+  </script>
+
+  {{# Menu mobile - toggle do drawer (hamburger ↔ X + aria-expanded). #}}
+  <script>
+    (function () {
+      var btn = document.getElementById("portal-nav-toggle");
+      var drawer = document.getElementById("portal-nav");
+      var iconOpen = document.getElementById("portal-nav-icon-open");
+      var iconClose = document.getElementById("portal-nav-icon-close");
+      if (!btn || !drawer) return;
+      btn.addEventListener("click", function () {
+        var willOpen = drawer.classList.contains("hidden");
+        drawer.classList.toggle("hidden", !willOpen);
+        btn.setAttribute("aria-expanded", String(willOpen));
+        if (iconOpen) iconOpen.classList.toggle("hidden", willOpen);
+        if (iconClose) iconClose.classList.toggle("hidden", !willOpen);
+      });
+    })();
+  </script>
+
+  {{# ═════════ File Dropzone: drag-drop + preview + count ═════════ #}}
+  {{# JS canónico para `[data-file-dropzone]` (partials/file_dropzone.vto).
+     Centralizado num partial para eliminar duplicação entre admin+portal. #}}
+  {{ include "partials/_dropzone_script.vto" }}
+</body>
+</html>

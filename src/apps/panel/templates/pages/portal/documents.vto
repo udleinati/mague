@@ -1,0 +1,276 @@
+{{ layout "layouts/portal.vto" { title, section, condominium, unit, currentCondominiumId, currentPortalUnitId, currentUser } }}
+
+{{# Mapa MIME → {ext, classes do badge}. Fallback genérico para tipos desconhecidos. #}}
+{{ set fileTypeMap = {
+  "application/pdf": { ext: "PDF", classes: "bg-red-50 text-red-700 border-red-200" },
+  "application/msword": { ext: "DOC", classes: "bg-blue-50 text-blue-700 border-blue-200" },
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": { ext: "DOCX", classes: "bg-blue-50 text-blue-700 border-blue-200" },
+  "application/vnd.ms-excel": { ext: "XLS", classes: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": { ext: "XLSX", classes: "bg-emerald-50 text-emerald-700 border-emerald-200" }
+} }}
+
+{{# Pill de categoria - cores espelham as de assemblies (consistência). #}}
+{{ set categoryBadge = {
+  minutes: "bg-blue-50 text-blue-700 border-blue-200",
+  regulation: "bg-indigo-50 text-indigo-700 border-indigo-200",
+  contract: "bg-amber-50 text-amber-700 border-amber-200",
+  budget: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  insurance: "bg-rose-50 text-rose-700 border-rose-200",
+  plant: "bg-teal-50 text-teal-700 border-teal-200",
+  other: "bg-base-200 text-base-content/70 border-base-300"
+} }}
+
+<div class="mb-6">
+  <h1 class="text-2xl sm:text-3xl font-black">Documentos</h1>
+  <p class="text-sm text-base-content/60 mt-1">
+    Documentos públicos do condomínio · {{ condominium.name }}
+  </p>
+</div>
+
+{{# Pesquisa client-side - filtra os <article data-doc-search> que têm
+   correspondência no `data-search` (lower-cased título + categoria). #}}
+<div class="relative mb-4">
+  <span class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-base-content/40">
+    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>
+  </span>
+  <input type="search" data-doc-search-input
+         placeholder="Pesquisar documentos..."
+         class="input input-bordered w-full pl-10">
+</div>
+
+{{# Tabs por categoria - server-side via `?category=`. #}}
+<div class="flex items-center justify-between gap-3 flex-wrap mb-4">
+  <div class="tabs tabs-boxed bg-base-200/50 p-1">
+    <a href="?" class="tab tab-sm {{ if !filterCategory }}tab-active{{ /if }}">
+      Todos <span class="ml-1 opacity-70">({{ String(categoryCounts.all) }})</span>
+    </a>
+    {{ if categoryCounts.minutes > 0 }}
+      <a href="?category=minutes" class="tab tab-sm {{ if filterCategory === 'minutes' }}tab-active{{ /if }}">
+        Atas <span class="ml-1 opacity-70">({{ String(categoryCounts.minutes) }})</span>
+      </a>
+    {{ /if }}
+    {{ if categoryCounts.budget > 0 }}
+      <a href="?category=budget" class="tab tab-sm {{ if filterCategory === 'budget' }}tab-active{{ /if }}">
+        Orçamentos <span class="ml-1 opacity-70">({{ String(categoryCounts.budget) }})</span>
+      </a>
+    {{ /if }}
+    {{ if categoryCounts.regulation > 0 }}
+      <a href="?category=regulation" class="tab tab-sm {{ if filterCategory === 'regulation' }}tab-active{{ /if }}">
+        Regulamentos <span class="ml-1 opacity-70">({{ String(categoryCounts.regulation) }})</span>
+      </a>
+    {{ /if }}
+    {{ if categoryCounts.insurance > 0 }}
+      <a href="?category=insurance" class="tab tab-sm {{ if filterCategory === 'insurance' }}tab-active{{ /if }}">
+        Seguros <span class="ml-1 opacity-70">({{ String(categoryCounts.insurance) }})</span>
+      </a>
+    {{ /if }}
+    {{ if categoryCounts.contract > 0 }}
+      <a href="?category=contract" class="tab tab-sm {{ if filterCategory === 'contract' }}tab-active{{ /if }}">
+        Contratos <span class="ml-1 opacity-70">({{ String(categoryCounts.contract) }})</span>
+      </a>
+    {{ /if }}
+    {{ if categoryCounts.plant > 0 }}
+      <a href="?category=plant" class="tab tab-sm {{ if filterCategory === 'plant' }}tab-active{{ /if }}">
+        Plantas <span class="ml-1 opacity-70">({{ String(categoryCounts.plant) }})</span>
+      </a>
+    {{ /if }}
+    {{ if categoryCounts.other > 0 }}
+      <a href="?category=other" class="tab tab-sm {{ if filterCategory === 'other' }}tab-active{{ /if }}">
+        Outros <span class="ml-1 opacity-70">({{ String(categoryCounts.other) }})</span>
+      </a>
+    {{ /if }}
+  </div>
+  <div class="text-xs text-base-content/60">
+    <strong class="text-base-content/90">{{ String(documents.length) }}</strong> documento{{ documents.length === 1 ? "" : "s" }}
+  </div>
+</div>
+
+{{ if documents.length === 0 }}
+  <div class="bg-base-100 rounded-xl border border-base-200 p-12 text-center">
+    <div class="text-5xl mb-3 opacity-30">📁</div>
+    <p class="text-base-content/60 font-medium">Sem documentos publicados.</p>
+    <p class="text-sm text-base-content/50 mt-1">
+      {{ if filterCategory }}
+        Sem documentos nesta categoria. <a href="?" class="link link-primary">Ver todos</a>
+      {{ else }}
+        A administração ainda não publicou documentos para os condóminos.
+      {{ /if }}
+    </p>
+  </div>
+{{ else }}
+  {{# Grupos por ano - `yearGroups` já vem ordenado DESC, com o grupo `null` (sem data) no fim. #}}
+  {{ for group of yearGroups }}
+    <div class="mb-6" data-doc-year-group>
+      <div class="text-xs font-bold text-base-content/50 uppercase tracking-widest mb-3 px-1">
+        {{ if group.year }}{{ group.year }}{{ else }}Sem data oficial{{ /if }}
+      </div>
+      <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm divide-y divide-base-200 overflow-hidden">
+        {{ for d of group.docs }}
+          {{ set attCount = d.attachments ? d.attachments.length : 0 }}
+          {{ set firstAtt = attCount > 0 ? d.attachments[0] : null }}
+          {{ set primaryMime = firstAtt ? firstAtt.mimeType : null }}
+          {{ set hashtag = (d.title + " " + (categoryLabels[d.category] ?? "")).toLowerCase() }}
+          {{ set totalSize = d.attachments.reduce((s, a) => s + Number(a.fileSize || 0), 0) }}
+
+          <article class="px-4 py-3 hover:bg-base-200/30 transition-colors"
+                   data-doc-search="{{ hashtag }}">
+            {{# Ações: sempre "Ver" (modal); "Download" rápido só com 1 anexo. #}}
+            <div class="flex items-center gap-3">
+              {{# Badge de tipo: >1 anexos mostra "📁 N"; 0/1 segue o mime do firstAtt. #}}
+              {{ if attCount > 1 }}
+                <span class="inline-flex items-center justify-center px-2 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider bg-base-200 text-base-content/70 border border-base-300 min-w-[40px]">
+                  📁 {{ String(attCount) }}
+                </span>
+              {{ else if attCount === 0 }}
+                <span class="inline-flex items-center justify-center px-2 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider bg-base-200 text-base-content/40 border border-base-300 min-w-[40px]">-</span>
+              {{ else if primaryMime && primaryMime.startsWith("image/") }}
+                <span class="inline-flex items-center justify-center px-2 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider bg-purple-50 text-purple-700 border border-purple-200 min-w-[40px]">IMG</span>
+              {{ else if fileTypeMap[primaryMime] }}
+                <span class="inline-flex items-center justify-center px-2 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider border min-w-[40px] {{ fileTypeMap[primaryMime].classes }}">{{ fileTypeMap[primaryMime].ext }}</span>
+              {{ else }}
+                <span class="inline-flex items-center justify-center px-2 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider bg-base-200 text-base-content/60 border border-base-300 min-w-[40px]">FILE</span>
+              {{ /if }}
+              <button type="button"
+                      class="min-w-0 flex-1 text-left cursor-pointer hover:opacity-80 transition-opacity"
+                      onclick="document.getElementById('doc_view_{{ d.id }}').showModal()">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="font-medium text-sm break-words">{{ d.title }}</span>
+                  <span class="inline-flex items-center text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border {{ categoryBadge[d.category] ?? 'bg-base-200 border-base-300' }}">
+                    {{ categoryLabels[d.category] ?? d.category }}
+                  </span>
+                </div>
+                <div class="text-xs text-base-content/50 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                  {{ if d.publishedAt }}
+                    <span class="tabular-nums">Publicado em {{ d.publishedAt |> formatDate }}</span>
+                  {{ else }}
+                    <span class="italic">Sem data oficial</span>
+                  {{ /if }}
+                  {{ if attCount > 1 }}
+                    <span class="text-base-content/30">·</span>
+                    <span>{{ String(attCount) }} ficheiros</span>
+                    {{ if totalSize > 0 }}
+                      <span class="text-base-content/30">·</span>
+                      <span class="tabular-nums">{{ String(Math.round(totalSize / 1024)) }} KB</span>
+                    {{ /if }}
+                  {{ else if firstAtt && firstAtt.fileSize }}
+                    <span class="text-base-content/30">·</span>
+                    <span class="tabular-nums">{{ String(Math.round(Number(firstAtt.fileSize) / 1024)) }} KB</span>
+                  {{ /if }}
+                </div>
+              </button>
+              <div class="flex items-center gap-2 shrink-0">
+                <button type="button"
+                        class="btn btn-xs btn-ghost gap-1 normal-case"
+                        onclick="document.getElementById('doc_view_{{ d.id }}').showModal()">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                  Ver
+                </button>
+                {{# Abrir direto só para 1 anexo; multi-anexo escolhe no modal. #}}
+                {{ if attCount === 1 }}
+                  <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/documents/{{ d.id }}/attachments/{{ firstAtt.id }}"
+                     target="_blank" rel="noopener"
+                     class="btn btn-xs btn-primary gap-1 normal-case">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+                    Abrir
+                  </a>
+                {{ /if }}
+              </div>
+            </div>
+
+            {{# Modal "Ver documento" - dentro do <article> mas o `showModal()`
+               funciona mesmo com o <article> escondido pelo filtro de pesquisa. #}}
+            <dialog id="doc_view_{{ d.id }}" class="modal">
+              <div class="modal-box max-w-2xl">
+                <form method="dialog">
+                  <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" aria-label="Fechar">✕</button>
+                </form>
+                <h3 class="font-bold text-lg mb-1 pr-8">{{ d.title }}</h3>
+                <div class="flex items-center gap-2 text-xs text-base-content/60 mb-4 flex-wrap">
+                  <span class="inline-flex items-center text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border {{ categoryBadge[d.category] ?? 'bg-base-200 border-base-300' }}">
+                    {{ categoryLabels[d.category] ?? d.category }}
+                  </span>
+                  {{ if d.publishedAt }}
+                    <span>·</span>
+                    <span class="tabular-nums">Publicado em {{ d.publishedAt |> formatDate }}</span>
+                  {{ /if }}
+                </div>
+
+                {{ if d.description }}
+                  <p class="text-sm text-base-content/80 whitespace-pre-line leading-relaxed mb-4">{{ d.description }}</p>
+                {{ else }}
+                  <p class="text-sm text-base-content/40 italic mb-4">Sem descrição.</p>
+                {{ /if }}
+
+                {{# Lista de ficheiros para download (ou estado vazio). #}}
+                <div class="border-t border-base-200 pt-4">
+                  <div class="text-[10px] uppercase tracking-wider text-base-content/50 font-bold mb-2">
+                    {{ if attCount === 0 }}Anexos{{ else }}Anexos · {{ String(attCount) }}{{ /if }}
+                  </div>
+                  {{ if attCount === 0 }}
+                    <p class="text-xs text-base-content/40 italic">Este documento não tem ficheiros anexados.</p>
+                  {{ else }}
+                    <ul class="space-y-2">
+                      {{ for a of d.attachments }}
+                        <li class="flex items-center gap-3 text-xs">
+                          {{ if a.mimeType && a.mimeType.startsWith("image/") }}
+                            <span class="inline-flex items-center justify-center px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider bg-purple-50 text-purple-700 border border-purple-200 min-w-[40px]">IMG</span>
+                          {{ else if fileTypeMap[a.mimeType] }}
+                            <span class="inline-flex items-center justify-center px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border min-w-[40px] {{ fileTypeMap[a.mimeType].classes }}">{{ fileTypeMap[a.mimeType].ext }}</span>
+                          {{ else }}
+                            <span class="inline-flex items-center justify-center px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider bg-base-200 text-base-content/60 border border-base-300 min-w-[40px]">FILE</span>
+                          {{ /if }}
+                          <span class="flex-1 min-w-0 truncate" title="{{ a.filename }}">{{ a.filename }}</span>
+                          {{ if a.fileSize }}
+                            <span class="text-base-content/50 tabular-nums whitespace-nowrap">{{ String(Math.round(Number(a.fileSize) / 1024)) }} KB</span>
+                          {{ /if }}
+                          <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/documents/{{ d.id }}/attachments/{{ a.id }}"
+                             target="_blank" rel="noopener"
+                             class="btn btn-xs btn-primary gap-1 normal-case">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+                            Abrir
+                          </a>
+                        </li>
+                      {{ /for }}
+                    </ul>
+                  {{ /if }}
+                </div>
+
+                <div class="flex justify-end pt-4 mt-4 border-t border-base-200">
+                  <form method="dialog"><button class="btn btn-sm btn-primary">Fechar</button></form>
+                </div>
+              </div>
+              <form method="dialog" class="modal-backdrop"><button>close</button></form>
+            </dialog>
+          </article>
+        {{ /for }}
+      </div>
+    </div>
+  {{ /for }}
+{{ /if }}
+
+<script>
+  // Pesquisa client-side: filtra os <article data-doc-search> por
+  // substring case-insensitive no atributo data-search. Quando um
+  // grupo de ano fica todos hidden, esconde-se também o cabeçalho do
+  // ano (para não ficar um título "2025" solto sem cards por baixo).
+  (function () {
+    const input = document.querySelector("[data-doc-search-input]");
+    if (!input) return;
+    function filter() {
+      const q = input.value.trim().toLowerCase();
+      document.querySelectorAll("[data-doc-year-group]").forEach(function (group) {
+        let anyVisible = false;
+        group.querySelectorAll("article[data-doc-search]").forEach(function (article) {
+          const hay = article.dataset.docSearch || "";
+          const match = q === "" || hay.includes(q);
+          article.classList.toggle("hidden", !match);
+          if (match) anyVisible = true;
+        });
+        group.classList.toggle("hidden", !anyVisible);
+      });
+    }
+    input.addEventListener("input", filter);
+  })();
+</script>
+
+{{ /layout }}

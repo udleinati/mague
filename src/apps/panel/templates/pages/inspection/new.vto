@@ -1,0 +1,94 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+<div class="max-w-2xl">
+  {{ set _inspectionsHref = '/inspections' |> condoPath }}
+  {{ include "partials/page_header.vto" {
+    title: "Nova inspeção",
+    scale: "detail",
+    breadcrumbs: [
+      { label: "Inspeções", href: _inspectionsHref },
+      { label: "Nova inspeção" },
+    ]
+  } }}
+
+  <form method="post" action="{{ '/inspections' |> condoPath }}" class="space-y-4 bg-base-100 border border-base-200 rounded-xl p-6">
+    <div class="form-control">
+      <label class="label" for="category"><span class="label-text font-medium">Categoria *</span></label>
+      <select id="category" name="category" class="select select-bordered" required>
+        <option value="">- escolher -</option>
+        {{ for key, label of categoryLabels }}
+          <option value="{{ key }}" {{ if values.category === key }}selected{{ /if }}>{{ label }}</option>
+        {{ /for }}
+      </select>
+    </div>
+
+    <div class="form-control">
+      <label class="label" for="description"><span class="label-text font-medium">Descrição *</span></label>
+      <input type="text" id="description" name="description" class="input input-bordered"
+             placeholder="ex: Verificação anual de extintores, Elevador A - inspeção legal"
+             value="{{ values.description ?? '' }}" required maxlength="500">
+      <span class="label-text-alt text-base-content/50 mt-1">Identificador humano da obrigação. Para múltiplas instâncias usa "Elevador A", "Elevador B".</span>
+    </div>
+
+    {{# Fornecedor: combobox; hidden carrega o id, input é só visual. #}}
+    <div class="form-control relative" data-combobox>
+      <label class="label" for="supplier-search"><span class="label-text font-medium">Fornecedor</span></label>
+      <input type="text" id="supplier-search" data-combobox-search autocomplete="off"
+             placeholder="Pesquisar fornecedor..."
+             class="input input-bordered" value="{{ values.supplierName ?? '' }}">
+      <input type="hidden" name="supplierId" data-combobox-value value="{{ values.supplierId ?? '' }}">
+      <ul data-combobox-list class="hidden absolute top-full left-0 right-0 z-30 mt-1 max-h-72 overflow-y-auto bg-base-100 border border-base-200 rounded-lg shadow-lg py-1">
+        <li data-combobox-option data-id="" data-label="- sem fornecedor -" data-haystack="sem"
+            class="px-3 py-2 text-sm hover:bg-base-200 cursor-pointer text-base-content/60 italic whitespace-nowrap">
+          - sem fornecedor -
+        </li>
+        {{ for s of suppliers }}
+          <li data-combobox-option
+              data-id="{{ s.id }}"
+              data-label="{{ s.name }}"
+              data-haystack="{{ (s.name + ' ' + (s.nif ?? '')).toLowerCase() }}"
+              class="px-3 py-2 text-sm hover:bg-base-200 cursor-pointer whitespace-nowrap truncate"
+              title="{{ s.name }}{{ if s.nif }} · NIF {{ s.nif }}{{ /if }}">
+            <span class="font-semibold">{{ s.name }}</span>{{ if s.nif }}<span class="text-base-content/60"> · NIF {{ s.nif }}</span>{{ /if }}
+          </li>
+        {{ /for }}
+        <li data-combobox-empty class="hidden px-3 py-2 text-sm text-base-content/50 italic">Sem resultados.</li>
+      </ul>
+      <span class="label-text-alt text-base-content/50 mt-1">Quem realiza a inspeção. Opcional. Cria fornecedores em Fornecedores.</span>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div class="form-control">
+        <label class="label" for="lastDoneDate"><span class="label-text font-medium">Data da última inspeção</span></label>
+        <input type="date" id="lastDoneDate" name="lastDoneDate" class="input input-bordered" value="{{ values.lastDoneDate ?? '' }}">
+        <span class="label-text-alt text-base-content/50 mt-1">Opcional - deixa em branco se ainda não foi feita.</span>
+      </div>
+
+      <div class="form-control">
+        <label class="label" for="validUntil"><span class="label-text font-medium">Válida até *</span></label>
+        <input type="date" id="validUntil" name="validUntil" class="input input-bordered" value="{{ values.validUntil ?? '' }}" required>
+      </div>
+    </div>
+
+    <div class="form-control">
+      <label class="label" for="notifyDaysBefore"><span class="label-text font-medium">Avisar quantos dias antes?</span></label>
+      <input type="number" id="notifyDaysBefore" name="notifyDaysBefore" class="input input-bordered w-32"
+             min="0" max="365" value="{{ values.notifyDaysBefore ?? '30' }}">
+      <span class="label-text-alt text-base-content/50 mt-1">Default 30 dias. O alerta aparece no menu a partir de "Válida até − N dias".</span>
+    </div>
+
+    <div class="form-control">
+      <label class="label" for="notes"><span class="label-text font-medium">Notas</span></label>
+      <textarea id="notes" name="notes" class="textarea textarea-bordered" rows="3" maxlength="2000">{{ values.notes ?? '' }}</textarea>
+    </div>
+
+    <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
+      <a href="{{ '/inspections' |> condoPath }}" class="btn btn-sm btn-ghost">Cancelar</a>
+      <button type="submit" class="btn btn-sm btn-primary">Criar</button>
+    </div>
+  </form>
+
+  <p class="text-xs text-base-content/50 mt-4">O PDF do certificado pode ser anexado depois de criar.</p>
+</div>
+
+{{ /layout }}

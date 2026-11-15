@@ -1,0 +1,32 @@
+{{# Drawer mobile gerado de `adminNav.entries` (fonte: nav.ts). Recebe `nav`. #}}
+{{ for e of nav }}
+  {{ if e.kind === "link" }}
+    <a href="{{ e.href }}"
+       class="flex items-center gap-2 px-3 py-2 rounded-lg {{ if e.active }}bg-primary/10 text-primary font-semibold{{ else }}hover:bg-base-200 text-base-content/80{{ /if }}">
+      {{ e.label }}
+    </a>
+  {{ else }}
+    <details {{ if e.active }}open{{ /if }}>
+      <summary class="px-3 py-2 rounded-lg cursor-pointer list-none flex items-center justify-between {{ if e.active }}bg-primary/10 text-primary font-semibold{{ else }}hover:bg-base-200 text-base-content/80{{ /if }}">
+        <span class="flex items-center gap-2">
+          {{ e.label }}
+          {{ if e.hasBadge }}<span class="inline-block w-1.5 h-1.5 rounded-full bg-error" title="Itens a precisar de atenção"></span>{{ /if }}
+        </span>
+        <svg class="w-3 h-3 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+      </summary>
+      <div class="pl-4 mt-1 space-y-1">
+        {{ for sg of e.subgroups }}
+          {{ if sg.label }}
+            <div class="text-[10px] uppercase tracking-wider text-base-content/40 px-3 pt-1.5 pb-0.5">{{ sg.label }}</div>
+          {{ /if }}
+          {{ for it of sg.items }}
+            <a href="{{ it.href }}" class="flex justify-between items-center px-3 py-2 rounded-lg {{ if it.active }}bg-primary/10 text-primary font-semibold{{ else }}hover:bg-base-200 text-base-content/70{{ /if }}">
+              <span>{{ it.label }}</span>
+              {{ if it.badgeCount > 0 }}<span class="badge badge-sm badge-error text-white border-error">{{ String(it.badgeCount) }}</span>{{ /if }}
+            </a>
+          {{ /for }}
+        {{ /for }}
+      </div>
+    </details>
+  {{ /if }}
+{{ /for }}

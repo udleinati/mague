@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="pt" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} - Mague</title>
+  <link href="/app.css" rel="stylesheet">
+</head>
+<body class="bg-base-100">
+  <div class="max-w-2xl mx-auto py-16 px-6">
+    <div class="mb-6 flex items-end justify-between">
+      <div>
+        <div class="text-xl font-black text-teal-600 tracking-tighter">MAGUE</div>
+        <h1 class="text-3xl font-black mt-2">Escolher condomínio</h1>
+        <p class="text-sm text-base-content/60 mt-1">
+          Olá, {{ user.name }}. Escolhe qual condomínio queres gerir neste separador.
+          Podes abrir outros condomínios em separadores diferentes em paralelo.
+        </p>
+      </div>
+      <form method="post" action="/logout">
+        <button type="submit" class="link link-hover text-xs text-base-content/60">Sair</button>
+      </form>
+    </div>
+
+    {{ if condos.length === 0 }}
+      {{ include "partials/alert.vto" { type: "warning", message: "Não tens condomínios associados. Contacta o administrador." } }}
+    {{ else }}
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {{ for c of condos }}
+          <a href="/admin/c/{{ c.id }}/dashboard"
+             class="bg-base-100 rounded-xl border border-base-200 hover:border-primary hover:shadow-md transition-all p-5 block">
+            <div class="font-black text-lg">{{ c.name }}</div>
+            {{ if c.city }}<div class="text-xs text-base-content/60 mt-1">{{ c.city }}</div>{{ /if }}
+            <div class="text-xs text-primary/70 mt-3">Abrir →</div>
+          </a>
+        {{ /for }}
+      </div>
+    {{ /if }}
+  </div>
+</body>
+</html>

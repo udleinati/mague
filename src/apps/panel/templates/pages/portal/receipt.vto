@@ -1,0 +1,114 @@
+{{ layout "layouts/portal.vto" { title, section, condominium, unit, currentUser, currentPortalUnitId, currentCondominiumId } }}
+
+<div class="mb-4">
+  <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/statement" class="text-xs text-base-content/60 hover:text-base-content">← Extrato</a>
+</div>
+
+<div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-4 sm:p-6 mb-6">
+  <div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 mb-4">
+    <div class="min-w-0 flex-1">
+      <div class="text-xs uppercase tracking-wider text-base-content/50 mb-1">Recibo</div>
+      <h1 class="text-xl sm:text-2xl font-bold flex items-center gap-2 flex-wrap">
+        {{ receipt.number }}
+        {{ if receipt.isVoided }}
+          <span class="inline-flex items-center text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded bg-error/10 text-error border border-error/20">Anulado</span>
+        {{ /if }}
+      </h1>
+      <div class="text-xs sm:text-sm text-base-content/60 mt-1 flex flex-wrap gap-x-1.5 gap-y-0.5">
+        <span>Emitido em {{ receipt.issuedAt |> formatDate }}</span>
+        <span class="text-base-content/30">·</span>
+        <span>Pagamento de {{ receipt.bankTxSnapshot.transactionDate |> formatDate }}</span>
+      </div>
+    </div>
+    <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/receipts/{{ receipt.id }}/pdf" target="_blank" rel="noopener"
+       class="btn btn-sm btn-primary shrink-0">
+      📄 Abrir PDF
+    </a>
+  </div>
+
+  {{ if receipt.isVoided }}
+    <div class="rounded-lg border border-error/30 bg-error/5 px-4 py-3 mb-4 flex items-start gap-3 text-sm">
+      <svg class="w-5 h-5 text-error shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+      </svg>
+      <div>
+        <div class="font-medium text-error">Este recibo foi anulado</div>
+        {{ if receipt.voidedReason }}
+          <div class="text-base-content/70 mt-1"><strong>Motivo:</strong> {{ receipt.voidedReason }}</div>
+        {{ /if }}
+        <div class="text-xs text-base-content/50 mt-2">
+          Anulado em {{ receipt.voidedAt |> formatDate }}. Para esclarecimentos, contacta a administração.
+        </div>
+      </div>
+    </div>
+  {{ /if }}
+
+  <div class="grid grid-cols-3 gap-2 sm:gap-3 pt-4 border-t border-base-200">
+    <div class="min-w-0">
+      <div class="text-[10px] uppercase tracking-wider text-base-content/50">Valor</div>
+      <div class="text-base sm:text-lg font-bold tabular-nums mt-1 break-words text-primary">{{ receipt.amountCents |> formatMoney }}</div>
+    </div>
+    <div class="min-w-0">
+      <div class="text-[10px] uppercase tracking-wider text-base-content/50">Forma</div>
+      <div class="text-base sm:text-lg font-bold mt-1">
+        {{ if receipt.bankTxSnapshot.accountKind === "cash" }}💵 Numerário{{ else }}🏦 Banco{{ /if }}
+      </div>
+      <div class="text-[10px] text-base-content/50 mt-0.5 truncate">{{ receipt.bankTxSnapshot.accountName }}</div>
+    </div>
+    <div class="min-w-0">
+      <div class="text-[10px] uppercase tracking-wider text-base-content/50">Linhas</div>
+      <div class="text-base sm:text-lg font-bold mt-1">{{ String(receipt.linesSnapshot.length) }}</div>
+      <div class="text-[10px] text-base-content/50 mt-0.5">quotas/linhas</div>
+    </div>
+  </div>
+</div>
+
+<section class="bg-base-100 rounded-xl border border-base-200 shadow-sm overflow-hidden mb-6">
+  <div class="px-4 sm:px-5 py-3 border-b border-base-200">
+    <h2 class="text-sm font-bold">Recebido de</h2>
+  </div>
+  <ul class="divide-y divide-base-200">
+    {{ for r of receipt.recipientsSnapshot }}
+      <li class="px-4 sm:px-5 py-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <div class="min-w-0 flex-1">
+          <div class="font-medium text-sm">{{ r.name }}</div>
+          <div class="text-xs text-base-content/60 mt-0.5">
+            {{ if r.nif }}NIF {{ r.nif }}{{ else }}<span class="text-indigo-600/80">NIF não registado - não dedutível fiscalmente</span>{{ /if }}
+          </div>
+        </div>
+        {{ if r.email }}
+          <div class="text-xs text-base-content/50 break-all">{{ r.email }}</div>
+        {{ /if }}
+      </li>
+    {{ /for }}
+  </ul>
+</section>
+
+<section class="bg-base-100 rounded-xl border border-base-200 shadow-sm overflow-hidden mb-6">
+  <div class="px-4 sm:px-5 py-3 border-b border-base-200">
+    <h2 class="text-sm font-bold">Discriminação</h2>
+  </div>
+  <ul class="divide-y divide-base-200">
+    {{ for line of receipt.linesSnapshot }}
+      <li class="px-4 sm:px-5 py-3 flex items-baseline justify-between gap-3">
+        <div class="min-w-0 flex-1">
+          <div class="text-sm font-medium">{{ line.description }}</div>
+          {{ if line.fcrAmount && line.fcrAmount > 0 }}
+            <div class="text-xs text-base-content/50 mt-0.5">FCR incluído: {{ line.fcrAmount |> formatMoney }}</div>
+          {{ /if }}
+        </div>
+        <div class="text-sm font-semibold tabular-nums whitespace-nowrap">{{ line.amount |> formatMoney }}</div>
+      </li>
+    {{ /for }}
+    <li class="px-4 sm:px-5 py-3 flex items-baseline justify-between gap-3 bg-primary/5 font-bold">
+      <div>TOTAL</div>
+      <div class="tabular-nums text-primary">{{ receipt.amountCents |> formatMoney }}</div>
+    </li>
+  </ul>
+</section>
+
+<div class="bg-info/5 border border-info/20 rounded-lg px-4 py-3 text-xs text-base-content/70 leading-relaxed">
+  Este recibo é um documento contabilístico imutável - fica disponível para consulta e download em qualquer altura. Para esclarecimentos sobre o conteúdo, contacta a administração do condomínio.
+</div>
+
+{{ /layout }}

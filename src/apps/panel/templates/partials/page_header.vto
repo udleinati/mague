@@ -1,0 +1,106 @@
+{{# Page header - cabeçalho canónico de página do admin (ADR 0036).
+
+   Duas formas de chamar:
+
+   Sem ações (1 linha):
+     {{ include "partials/page_header.vto" { title: "Frações" } }}
+
+   Com ações (corpo do layout = coluna direita, HTML livre - botões, forms,
+   condicionais; cada elemento traz as suas classes `btn btn-sm ...`):
+     {{ layout "partials/page_header.vto" { title: "Frações" } }}
+       <button class="btn btn-sm btn-primary">+ Nova fração</button>
+     {{ /layout }}
+
+   Inputs:
+     • title        → string, OBRIGATÓRIO. Se faltar, renderiza
+                      "[page_header: falta title]" visível (fail loud).
+     • scale?       → "list" (default) = text-4xl font-black (listagens e
+                      raízes de secção); "detail" = text-3xl font-bold
+                      (páginas de detalhe). Páginas NÃO injetam classes de
+                      tipografia - querer outra escala é conversa de design.
+     • breadcrumbs? → items[] no formato de partials/breadcrumbs.vto
+                      ({ label, href? }). Único padrão de navegação do
+                      header - páginas de detalhe usam SEMPRE breadcrumbs;
+                      links "← Voltar" no header estão descontinuados.
+     • code?        → entity code humano (D00001 / R00001 / P001), font-mono
+                      acima do título ("label-acima-do-título", ver
+                      CONTEXT.md "Charge code").
+     • codeTone?    → "info" | "success" | "neutral" (default). Charges:
+                      payable = info, receivable = success.
+     • status?      → { label, tone } - badge dot+label inline no h1, via
+                      partials/status_badge.vto. O mapeamento domínio→tone
+                      (ex: charge.status → "Pago"/success) é do caller.
+     • meta?        → [{ value, label?, href?, tone?, plain? }] - linha única
+                      sob o título, segmentos separados por "·" (o separador
+                      é do módulo, nunca do caller).
+                        label  → prefixo "Label:" em texto muted.
+                        href   → value vira <a class="link link-hover">
+                                 (formato canónico, ADR 0015).
+                        tone   → value em <strong> tingido (info/success/
+                                 warning/error).
+                        plain  → value sem <strong>.
+                      Segmentos falsy são filtrados - permite ternários
+                      `cond ? { ... } : null` sem .filter no caller.
+
+   Presentation-pure: valores chegam PRÉ-formatados e hrefs resolvidos; não
+   conhece domínio, filtros nem tenancy. Só o corpo de ações sai com |> safe.
+
+   GOTCHA Vento: no modo `{{ layout }}`, a ÚLTIMA propriedade dos params NÃO pode
+   ter vírgula final (o splice do plugin gera `,,` no compilado). Vírgulas DENTRO
+   de arrays/objetos aninhados são OK.
+#}}
+{{ set _scale = scale ?? "list" }}
+{{ set _meta = (meta ?? []).filter((s) => s && s.value) }}
+{{ set _hasActions = content && content.trim() !== "" }}
+
+{{ if breadcrumbs && breadcrumbs.length > 0 }}
+  {{ include "partials/breadcrumbs.vto" { items: breadcrumbs } }}
+{{ /if }}
+<div class="{{ if _scale === 'detail' }}mb-6 flex flex-col md:flex-row md:items-start justify-between gap-4{{ else }}mb-6 flex items-center justify-between gap-4 flex-wrap{{ /if }}">
+  <div class="min-w-0">
+    {{ if code }}
+      {{ if codeTone === "info" }}
+        {{ set _codeColor = "text-info" }}
+      {{ else if codeTone === "success" }}
+        {{ set _codeColor = "text-success" }}
+      {{ else }}
+        {{ set _codeColor = "text-base-content/40" }}
+      {{ /if }}
+      <div class="font-mono text-base font-bold tabular-nums tracking-widest mb-1 {{ _codeColor }}">{{ code }}</div>
+    {{ /if }}
+    <h1 class="{{ if _scale === 'detail' }}text-3xl font-bold{{ else }}text-4xl font-black{{ /if }} flex items-center gap-3 flex-wrap">
+      {{ if title }}{{ title }}{{ else }}[page_header: falta title]{{ /if }}
+      {{ if status && status.label }}
+        {{ include "partials/status_badge.vto" { label: status.label, tone: status.tone } }}
+      {{ /if }}
+    </h1>
+    {{ if _meta.length > 0 }}
+      <p class="text-sm text-base-content/60 mt-1 flex items-center gap-2 flex-wrap">
+        {{ for i, seg of _meta }}
+          {{ if i > 0 }}<span class="text-base-content/40">·</span>{{ /if }}
+          <span>
+            {{- if seg.label }}<span class="text-base-content/50">{{ seg.label }}:</span> {{ /if -}}
+            {{- if seg.href -}}
+              <a href="{{ seg.href }}" class="link link-hover">{{ seg.value }}</a>
+            {{- else if seg.tone === "info" -}}
+              <strong class="text-info">{{ seg.value }}</strong>
+            {{- else if seg.tone === "success" -}}
+              <strong class="text-success">{{ seg.value }}</strong>
+            {{- else if seg.tone === "warning" -}}
+              <strong class="text-warning">{{ seg.value }}</strong>
+            {{- else if seg.tone === "error" -}}
+              <strong class="text-error">{{ seg.value }}</strong>
+            {{- else if seg.plain -}}
+              {{ seg.value }}
+            {{- else -}}
+              <strong class="text-base-content/80">{{ seg.value }}</strong>
+            {{- /if -}}
+          </span>
+        {{ /for }}
+      </p>
+    {{ /if }}
+  </div>
+  {{ if _hasActions }}
+    <div class="flex gap-2 flex-wrap items-center shrink-0">{{ content |> safe }}</div>
+  {{ /if }}
+</div>

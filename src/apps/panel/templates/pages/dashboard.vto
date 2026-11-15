@@ -1,0 +1,444 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{ include "partials/page_header.vto" {
+  title: "Painel",
+  meta: [
+    condominium ? { value: condominium.name, plain: true } : null,
+    condominium && condominium.city ? { value: condominium.city, plain: true } : null,
+    condominium && condominium.fiscalNumber ? { value: "NIF " + condominium.fiscalNumber, plain: true } : null,
+  ],
+} }}
+
+{{# ── KPIs principais ── #}}
+{{# 5 colunas só a partir de `lg`; a `md` ficavam estreitos demais. Valor
+   com fonte fluida + whitespace-nowrap encolhe em mobile sem partir o '€'. #}}
+<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 mb-6">
+  {{# Em atraso: due_date <= reconciled_through_date (conciliação do banco), não hoje - a dívida "real" (alarme) #}}
+  {{ set _overdueValue = stats.overdueDebtCents |> formatMoney }}
+  {{ include "partials/kpi_card.vto" {
+    tone: stats.overdueDebtCents > 0 ? "error" : "success",
+    label: "Em atraso",
+    value: _overdueValue,
+    caption: stats.overdueCount > 0 ? String(stats.overdueCount) + " fração(ões) vencida(s)" : "sem vencimentos em atraso",
+    highlightValue: true,
+  } }}
+
+  {{# Futuras: quotas lançadas ainda dentro do prazo - não é dívida #}}
+  {{ set _futuresValue = stats.futureDebtCents |> formatMoney }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "warning", label: "Futuras", value: _futuresValue, caption: "quotas lançadas por vencer"
+  } }}
+
+  {{# Taxa de cobrança em primary (teal) - `success` colidia com o "Em atraso"
+     quando este está a zero (ambos verdes). Primary é único nos KPIs e
+     reforça que é o indicador estratégico do dashboard. #}}
+  <div class="bg-gradient-to-br from-primary/10 to-primary/5 rounded-xl border border-primary/20 p-5">
+    <div class="text-xs uppercase font-bold text-primary/80 tracking-wider">Taxa de cobrança</div>
+    <div class="text-xl sm:text-2xl xl:text-3xl font-black mt-2 text-primary">{{ String(stats.collectionRate) }}%</div>
+    <div class="text-xs text-base-content/60 mt-1 truncate">{{ stats.paidThisMonthCents |> formatMoney }} recebidos este mês</div>
+  </div>
+
+  {{ set _expensesValue = stats.totalPayableCents |> formatMoney }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "neutral", label: "Despesas em aberto", value: _expensesValue, caption: "faturas por pagar"
+  } }}
+
+  <div class="bg-gradient-to-br from-info/10 to-info/5 rounded-xl border border-info/20 p-5">
+    <div class="text-xs uppercase font-bold text-info/80 tracking-wider">Saldo bancário</div>
+    <div class="text-xl sm:text-2xl xl:text-3xl font-black mt-2 whitespace-nowrap" title="Saldo físico = abertura + Σ todas as transações (incluindo por conciliar)">{{ stats.bankBalanceCents |> formatMoney }}</div>
+    <div class="text-xs text-base-content/60 mt-1 space-y-0.5">
+      <div class="flex items-center gap-1.5 whitespace-nowrap">
+        <span class="inline-block w-1.5 h-1.5 rounded-full bg-info/70 shrink-0"></span>
+        Ord. <span class="tabular-nums">{{ stats.bankBalanceOrdinaryCents |> formatMoney }}</span>
+      </div>
+      <div class="flex items-center gap-1.5 whitespace-nowrap">
+        <span class="inline-block w-1.5 h-1.5 rounded-full bg-warning/70 shrink-0"></span>
+        FCR <span class="tabular-nums">{{ stats.bankBalanceFcrCents |> formatMoney }}</span>
+      </div>
+      {{ if stats.bankBalanceUnreconciledCents > 0 }}
+        <div class="flex items-center gap-1.5 whitespace-nowrap text-warning/80 pt-0.5" title="Diferença entre saldo físico do banco e o valor já contabilizado no ledger (121 + 122). Aparece quando há transações por conciliar.">
+          <span class="inline-block w-1.5 h-1.5 rounded-full bg-warning shrink-0"></span>
+          <span class="tabular-nums">{{ stats.bankBalanceUnreconciledCents |> formatMoney }}</span> por conciliar
+        </div>
+      {{ /if }}
+    </div>
+  </div>
+</div>
+
+{{# ── Linha 2: gráfico + ranking devedores ── #}}
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+
+  {{# `monthBuckets` traz 12 meses; o JS faz slice(-N) por período sem nova
+     chamada. A linha de saldo é o running balance (atual → para trás). #}}
+  <div class="lg:col-span-2 bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+    <div class="flex flex-wrap items-start justify-between gap-3 mb-4">
+      <div>
+        <div class="text-sm font-semibold flex items-center gap-2">
+          Banco
+          <span id="chart-period-label" class="text-xs font-normal text-base-content/50"></span>
+        </div>
+        <div class="text-xs text-base-content/60 mt-0.5">Entradas, saídas e evolução do saldo</div>
+      </div>
+      <div class="flex items-center gap-3 flex-wrap">
+        <div class="flex gap-1 bg-base-200 rounded-lg p-0.5">
+          <button id="btn-3m"  type="button" onclick="setChartPeriod(3)"  class="chart-period-btn px-2.5 py-1 rounded-md text-xs font-semibold transition-colors">3M</button>
+          <button id="btn-6m"  type="button" onclick="setChartPeriod(6)"  class="chart-period-btn px-2.5 py-1 rounded-md text-xs font-semibold transition-colors">6M</button>
+          <button id="btn-12m" type="button" onclick="setChartPeriod(12)" class="chart-period-btn px-2.5 py-1 rounded-md text-xs font-semibold transition-colors">12M</button>
+        </div>
+        <div class="flex gap-3 text-xs">
+          <span class="inline-flex items-center gap-1.5"><span class="inline-block w-2 h-2 rounded-full bg-success"></span> Entradas</span>
+          <span class="inline-flex items-center gap-1.5"><span class="inline-block w-2 h-2 rounded-full bg-error"></span> Saídas</span>
+          <span class="inline-flex items-center gap-1.5"><span class="inline-block w-2 h-2 rounded-full bg-info"></span> Saldo</span>
+        </div>
+      </div>
+    </div>
+    <div class="relative h-52">
+      <canvas id="dashboard-chart"></canvas>
+      <div id="chart-empty" class="hidden absolute inset-0 flex items-center justify-center pointer-events-none">
+        <p class="text-sm text-base-content/40">Sem movimentos bancários no período.</p>
+      </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+    <script>
+    (function () {
+      var allBuckets = {{ JSON.stringify(monthBuckets) |> safe }};
+      var bankBalanceCents = {{ stats.bankBalanceCents }};
+      var chart = null;
+
+      // Running balance (€): saldo[N-1] = saldo[N] - in[N] + out[N], do atual para trás.
+      function buildBalanceData(buckets) {
+        var data = new Array(buckets.length);
+        var running = bankBalanceCents;
+        for (var i = buckets.length - 1; i >= 0; i--) {
+          data[i] = Math.round(running) / 100;
+          running = running - buckets[i].inCents + buckets[i].outCents;
+        }
+        return data;
+      }
+
+      // Formato PT "1.234,56 €" - espelha o filtro `formatMoney` do server
+      // (browser: sem bundler, o módulo Deno não chega cá). Recebe euros.
+      function fmtEur(v) {
+        var neg = v < 0;
+        var parts = Math.abs(v).toFixed(2).split('.');
+        var eur = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+        return (neg ? '-' : '') + eur + ',' + parts[1] + ' €';
+      }
+
+      // Eixos: sem decimais (densidade), mas com separador de milhares.
+      function fmtEurAxis(v) {
+        return Math.round(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ' €';
+      }
+
+      function renderChart(buckets) {
+        var labels  = buckets.map(function (b) { return b.label; });
+        var inData  = buckets.map(function (b) { return Math.round(b.inCents) / 100; });
+        var outData = buckets.map(function (b) { return Math.round(b.outCents) / 100; });
+        var balData = buildBalanceData(buckets);
+
+        var hasMovement = inData.some(function (v) { return v > 0; }) || outData.some(function (v) { return v > 0; });
+        document.getElementById('chart-empty').classList.toggle('hidden', hasMovement);
+
+        if (chart) {
+          chart.data.labels = labels;
+          chart.data.datasets[0].data = inData;
+          chart.data.datasets[1].data = outData;
+          chart.data.datasets[2].data = balData;
+          chart.update();
+          return;
+        }
+
+        var ctx = document.getElementById('dashboard-chart').getContext('2d');
+        chart = new Chart(ctx, {
+          data: {
+            labels: labels,
+            datasets: [
+              { type: 'bar',  label: 'Entradas', data: inData,  backgroundColor: 'rgba(34,197,94,0.7)',  borderRadius: 3, yAxisID: 'yBar' },
+              { type: 'bar',  label: 'Saídas',   data: outData, backgroundColor: 'rgba(239,68,68,0.7)',  borderRadius: 3, yAxisID: 'yBar' },
+              { type: 'line', label: 'Saldo',    data: balData,
+                borderColor: 'rgb(14,165,233)', backgroundColor: 'rgba(14,165,233,0.08)',
+                borderWidth: 2, pointRadius: 3, tension: 0.3, fill: true, yAxisID: 'yLine' }
+            ]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: { display: false },
+              tooltip: { callbacks: { label: function (c) {
+                return c.dataset.label + ': ' + fmtEur(c.parsed.y);
+              }}}
+            },
+            scales: {
+              yBar:  { type: 'linear', position: 'left',  grid: { drawOnChartArea: false }, ticks: { font: { size: 10 }, callback: fmtEurAxis } },
+              yLine: { type: 'linear', position: 'right', grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { font: { size: 10 }, callback: fmtEurAxis } },
+              x:     { ticks: { font: { size: 10 } } }
+            }
+          }
+        });
+      }
+
+      window.setChartPeriod = function (n) {
+        renderChart(allBuckets.slice(-n));
+        document.querySelectorAll('.chart-period-btn').forEach(function (btn) {
+          btn.classList.remove('bg-base-100', 'shadow-sm', 'text-primary');
+          btn.classList.add('text-base-content/50');
+        });
+        var active = document.getElementById('btn-' + n + 'm');
+        if (active) {
+          active.classList.remove('text-base-content/50');
+          active.classList.add('bg-base-100', 'shadow-sm', 'text-primary');
+        }
+        var label = document.getElementById('chart-period-label');
+        if (label) label.textContent = '· últimos ' + n + ' meses';
+      };
+
+      setChartPeriod(6);
+    })();
+    </script>
+  </div>
+
+  <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+    <div class="text-sm font-semibold mb-1">Cobranças a acompanhar</div>
+    <div class="text-xs text-base-content/60 mb-4">Frações com valores em atraso</div>
+    {{ if topDebtors.length === 0 }}
+      <div class="text-center py-8 text-base-content/40 text-sm">Sem valores em atraso 🎉</div>
+    {{ else }}
+      {{# Scroll contido a 6 linhas; `pr-1` dá espaço à scrollbar nativa. #}}
+      <div class="space-y-1 max-h-[192px] overflow-y-auto pr-1 scroll-smooth">
+        {{ for d of topDebtors }}
+          <a href="/admin/c/{{ currentCondominiumId }}/units/{{ d.unitId }}/edit"
+             class="flex items-center justify-between gap-2 hover:bg-base-200/40 rounded-md px-2 py-1 -mx-2 transition-colors">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="inline-flex w-6 h-6 rounded bg-error/10 text-error text-[10px] font-black items-center justify-center shrink-0">
+                {{ d.designation.slice(0, 2).toUpperCase() }}
+              </span>
+              <span class="text-sm min-w-0 truncate">
+                <span class="font-semibold">{{ d.designation }}</span>{{ if d.identifier }}<span class="text-base-content/50"> · {{ d.identifier }}</span>{{ /if }}
+              </span>
+            </div>
+            <span class="text-sm tabular-nums font-bold text-error/90 shrink-0">{{ d.amount |> formatMoney }}</span>
+          </a>
+        {{ /for }}
+      </div>
+      {{ if topDebtors.length > 6 }}
+        <div class="text-[10px] text-base-content/40 text-center mt-2">
+          {{ String(topDebtors.length) }} frações com valores em atraso - desliza para ver todas
+        </div>
+      {{ /if }}
+    {{ /if }}
+  </div>
+</div>
+
+{{# ── Linha 3: agenda + recorrentes + ocorrências ── #}}
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+
+  <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <div class="text-sm font-semibold">Próximas assembleias</div>
+        <div class="text-xs text-base-content/60 mt-0.5">Agendadas</div>
+      </div>
+      <a href="/admin/c/{{ currentCondominiumId }}/assembly" class="link link-primary text-xs">ver todas</a>
+    </div>
+    {{ if upcomingAssemblies.length === 0 }}
+      <div class="text-center py-6 text-base-content/40 text-sm">Nenhuma assembleia agendada.</div>
+    {{ else }}
+      <div class="space-y-3">
+        {{ for a of upcomingAssemblies }}
+          <a href="/admin/c/{{ currentCondominiumId }}/assembly/{{ a.id }}" class="flex items-center gap-3 hover:bg-base-200/40 rounded-lg p-2 -mx-2 transition-colors">
+            <div class="w-10 text-center">
+              <div class="text-xs uppercase text-base-content/50 tracking-wider">{{ a.scheduledAt.slice(5, 7) === "01" ? "Jan" : a.scheduledAt.slice(5, 7) === "02" ? "Fev" : a.scheduledAt.slice(5, 7) === "03" ? "Mar" : a.scheduledAt.slice(5, 7) === "04" ? "Abr" : a.scheduledAt.slice(5, 7) === "05" ? "Mai" : a.scheduledAt.slice(5, 7) === "06" ? "Jun" : a.scheduledAt.slice(5, 7) === "07" ? "Jul" : a.scheduledAt.slice(5, 7) === "08" ? "Ago" : a.scheduledAt.slice(5, 7) === "09" ? "Set" : a.scheduledAt.slice(5, 7) === "10" ? "Out" : a.scheduledAt.slice(5, 7) === "11" ? "Nov" : "Dez" }}</div>
+              <div class="text-2xl font-black">{{ a.scheduledAt.slice(8, 10) }}</div>
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="text-sm font-semibold truncate">
+                {{ a.type === "ordinary" ? "Ordinária" : "Extraordinária" }}
+                {{ if a.minutesNumber }}<span class="text-base-content/50 font-normal">· {{ a.minutesNumber }}</span>{{ /if }}
+              </div>
+              <div class="text-xs text-base-content/60 mt-0.5">
+                {{ a.daysUntil <= 0 ? "hoje" : a.daysUntil === 1 ? "amanhã" : `em ${a.daysUntil} dias` }}
+              </div>
+            </div>
+          </a>
+        {{ /for }}
+      </div>
+    {{ /if }}
+  </div>
+
+  <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <div class="text-sm font-semibold">Recorrentes a gerar</div>
+        <div class="text-xs text-base-content/60 mt-0.5">Próximas execuções</div>
+      </div>
+      <a href="/admin/c/{{ currentCondominiumId }}/recurring" class="link link-primary text-xs">ver tudo</a>
+    </div>
+    {{ if upcomingRecurring.length === 0 }}
+      <div class="text-center py-6 text-base-content/40 text-sm">Sem templates ativos.</div>
+    {{ else }}
+      <div class="space-y-3">
+        {{ for r of upcomingRecurring }}
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2 min-w-0 flex-1">
+              <span class="inline-block w-1.5 h-1.5 rounded-full {{ if r.kind === 'payable' }}bg-error{{ else }}bg-success{{ /if }}"></span>
+              <div class="min-w-0 flex-1">
+                <div class="text-sm font-semibold truncate">{{ r.description }}</div>
+                <div class="text-xs text-base-content/60">
+                  {{ r.daysUntil <= 0 ? "em atraso" : r.daysUntil === 0 ? "hoje" : `em ${r.daysUntil} dias` }} · {{ r.intervalType }}
+                </div>
+              </div>
+            </div>
+            <div class="text-sm tabular-nums font-semibold">{{ r.amount |> formatMoney }}</div>
+          </div>
+        {{ /for }}
+      </div>
+    {{ /if }}
+  </div>
+
+  <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <div class="text-sm font-semibold">
+          Ocorrências abertas
+          {{ if totalOpenTickets > 0 }}
+            <span class="ml-1 text-xs font-normal text-base-content/50">· {{ String(totalOpenTickets) }}</span>
+          {{ /if }}
+        </div>
+        <div class="text-xs text-base-content/60 mt-0.5">Reclamações e problemas reportados</div>
+      </div>
+      <a href="/admin/c/{{ currentCondominiumId }}/tickets" class="text-xs text-primary hover:underline">ver todas</a>
+    </div>
+    {{ if openTickets.length === 0 }}
+      <div class="text-xs text-base-content/50 text-center py-6">Sem ocorrências abertas.</div>
+    {{ else }}
+      <div class="space-y-3">
+        {{ for o of openTickets }}
+          <a href="/admin/c/{{ currentCondominiumId }}/tickets/{{ o.id }}" class="flex items-start gap-3 hover:bg-base-200/40 rounded-md -mx-2 px-2 py-1 transition">
+            {{ if o.severity === "high" }}
+              <span class="inline-block w-1.5 h-1.5 rounded-full bg-error mt-1.5 shrink-0"></span>
+            {{ else if o.severity === "medium" }}
+              <span class="inline-block w-1.5 h-1.5 rounded-full bg-warning mt-1.5 shrink-0"></span>
+            {{ else }}
+              <span class="inline-block w-1.5 h-1.5 rounded-full bg-base-content/40 mt-1.5 shrink-0"></span>
+            {{ /if }}
+            <div class="flex-1 min-w-0">
+              <div class="text-sm font-medium truncate"><span class="text-base-content/40 mr-1 font-mono">{{ o.code }}</span>{{ o.title }}</div>
+              <div class="text-xs text-base-content/60 mt-0.5 truncate">
+                {{ o.unit }} · {{ if o.openedDaysAgo === 0 }}aberta hoje{{ else if o.openedDaysAgo === 1 }}há 1 dia{{ else }}há {{ String(o.openedDaysAgo) }} dias{{ /if }}
+              </div>
+            </div>
+          </a>
+        {{ /for }}
+      </div>
+    {{ /if }}
+  </div>
+</div>
+
+{{# ── Linha 4: resumo do condomínio + próximas inspeções ── #}}
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+
+  <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+    <div class="text-sm font-semibold mb-4">Resumo</div>
+    <div class="space-y-3">
+      <div class="flex justify-between text-sm">
+        <span class="text-base-content/60">Frações</span>
+        <span class="font-semibold tabular-nums"><a href="/admin/c/{{ currentCondominiumId }}/units" class="link link-hover">{{ String(stats.unitsTotal) }}</a></span>
+      </div>
+      <div class="flex justify-between text-sm">
+        <span class="text-base-content/60">Ocupantes ativos</span>
+        <span class="font-semibold tabular-nums"><a href="/admin/c/{{ currentCondominiumId }}/occupants" class="link link-hover">{{ String(stats.occupants) }}</a></span>
+      </div>
+      <div class="flex justify-between text-sm">
+        <span class="text-base-content/60">Vencimentos em atraso</span>
+        <span class="font-semibold tabular-nums text-error/80"><a href="/admin/c/{{ currentCondominiumId }}/charges?kind=receivable" class="link link-hover">{{ String(stats.overdueCount) }}</a></span>
+      </div>
+      <div class="flex justify-between text-sm">
+        <span class="text-base-content/60">Movimentos por conciliar</span>
+        <span class="font-semibold tabular-nums text-warning/80"><a href="/admin/c/{{ currentCondominiumId }}/bank" class="link link-hover">{{ String(stats.pendingReconciliation) }}</a></span>
+      </div>
+    </div>
+  </div>
+
+  {{# Lembretes de cobrança (ADR 0028): frações em atraso > 30d. Guard
+     bloqueado (conciliação NULL/stale) troca o link por "Conciliação atrasada". #}}
+  <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+    <div class="flex items-center justify-between mb-3">
+      <div>
+        <div class="text-sm font-semibold">Cobrança</div>
+        <div class="text-xs text-base-content/60 mt-0.5">Frações em atraso &gt; 30d</div>
+      </div>
+      <a href="/admin/c/{{ currentCondominiumId }}/billing-reminders" class="text-xs text-primary hover:underline">
+        {{ if !billingGuardOk }}conciliar primeiro{{ else }}Enviar lembretes →{{ /if }}
+      </a>
+    </div>
+    <div class="flex items-baseline gap-2">
+      <span class="text-4xl font-black {{ if billingOverdueCount > 0 }}text-error{{ else }}text-base-content/40{{ /if }} tabular-nums">
+        {{ String(billingOverdueCount) }}
+      </span>
+      <span class="text-xs text-base-content/60">
+        {{ if billingOverdueCount === 1 }}fração{{ else }}frações{{ /if }}
+      </span>
+    </div>
+    {{ if !billingGuardOk }}
+      <div class="mt-3 text-[11px] text-warning flex items-center gap-1.5">
+        <svg class="w-3 h-3 shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+          <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/>
+        </svg>
+        Conciliação atrasada
+      </div>
+    {{ /if }}
+  </div>
+
+  <div class="lg:col-span-2 bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <div class="text-sm font-semibold">Próximas inspeções</div>
+        <div class="text-xs text-base-content/60 mt-0.5">Próxima data prevista por linha</div>
+      </div>
+      <a href="/admin/c/{{ currentCondominiumId }}/inspections" class="text-xs text-primary hover:underline">ver todas →</a>
+    </div>
+    {{ if upcomingInspections.length === 0 }}
+      <div class="text-sm text-base-content/50 py-4 text-center">
+        Sem inspeções ativas no condomínio.
+        <a href="/admin/c/{{ currentCondominiumId }}/inspections/new" class="link link-primary text-xs ml-1">adicionar →</a>
+      </div>
+    {{ else }}
+      <ul class="divide-y divide-base-200/60 -mx-2">
+        {{ for ins of upcomingInspections }}
+          <li class="px-2 py-2.5 flex items-center justify-between gap-3 hover:bg-base-200/30 rounded">
+            <a href="/admin/c/{{ currentCondominiumId }}/inspections/{{ ins.id }}" class="flex-1 min-w-0 no-underline">
+              <div class="text-sm font-medium text-base-content">
+                <span class="text-[10px] uppercase tracking-wider text-base-content/50 font-semibold mr-2">
+                  {{ ins.categoryLabel }}
+                </span>
+                {{ ins.description }}
+              </div>
+              <div class="text-xs text-base-content/50 mt-0.5 tabular-nums">
+                Próxima: <strong class="text-base-content/70">{{ ins.validUntil |> formatDate }}</strong>
+                · {{ ins.relativeWhen }}
+              </div>
+            </a>
+            <div class="shrink-0">
+              {{ if ins.status === "expired" }}
+                <span class="inline-flex items-center gap-1.5 text-xs font-medium text-error">
+                  <span class="inline-block w-1.5 h-1.5 rounded-full bg-error"></span>Vencida
+                </span>
+              {{ else if ins.status === "due_soon" }}
+                <span class="inline-flex items-center gap-1.5 text-xs font-medium text-warning">
+                  <span class="inline-block w-1.5 h-1.5 rounded-full bg-warning"></span>A vencer
+                </span>
+              {{ else }}
+                <span class="inline-flex items-center gap-1.5 text-xs text-base-content/50">
+                  <span class="inline-block w-1.5 h-1.5 rounded-full bg-success"></span>Em ordem
+                </span>
+              {{ /if }}
+            </div>
+          </li>
+        {{ /for }}
+      </ul>
+    {{ /if }}
+  </div>
+</div>
+
+{{ /layout }}

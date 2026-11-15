@@ -1,0 +1,228 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{ layout "partials/page_header.vto" { title: "Contas bancárias" } }}
+  <button type="button" class="btn btn-sm" onclick="document.getElementById('fcr_transfer_modal').showModal()">Transferir entre bolsas</button>
+  <a href="/admin/c/{{ currentCondominiumId }}/bank-accounts/new" class="btn btn-sm btn-primary">+ Nova conta</a>
+{{ /layout }}
+
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+  {{ include "partials/kpi_card.vto" {
+    tone: "primary", label: "Contas", value: String(stats.total), caption: String(stats.active) + " ativas"
+  } }}
+  <div class="bg-gradient-to-br from-success/10 to-success/5 rounded-xl border border-success/20 p-5">
+    <div class="text-xs uppercase font-bold text-success/80 tracking-wider">Saldo total (físico)</div>
+    <div class="text-xl sm:text-2xl xl:text-3xl font-black mt-2 whitespace-nowrap" title="Σ saldo abertura + Σ todas as transações (incluindo por conciliar)">{{ stats.totalBalance |> formatMoney }}</div>
+    <div class="text-xs text-base-content/60 mt-1 space-y-0.5">
+      <div class="flex items-center gap-1.5 whitespace-nowrap">
+        <span class="inline-block w-1.5 h-1.5 rounded-full bg-info/70 shrink-0"></span>
+        Ord. <span class="tabular-nums font-semibold">{{ stats.ordinaryCents |> formatMoney }}</span>
+      </div>
+      <div class="flex items-center gap-1.5 whitespace-nowrap">
+        <span class="inline-block w-1.5 h-1.5 rounded-full bg-warning/70 shrink-0"></span>
+        FCR <span class="tabular-nums font-semibold">{{ stats.fcrCents |> formatMoney }}</span>
+      </div>
+      {{ if stats.unreconciledCents > 0 }}
+        <div class="flex items-center gap-1.5 whitespace-nowrap text-warning/80 pt-0.5" title="Saldo no extrato que ainda não entrou no ledger contabilístico (121 + 122). Conciliar para alinhar.">
+          <span class="inline-block w-1.5 h-1.5 rounded-full bg-warning shrink-0"></span>
+          <span class="tabular-nums">{{ stats.unreconciledCents |> formatMoney }}</span> por conciliar
+        </div>
+      {{ /if }}
+    </div>
+  </div>
+  {{ include "partials/kpi_card.vto" {
+    tone: "warning", label: "Movimentos", value: String(stats.totalPending), caption: "por conciliar"
+  } }}
+  <div class="bg-gradient-to-br from-info/10 to-info/5 rounded-xl border border-info/20 p-5">
+    <div class="text-xs uppercase font-bold text-info/80 tracking-wider">Conciliação</div>
+    <div class="text-xl sm:text-2xl xl:text-3xl font-black mt-2">→</div>
+    <div class="text-xs text-base-content/60 mt-1">
+      <a href="/admin/c/{{ currentCondominiumId }}/reconciliation" class="link link-info">Abrir fila</a>
+    </div>
+  </div>
+</div>
+
+{{ layout "partials/table_card.vto" { title: "Lista de contas", count: accounts.length, searchable: true } }}
+  <table class="table table-sm">
+    <thead>
+      <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+        <th class="pl-4">Conta</th>
+        <th>IBAN</th>
+        <th>Designação</th>
+        <th class="text-right">Saldo atual</th>
+        <th class="text-right">Movimentos</th>
+        <th class="text-right">Pendentes</th>
+        <th>Estado</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ if accounts.length === 0 }}
+        <tr><td colspan="8" class="p-8 text-center text-base-content/50">Sem contas bancárias. <a href="/admin/c/{{ currentCondominiumId }}/bank-accounts/new" class="link link-primary">Criar a primeira</a>.</td></tr>
+      {{ else }}
+        {{ for a of accounts }}
+          <tr class="hover:bg-base-200/30 border-t border-base-100 text-sm">
+            <td class="pl-4 font-bold" data-search>
+              <span class="inline-flex items-center gap-2">
+                {{ if a.kind === "cash" }}
+                  <span class="text-base" title="Caixa de numerário">💵</span>
+                {{ else }}
+                  <span class="text-base" title="Conta bancária">🏦</span>
+                {{ /if }}
+                {{ a.bankName }}
+              </span>
+            </td>
+            <td class="text-base-content/70 tabular-nums text-xs" data-search>
+              {{ if a.kind === "cash" }}<span class="text-base-content/40 italic">-</span>{{ else }}{{ a.iban ?? "-" }}{{ /if }}
+            </td>
+            <td class="text-base-content/70" data-search>{{ a.accountName ?? "-" }}</td>
+            <td class="text-right tabular-nums font-semibold">{{ a.current_balance_cents |> formatMoney }}</td>
+            <td class="text-right tabular-nums text-base-content/70">{{ String(a.tx_count) }}</td>
+            <td class="text-right tabular-nums">
+              {{ if a.pending_count > 0 }}
+                <span class="inline-flex items-center gap-1.5 text-xs font-medium text-warning">
+                  <span class="inline-block w-1.5 h-1.5 rounded-full bg-warning"></span>{{ String(a.pending_count) }}
+                </span>
+              {{ else }}
+                <span class="text-base-content/40">0</span>
+              {{ /if }}
+            </td>
+            <td>
+              {{ if a.isActive }}
+                {{ include "partials/status_badge.vto" { label: "Ativa", tone: "success", size: "xs" } }}
+              {{ else }}
+                {{ include "partials/status_badge.vto" { label: "Inactiva", tone: "muted", size: "xs" } }}
+              {{ /if }}
+            </td>
+            {{# Ações: ver/editar/importar conforme ADR 0022.
+               Importar só aparece em contas bancárias (cash não tem extrato). #}}
+            <td class="pr-4 text-right whitespace-nowrap">
+              <div class="inline-flex items-center gap-4">
+                {{ include "partials/action_link.vto" {
+                  kind: "view",
+                  href: "/admin/c/" + currentCondominiumId + "/bank-accounts/" + a.id,
+                  title: "Ver detalhe da conta",
+                } }}
+                {{ include "partials/action_link.vto" {
+                  kind: "edit",
+                  href: "/admin/c/" + currentCondominiumId + "/bank-accounts/" + a.id + "/edit",
+                  title: "Editar conta",
+                } }}
+                {{ if a.kind !== "cash" }}
+                  {{ include "partials/action_link.vto" {
+                    kind: "import",
+                    href: "/admin/c/" + currentCondominiumId + "/bank-accounts/" + a.id + "?import=1",
+                    title: "Importar extrato XLSX",
+                  } }}
+                {{ /if }}
+              </div>
+            </td>
+          </tr>
+        {{ /for }}
+      {{ /if }}
+    </tbody>
+  </table>
+{{ /layout }}
+
+{{# Histórico de reclassificações entre bolsas. Só aparece quando existe -
+   condomínios que nunca transferiram não precisam do ruído. #}}
+{{ if fcrTransfers.length > 0 }}
+  <div class="mt-6">
+    {{ layout "partials/table_card.vto" { title: "Transferências entre bolsas", count: fcrTransfers.length, subtitle: "Reclassificação contabilística - o dinheiro não sai do banco" } }}
+      <table class="table table-sm">
+        <thead>
+          <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+            <th class="pl-4">Data</th>
+            <th>Movimento</th>
+            <th class="text-right">Valor</th>
+            <th class="pr-4">Motivo</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{ for t of fcrTransfers }}
+            <tr class="hover:bg-base-200/30 border-t border-base-100 text-sm">
+              <td class="pl-4 tabular-nums whitespace-nowrap">{{ t.transferDate |> formatDate }}</td>
+              <td class="whitespace-nowrap">
+                {{ if t.direction === "to_fcr" }}
+                  <span class="font-medium">Ordinária <span class="text-base-content/40">→</span> FCR</span>
+                {{ else }}
+                  <span class="font-medium">FCR <span class="text-base-content/40">→</span> Ordinária</span>
+                {{ /if }}
+              </td>
+              <td class="text-right tabular-nums font-semibold">{{ t.amountCents |> formatMoney }}</td>
+              <td class="pr-4 text-base-content/70">{{ t.reason }}</td>
+            </tr>
+          {{ /for }}
+        </tbody>
+      </table>
+    {{ /layout }}
+  </div>
+{{ /if }}
+
+{{# Transferir entre bolsas (ADR 0019). Ao nível do condomínio - as bolsas são
+   agregadas no ledger (121/122), não vivem numa conta bancária concreta. #}}
+<dialog id="fcr_transfer_modal" class="modal">
+  <div class="modal-box max-w-md">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-lg mb-1">Transferir entre bolsas</h3>
+    <p class="text-sm text-base-content/60 mb-4">
+      Reclassifica quanto do saldo está reservado ao Fundo Comum de Reserva. Nenhum dinheiro sai do banco - o saldo total do condomínio não muda. Não tem anulação: para corrigir, regista a transferência no sentido contrário.
+    </p>
+    <form method="post" action="/admin/c/{{ currentCondominiumId }}/bank-accounts/fcr-transfer" class="space-y-3">
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text text-xs font-medium">Sentido</span></label>
+        <div class="grid grid-cols-1 gap-2">
+          <label class="cursor-pointer border border-base-300 rounded-lg p-2 has-[:checked]:border-warning has-[:checked]:bg-warning/5">
+            <div class="flex items-center gap-2">
+              <input type="radio" name="direction" value="to_fcr" class="radio radio-sm radio-warning" checked>
+              <span class="font-medium text-sm">Ordinária → FCR</span>
+              <span class="text-xs text-base-content/50 ml-auto tabular-nums">disp. {{ stats.ordinaryCents |> formatMoney }}</span>
+            </div>
+          </label>
+          <label class="cursor-pointer border border-base-300 rounded-lg p-2 has-[:checked]:border-info has-[:checked]:bg-info/5">
+            <div class="flex items-center gap-2">
+              <input type="radio" name="direction" value="to_ordinary" class="radio radio-sm radio-info">
+              <span class="font-medium text-sm">FCR → Ordinária</span>
+              <span class="text-xs text-base-content/50 ml-auto tabular-nums">disp. {{ stats.fcrCents |> formatMoney }}</span>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div class="form-control">
+          <label class="label py-1" for="fcr_amount"><span class="label-text text-xs font-medium">Valor (€)</span></label>
+          <input type="text" id="fcr_amount" name="amount" inputmode="decimal" class="input input-sm input-bordered" placeholder="0,00" required>
+        </div>
+        <div class="form-control">
+          <label class="label py-1" for="fcr_date"><span class="label-text text-xs font-medium">Data</span></label>
+          <input type="date" id="fcr_date" name="transferDate" class="input input-sm input-bordered" required>
+        </div>
+      </div>
+
+      <div class="form-control">
+        <label class="label py-1" for="fcr_reason"><span class="label-text text-xs font-medium">Motivo</span></label>
+        <textarea id="fcr_reason" name="reason" rows="2" maxlength="2000" class="textarea textarea-sm textarea-bordered"
+                  placeholder="Ex: Deliberação da assembleia de 12/03/2026 - reforço do FCR" required></textarea>
+        <span class="text-[11px] text-base-content/50 mt-1">Retirar do FCR só é legítimo para conservação e reparação das partes comuns (Art. 1424.º-A CC), com deliberação de assembleia.</span>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-2">
+        <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('fcr_transfer_modal').close()">Cancelar</button>
+        <button type="submit" class="btn btn-sm btn-primary">Transferir</button>
+      </div>
+    </form>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+<script>
+  // Default a data para hoje quando o modal abre.
+  (function () {
+    var input = document.getElementById("fcr_date");
+    if (input && !input.value) {
+      var d = new Date();
+      input.value = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    }
+  })();
+</script>
+
+{{ /layout }}

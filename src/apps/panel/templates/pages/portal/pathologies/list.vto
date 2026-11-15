@@ -1,0 +1,125 @@
+{{ layout "layouts/portal.vto" { title, section, condominium, unit, currentUser, currentPortalUnitId, currentCondominiumId } }}
+
+{{# Patologias - portal (read-only). Pattern visual alinhado com portal/tickets.vto. #}}
+
+{{# ─── Cabeçalho ─────────────────────────────────────────────────────── #}}
+<div class="mb-6">
+  <h1 class="text-2xl sm:text-3xl font-black">Patologias</h1>
+  <p class="text-sm text-base-content/60 mt-1 max-w-xl">
+    Registo técnico de defeitos físicos do edifício acompanhado pela administração.
+    Fissuras, infiltrações, humidade, eflorescências - frequentemente requerem obra.
+  </p>
+</div>
+
+{{# ─── Tabs por bucket (server-side via `?statusGroup=`) ─────────────── #}}
+{{ if counts.all > 0 }}
+  {{ set baseUrl = "/portal/c/" + currentCondominiumId + "/u/" + currentPortalUnitId + "/pathologies" }}
+  <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
+    <div class="tabs tabs-boxed bg-base-200/50 p-1">
+      <a href="{{ baseUrl }}" class="tab tab-sm {{ if !filterGroup }}tab-active{{ /if }}">
+        Todas <span class="ml-1 opacity-70">({{ String(counts.all) }})</span>
+      </a>
+      {{ if counts.active > 0 }}
+        <a href="{{ baseUrl }}?statusGroup=active"
+           class="tab tab-sm {{ if filterGroup === 'active' }}tab-active{{ /if }}">
+          Activas <span class="ml-1 opacity-70">({{ String(counts.active) }})</span>
+        </a>
+      {{ /if }}
+      {{ if counts.resolved > 0 }}
+        <a href="{{ baseUrl }}?statusGroup=resolved"
+           class="tab tab-sm {{ if filterGroup === 'resolved' }}tab-active{{ /if }}">
+          Resolvidas <span class="ml-1 opacity-70">({{ String(counts.resolved) }})</span>
+        </a>
+      {{ /if }}
+      {{ if counts.dismissed > 0 }}
+        <a href="{{ baseUrl }}?statusGroup=dismissed"
+           class="tab tab-sm {{ if filterGroup === 'dismissed' }}tab-active{{ /if }}">
+          Encerradas <span class="ml-1 opacity-70">({{ String(counts.dismissed) }})</span>
+        </a>
+      {{ /if }}
+    </div>
+    <div class="text-xs text-base-content/60">
+      <strong class="text-base-content/90">{{ String(pathologies.length) }}</strong> {{ pathologies.length === 1 ? "patologia" : "patologias" }}
+    </div>
+  </div>
+{{ /if }}
+
+{{# ─── Lista ─────────────────────────────────────────────────────────── #}}
+{{ if pathologies.length === 0 }}
+  <div class="bg-base-100 rounded-xl border border-base-200 p-12 text-center">
+    <div class="text-5xl mb-3 opacity-30">🏛️</div>
+    <p class="text-base-content/60 font-medium">
+      {{ if filterGroup }}Sem patologias neste estado.{{ else }}Sem patologias registadas no edifício.{{ /if }}
+    </p>
+    {{ if filterGroup }}
+      <p class="text-sm text-base-content/50 mt-1">
+        <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/pathologies" class="link link-primary">Ver todas</a>
+      </p>
+    {{ /if }}
+  </div>
+{{ else }}
+  <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm divide-y divide-base-200 overflow-hidden">
+    {{ for p of pathologies }}
+      {{ set pUrl = "/portal/c/" + currentCondominiumId + "/u/" + currentPortalUnitId + "/pathologies/" + p.id }}
+      {{ set sColor = statusColor[p.status] ?? "base-content/40" }}
+      {{ set isMustard = sColor === "warning_mustard" }}
+      <a href="{{ pUrl }}" class="block hover:bg-base-200/30 transition-colors px-4 py-3">
+        <div class="flex items-start gap-3">
+          <div class="min-w-0 flex-1">
+            <div class="flex items-baseline gap-2 flex-wrap">
+              <span class="font-mono text-xs text-base-content/40">{{ p.code }}</span>
+              <span class="font-semibold text-sm break-words">{{ p.title }}</span>
+            </div>
+            <div class="text-xs text-base-content/50 mt-1 flex items-center gap-1.5 flex-wrap">
+              <span>{{ categoryLabels[p.category] ?? p.category }}</span>
+              {{ if p.affectsCommonArea }}
+                <span class="text-base-content/30">·</span>
+                <span class="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded bg-success/10 text-success">
+                  <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                  Parte comum
+                </span>
+              {{ /if }}
+              {{ if p.units && p.units.length > 0 }}
+                <span class="text-base-content/30">·</span>
+                <span class="truncate">
+                  {{ if p.units.length === 1 }}
+                    Fração <span class="font-medium tabular-nums">{{ p.units[0].designation }}</span>
+                  {{ else }}
+                    {{ String(p.units.length) }} frações
+                  {{ /if }}
+                </span>
+              {{ /if }}
+              {{ if p.detectedAt }}
+                <span class="text-base-content/30">·</span>
+                <span class="tabular-nums">detetada {{ p.detectedAt |> formatDate }}</span>
+              {{ /if }}
+              {{ if p.resolvedAt }}
+                <span class="text-base-content/30">·</span>
+                <span class="text-success tabular-nums">resolvida {{ p.resolvedAt |> formatDate }}</span>
+              {{ /if }}
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2 shrink-0 mt-0.5">
+            {{ if isMustard }}
+              <span class="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full whitespace-nowrap bg-amber-100" style="color:#854D0E">
+                <span class="w-1.5 h-1.5 rounded-full" style="background:#A16207"></span>
+                <span class="hidden sm:inline">{{ statusLabels[p.status] ?? p.status }}</span>
+              </span>
+            {{ else }}
+              <span class="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full whitespace-nowrap bg-{{ sColor }}/10 text-{{ sColor }}">
+                <span class="w-1.5 h-1.5 rounded-full bg-{{ sColor }}"></span>
+                <span class="hidden sm:inline">{{ statusLabels[p.status] ?? p.status }}</span>
+              </span>
+            {{ /if }}
+            <svg class="w-4 h-4 text-base-content/30" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+            </svg>
+          </div>
+        </div>
+      </a>
+    {{ /for }}
+  </div>
+{{ /if }}
+
+{{ /layout }}

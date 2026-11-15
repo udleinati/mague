@@ -1,0 +1,142 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{# Patologias - listagem. "+ Nova patologia" abre modal (ADR 0019); header
+   canónico (ADR 0036); ações via action_link.vto (ADR 0022). #}}
+
+{{ layout "partials/page_header.vto" {
+  title: "Patologias",
+  meta: [
+    { value: "Registo técnico de defeitos físicos do edifício. Fissuras, infiltrações, humidade, eflorescências - frequentemente requerem obra.", plain: true },
+  ]
+} }}
+  <button type="button" class="btn btn-sm btn-primary"
+          onclick="document.getElementById('modal_pathology').showModal()">
+    + Nova patologia
+  </button>
+{{ /layout }}
+
+{{# ─── KPIs por bucket ───────────────────────────────────────────────────── #}}
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+  {{ include "partials/kpi_card.vto" {
+    tone: "primary", label: "Activas", value: String(summary.active), caption: "em curso (sem contar terminais)"
+  } }}
+  <div class="bg-gradient-to-br from-warning/10 to-warning/5 rounded-xl border border-warning/20 p-5">
+    <div class="text-xs uppercase font-bold tracking-wider" style="color:#A16207">A aguardar</div>
+    <div class="text-xl sm:text-2xl xl:text-3xl font-black mt-2">{{ String(summary.awaiting) }}</div>
+    <div class="text-xs text-base-content/60 mt-1">cotações, aprovação ou início</div>
+  </div>
+  {{ include "partials/kpi_card.vto" {
+    tone: "info", label: "Em obra", value: String(summary.inRepair), caption: "empreitada em curso"
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "success", label: "Resolvidas", value: String(summary.resolved), caption: "históricas (todos os tempos)"
+  } }}
+</div>
+
+{{# ─── Filtros (só por estado) ───────────────────────────────────────────── #}}
+<div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-4 mb-4 flex flex-wrap gap-2 items-center">
+  <a href="/admin/c/{{ currentCondominiumId }}/pathologies" class="btn btn-xs {{ if !filter.status }}btn-primary{{ else }}btn-ghost{{ /if }}">Todos</a>
+  {{ for key, label of statusShort }}
+    <a href="/admin/c/{{ currentCondominiumId }}/pathologies?status={{ key }}"
+       class="btn btn-xs {{ if filter.status === key }}btn-primary{{ else }}btn-ghost{{ /if }}">{{ label }}</a>
+  {{ /for }}
+</div>
+
+{{# ─── Tabela ────────────────────────────────────────────────────────────── #}}
+{{ layout "partials/table_card.vto" { title: "Lista", count: pathologies.length, searchable: true } }}
+  <table class="table table-sm">
+    <thead>
+      <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+        <th class="pl-4">Código</th>
+        <th>Título</th>
+        <th>Categoria</th>
+        <th>Âmbito</th>
+        <th>Detectada</th>
+        <th>Estado</th>
+        <th class="text-right">Fotos</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ if pathologies.length === 0 }}
+        <tr><td colspan="8" class="p-8 text-center text-base-content/50">
+          Nenhuma patologia para os filtros ativos.
+        </td></tr>
+      {{ else }}
+        {{ for p of pathologies }}
+          {{# Mostarda (#A16207) inline porque text-warning daisyUI tem mau
+             contraste em light theme. #}}
+          {{ set sColor = statusColor[p.status] }}
+          {{ set isMustard = sColor === "warning_mustard" }}
+          {{ set sClass = isMustard ? "" : "text-" + sColor }}
+          <tr class="hover:bg-base-200/30 border-t border-base-100 text-sm">
+            <td class="pl-4 font-mono text-xs font-semibold tabular-nums" data-search>
+              <a href="/admin/c/{{ currentCondominiumId }}/pathologies/{{ p.id }}" class="link link-hover link-primary">{{ p.code }}</a>
+            </td>
+            <td class="font-medium" data-search>
+              <a href="/admin/c/{{ currentCondominiumId }}/pathologies/{{ p.id }}" class="link link-hover">{{ p.title }}</a>
+              {{ if p.description && p.status !== "draft" }}
+                <div class="text-xs text-base-content/50 font-normal mt-0.5 truncate max-w-md">{{ p.description }}</div>
+              {{ /if }}
+            </td>
+            <td class="text-xs text-base-content/70" data-search>{{ categoryLabels[p.category] ?? p.category }}</td>
+            <td class="text-xs" data-search>
+              {{# `data-search` torna designation+identifier das frações
+                 pesquisáveis pela busca da tabela. #}}
+              <div class="flex flex-wrap items-center gap-1.5">
+                {{ if p.affectsCommonArea }}
+                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-base-200 text-base-content/70">
+                    Comum
+                  </span>
+                {{ /if }}
+                {{ for u of p.units }}
+                  <a href="/admin/c/{{ currentCondominiumId }}/units/{{ u.id }}"
+                     class="link link-hover text-[11px] font-semibold tabular-nums">{{ u.designation }}{{ if u.identifier }}<span class="font-normal opacity-60"> - {{ u.identifier }}</span>{{ /if }}</a>
+                {{ /for }}
+                {{ if !p.affectsCommonArea && p.units.length === 0 }}
+                  <span class="text-base-content/30">-</span>
+                {{ /if }}
+              </div>
+            </td>
+            <td class="text-xs text-base-content/70 whitespace-nowrap tabular-nums">{{ p.detectedAt |> formatDate }}</td>
+            <td>
+              {{ if isMustard }}
+                <span class="inline-flex items-center gap-1.5 text-xs font-medium" style="color:#A16207">
+                  <span class="inline-block w-1.5 h-1.5 rounded-full" style="background:#A16207"></span>
+                  {{ statusShort[p.status] }}
+                </span>
+              {{ else }}
+                <span class="inline-flex items-center gap-1.5 text-xs font-medium {{ sClass }}">
+                  <span class="inline-block w-1.5 h-1.5 rounded-full bg-{{ sColor }}"></span>
+                  {{ statusShort[p.status] }}
+                </span>
+              {{ /if }}
+            </td>
+            <td class="text-right text-xs tabular-nums">
+              {{ if p.photosCount > 0 }}
+                <span class="inline-flex items-center gap-1 text-base-content/70">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/>
+                  </svg>
+                  {{ String(p.photosCount) }}
+                </span>
+              {{ else }}
+                <span class="text-base-content/30">-</span>
+              {{ /if }}
+            </td>
+            <td class="pr-4 text-right whitespace-nowrap">
+              {{ include "partials/action_link.vto" {
+                kind: "view",
+                href: "/admin/c/" + currentCondominiumId + "/pathologies/" + p.id,
+              } }}
+            </td>
+          </tr>
+        {{ /for }}
+      {{ /if }}
+    </tbody>
+  </table>
+{{ /layout }}
+
+{{ include "pages/pathology/_form_modal.vto" { currentCondominiumId, units, categoryLabels } }}
+
+{{ /layout }}

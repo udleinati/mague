@@ -1,0 +1,455 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{# Patologia - detalhe com edição inline (ADR 0019, padrão documents/show.vto).
+   Segmented control de estado no topo; zona perigosa no fim (ADR 0013). #}}
+
+{{ set sColor = statusColor[target.status] }}
+{{ set isMustard = sColor === "warning_mustard" }}
+{{ set isDraft = target.status === "draft" }}
+{{ set isResolved = target.status === "resolved" }}
+{{ set isDismissed = target.status === "dismissed" }}
+{{ set isTerminal = isResolved || isDismissed }}
+
+{{# Header canónico (ADR 0036). Sem `status` - vive no segmented control
+   e nos banners do corpo. #}}
+{{ set _detectedFmt = target.detectedAt |> formatDate }}
+{{ set _createdFmt = target.createdAt |> formatDate }}
+{{ set _updatedFmt = target.updatedAt |> formatDate }}
+{{ include "partials/page_header.vto" {
+  title: target.title,
+  scale: "detail",
+  code: target.code,
+  codeTone: "neutral",
+  breadcrumbs: [
+    { label: "Patologias", href: "/admin/c/" + currentCondominiumId + "/pathologies" },
+    { label: target.title },
+  ],
+  meta: [
+    { value: "Detectada em " + _detectedFmt, plain: true },
+    { value: "Criada " + _createdFmt, plain: true },
+    (target.updatedAt && target.updatedAt !== target.createdAt)
+      ? { value: "Atualizada " + _updatedFmt, plain: true }
+      : null,
+  ],
+} }}
+
+{{# ── Banner contextual ─────────────────────────────────────────────────── #}}
+{{ if isDraft }}
+  <div class="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs inline-flex items-center gap-2" style="color:#854D0E">
+    <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z"/>
+    </svg>
+    Rascunho privado - só admin vê. Saí de rascunho para publicar no portal do condómino.
+  </div>
+{{ else if isTerminal }}
+  <div class="mb-6 rounded-lg border border-base-200 bg-base-200/30 px-3 py-2 text-xs inline-flex items-center gap-2 text-base-content/70">
+    <svg class="w-3.5 h-3.5 shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+      <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.94 6.94a.75.75 0 11-1.061-1.061 3 3 0 112.871 5.026v.345a.75.75 0 01-1.5 0v-.5c0-.72.57-1.172 1.081-1.287A1.5 1.5 0 108.94 6.94zM10 15a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/>
+    </svg>
+    {{ if isResolved }}Patologia resolvida. Histórico preservado.{{ else }}Patologia dispensada. Não houve obra; razão registada abaixo.{{ /if }}
+  </div>
+{{ /if }}
+
+{{# ── Status segmented control ──────────────────────────────────────────── #}}
+<div class="mb-6 bg-base-100 rounded-xl border border-base-200 shadow-sm p-4 sm:p-5">
+  <div class="flex items-center gap-3 flex-wrap">
+    <div class="text-[10px] uppercase tracking-widest text-base-content/50 font-bold whitespace-nowrap">Estado</div>
+    <div class="inline-flex flex-wrap gap-1 p-1 bg-base-200/40 rounded-lg border border-base-200">
+      {{ for key, label of statusShort }}
+        {{ set isCurrent = target.status === key }}
+        {{ set keyColor = statusColor[key] }}
+        {{ set keyIsMustard = keyColor === "warning_mustard" }}
+        {{ if isCurrent }}
+          {{ if keyIsMustard }}
+            <span class="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-bold shadow-sm ring-1 ring-base-content/10 bg-amber-100" style="color:#854D0E">{{ label }}</span>
+          {{ else }}
+            <span class="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-bold shadow-sm ring-1 ring-base-content/10 bg-{{ keyColor }}/15 text-{{ keyColor }}">{{ label }}</span>
+          {{ /if }}
+        {{ else if key === "dismissed" }}
+          {{# Dispensar exige `dismissed_reason` (CHECK constraint na BD, ADR 0024).
+             Em vez de submeter diretamente, abre modal a pedir a razão. #}}
+          <button type="button"
+                  onclick="document.getElementById('modal_dismiss_pathology').showModal()"
+                  class="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium text-base-content/60 hover:bg-base-100 hover:text-base-content transition-colors"
+                  title="Mover para {{ label }} (exige razão)">{{ label }}</button>
+        {{ else }}
+          <form method="post" action="/admin/c/{{ currentCondominiumId }}/pathologies/{{ target.id }}/status" class="inline">
+            <input type="hidden" name="status" value="{{ key }}">
+            <button type="submit"
+                    class="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium text-base-content/60 hover:bg-base-100 hover:text-base-content transition-colors"
+                    title="Mover para {{ label }}">{{ label }}</button>
+          </form>
+        {{ /if }}
+      {{ /for }}
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  {{# COLUNA ESQUERDA: edição inline + razão dismiss/resolução + fotos ────── #}}
+  <div class="lg:col-span-2 space-y-6">
+
+    {{# ─── Form de edição inline ──────────────────────────────────────────
+       Congelado via `<fieldset disabled>` em estado terminal. O `pencil` das
+       datas no sidebar fica FORA do fieldset, logo ativo em isResolved. #}}
+    <form method="post" action="/admin/c/{{ currentCondominiumId }}/pathologies/{{ target.id }}/update"
+          class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+      <fieldset {{ if isTerminal }}disabled{{ /if }} class="space-y-4 disabled:opacity-70">
+      <h2 class="text-xs uppercase font-bold text-base-content/50 tracking-wider flex items-center gap-2">
+        Dados da patologia
+        {{ if isTerminal }}<span class="font-normal normal-case tracking-normal opacity-60">(congelado)</span>{{ /if }}
+      </h2>
+
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text text-xs">Título *</span></label>
+        <input type="text" name="title" required maxlength="255"
+               value="{{ target.title }}"
+               class="input input-sm input-bordered">
+      </div>
+
+      <div class="form-control">
+        <label class="label py-1">
+          <span class="label-text text-xs">Descrição</span>
+          <span class="label-text-alt text-[10px] text-base-content/40">localização física, dimensões, observações</span>
+        </label>
+        <textarea name="description" rows="4" maxlength="4000"
+                  class="textarea textarea-sm textarea-bordered">{{ target.description ?? "" }}</textarea>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Categoria *</span></label>
+          <select name="category" required class="select select-sm select-bordered">
+            {{ for cat, label of categoryLabels }}
+              <option value="{{ cat }}" {{ if cat === target.category }}selected{{ /if }}>{{ label }}</option>
+            {{ /for }}
+          </select>
+        </div>
+        <div class="form-control">
+          <label class="label py-1">
+            <span class="label-text text-xs">Detectada em</span>
+            {{ if !isDraft }}<span class="label-text-alt text-[10px] text-base-content/40">só editável em rascunho</span>{{ /if }}
+          </label>
+          <input type="date" name="detectedAt" value="{{ target.detectedAt }}"
+                 {{ if !isDraft }}disabled{{ /if }}
+                 class="input input-sm input-bordered">
+        </div>
+      </div>
+
+      {{# Sentinel hidden distingue "checkbox desligada" de "campo omitido". #}}
+      <input type="hidden" name="affectsCommonAreaSubmitted" value="1">
+      <div class="bg-base-200/30 rounded-lg p-3 space-y-3">
+        <div class="text-[10px] uppercase tracking-widest font-bold text-base-content/60">Âmbito *</div>
+        <label class="label cursor-pointer py-1 justify-start gap-3">
+          <input type="checkbox" name="affectsCommonArea" value="1"
+                 class="checkbox checkbox-primary checkbox-sm"
+                 {{ if target.affectsCommonArea }}checked{{ /if }}>
+          <span class="label-text">
+            <span class="font-medium">Afecta partes comuns</span><br>
+            <span class="text-xs text-base-content/60">Fachadas, escadas, garagem, telhado, muros, etc.</span>
+          </span>
+        </label>
+        <div>
+          <div class="text-xs font-medium mb-1.5">Frações afetadas <span class="text-base-content/40 font-normal">(zero ou mais)</span></div>
+          {{ include "partials/units_picker.vto" {
+            allUnits: units,
+            selectedIds: target.units.map((u) => u.id),
+            inputName: "unitIds[]",
+          } }}
+        </div>
+      </div>
+
+      {{ if !isTerminal }}
+        <div class="flex justify-end pt-3 border-t border-base-200">
+          <button type="submit" class="btn btn-sm btn-primary">Guardar alterações</button>
+        </div>
+      {{ /if }}
+      </fieldset>
+    </form>
+
+    {{# ─── Notas de resolução (quando in_repair / quote_approved / resolved) ── #}}
+    {{ if target.status === "in_repair" || target.status === "quote_approved" || target.status === "awaiting_repair_start" || isResolved }}
+      <form method="post" action="/admin/c/{{ currentCondominiumId }}/pathologies/{{ target.id }}/update"
+            class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+        <label class="label py-1">
+          <span class="label-text text-xs uppercase font-bold tracking-wider text-base-content/50">
+            Notas de resolução
+            {{ if isResolved }}<span class="font-normal normal-case tracking-normal opacity-60 ml-1">(congelado)</span>{{ /if }}
+          </span>
+        </label>
+        <textarea name="resolutionNotes" rows="4" maxlength="4000"
+                  placeholder="Empreiteiro X executou a intervenção em DD/MM. Aplicação de…"
+                  class="textarea textarea-sm textarea-bordered w-full"
+                  {{ if isResolved }}readonly{{ /if }}>{{ target.resolutionNotes ?? "" }}</textarea>
+        {{ if !isResolved }}
+          <div class="flex justify-end mt-2">
+            <button type="submit" class="btn btn-xs btn-ghost">Guardar notas</button>
+          </div>
+        {{ /if }}
+      </form>
+    {{ /if }}
+
+    {{# ─── Razão de dispensa ────────────────────────────────────────────── #}}
+    {{ if isDismissed }}
+      <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+        <h2 class="text-xs uppercase font-bold text-base-content/50 tracking-wider mb-2">
+          Razão da dispensa
+          <span class="font-normal normal-case tracking-normal opacity-60 ml-1">(congelado)</span>
+        </h2>
+        <div class="text-sm whitespace-pre-line text-base-content/80">{{ target.dismissedReason }}</div>
+        {{ if target.dismissedAt }}
+          <div class="text-xs text-base-content/50 mt-3 pt-3 border-t border-base-200">
+            Dispensada em {{ target.dismissedAt |> formatDate }}
+          </div>
+        {{ /if }}
+      </div>
+    {{ /if }}
+
+    {{# ─── Fotos / anexos ─────────────────────────────────────────────── #}}
+    {{# Wrapper `#pathology-attachments` é o swap target; `hx-select` extrai
+       só esta seção do `show.vto` inteiro (ADR 0026 regra 1b). #}}
+    {{ set _pathologyAttachUrl = "/admin/c/" + currentCondominiumId + "/pathologies/" + target.id + "/attachments" }}
+    <div id="pathology-attachments" class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xs uppercase font-bold text-base-content/50 tracking-wider">
+          Fotos / anexos
+          {{ if target.attachments && target.attachments.length > 0 }}
+            <span class="text-base-content/40 font-normal normal-case tracking-normal">· {{ String(target.attachments.length) }}</span>
+          {{ /if }}
+        </h2>
+      </div>
+
+      {{# Grid de fotos via partial canónico. Delete opt-in HTMX (re-render
+         só este fragment). #}}
+      {{ if target.attachments && target.attachments.length > 0 }}
+        <div class="mb-4">
+          {{ include "partials/attachments_list.vto" {
+            attachments: target.attachments,
+            baseUrl: _pathologyAttachUrl,
+            layout: "grid",
+            canDelete: !isTerminal,
+            hxTarget: "#pathology-attachments",
+            hxSelect: "#pathology-attachments",
+          } }}
+        </div>
+      {{ /if }}
+
+      {{ if !isTerminal }}
+        {{# Upload via dropzone + HTMX (preserve scroll, swap só esta seção). #}}
+        <form method="post"
+              action="{{ _pathologyAttachUrl }}"
+              hx-post="{{ _pathologyAttachUrl }}"
+              hx-target="#pathology-attachments"
+              hx-select="#pathology-attachments"
+              hx-swap="outerHTML show:no"
+              hx-encoding="multipart/form-data"
+              enctype="multipart/form-data"
+              class="space-y-3">
+          {{ include "partials/file_dropzone.vto" {
+            name: "files",
+            multiple: true,
+            accept: uploadAccept,
+            helpText: "Fotos (JPEG, PNG, WEBP, HEIC) ou PDF - podes selecionar vários. Máximo " + String(uploadMaxMb) + " MB cada.",
+          } }}
+          <div class="flex justify-end">
+            <button type="submit" class="btn btn-sm btn-primary gap-1.5" data-upload-submit disabled>
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/>
+              </svg>
+              Carregar
+            </button>
+          </div>
+        </form>
+      {{ else if !target.attachments || target.attachments.length === 0 }}
+        <p class="text-xs text-base-content/40 italic">Sem fotos anexadas.</p>
+      {{ else }}
+        <p class="text-[11px] text-base-content/40 italic mt-2">Patologia em estado terminal - upload/remoção bloqueados.</p>
+      {{ /if }}
+    </div>
+
+    {{# ─── Tickets relacionados ─────────────────────────────────────────
+       1:N reverso via ticket.pathology_id (ADR 0024), ordem cronológica.
+       Labels de status inline (`statusLabels` do template é da patologia). #}}
+    {{ if target.tickets && target.tickets.length > 0 }}
+      {{ set ticketStatusLabels = { open: "Aberto", in_progress: "Em progresso", resolved: "Resolvido", closed: "Fechado" } }}
+      <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+        <h2 class="text-xs uppercase font-bold text-base-content/50 tracking-wider mb-3">
+          Ocorrências relacionadas
+          <span class="text-base-content/40 font-normal normal-case tracking-normal">· {{ String(target.tickets.length) }}</span>
+        </h2>
+        <ul class="space-y-2">
+          {{ for t of target.tickets }}
+            {{ set tColor = t.status === "open" ? "warning"
+              : t.status === "in_progress" ? "info"
+              : t.status === "resolved" ? "success"
+              : "base-content/40" }}
+            <li>
+              <a href="/admin/c/{{ currentCondominiumId }}/tickets/{{ t.id }}"
+                 class="flex items-center justify-between gap-3 px-3 py-2 rounded-lg hover:bg-base-200/40 transition-colors">
+                <div class="flex items-center gap-2 min-w-0">
+                  <span class="font-mono text-xs font-semibold text-primary">{{ t.code }}</span>
+                  <span class="text-sm truncate">{{ t.title }}</span>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                  <span class="inline-flex items-center gap-1.5 text-[11px] font-medium text-{{ tColor }}">
+                    <span class="inline-block w-1.5 h-1.5 rounded-full bg-{{ tColor }}"></span>{{ ticketStatusLabels[t.status] ?? t.status }}
+                  </span>
+                  <span class="text-[11px] text-base-content/50 tabular-nums">{{ t.createdAt |> formatDate }}</span>
+                </div>
+              </a>
+            </li>
+          {{ /for }}
+        </ul>
+      </div>
+    {{ /if }}
+  </div>
+
+  {{# COLUNA DIREITA: sidebar com metadados resumidos ──────────────────── #}}
+  <div class="space-y-4">
+    <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5 space-y-4">
+      <div>
+        <h3 class="text-xs uppercase font-bold text-base-content/50 tracking-wider mb-2">Estado</h3>
+        {{ if isMustard }}
+          <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium bg-amber-100" style="color:#854D0E">
+            <span class="inline-block w-1.5 h-1.5 rounded-full" style="background:#A16207"></span>
+            {{ statusLabels[target.status] }}
+          </span>
+        {{ else }}
+          <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium bg-{{ sColor }}/10 text-{{ sColor }}">
+            <span class="inline-block w-1.5 h-1.5 rounded-full bg-{{ sColor }}"></span>
+            {{ statusLabels[target.status] }}
+          </span>
+        {{ /if }}
+      </div>
+
+      <div>
+        <h3 class="text-xs uppercase font-bold text-base-content/50 tracking-wider mb-2">Categoria</h3>
+        <div class="text-sm font-medium">{{ categoryLabels[target.category] ?? target.category }}</div>
+      </div>
+
+      <div>
+        <h3 class="text-xs uppercase font-bold text-base-content/50 tracking-wider mb-2">Âmbito</h3>
+        {{ if target.affectsCommonArea }}
+          <div class="text-sm">
+            <span class="inline-flex items-center gap-1.5 text-base-content/80">
+              <svg class="w-3.5 h-3.5 text-base-content/50" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                <path d="M9.293 2.293a1 1 0 011.414 0l7 7A1 1 0 0117 11h-1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-3a1 1 0 00-1-1H9a1 1 0 00-1 1v3a1 1 0 01-1 1H5a1 1 0 01-1-1v-6H3a1 1 0 01-.707-1.707l7-7z"/>
+              </svg>
+              Partes comuns
+            </span>
+          </div>
+        {{ /if }}
+        {{ if target.units.length > 0 }}
+          <div class="mt-1 flex flex-wrap gap-1.5">
+            {{ for u of target.units }}
+              <a href="/admin/c/{{ currentCondominiumId }}/units/{{ u.id }}"
+                 class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold tabular-nums bg-primary/10 text-primary hover:bg-primary/15 transition-colors">
+                {{ u.designation }}{{ if u.identifier }}<span class="opacity-60"> - {{ u.identifier }}</span>{{ /if }}
+              </a>
+            {{ /for }}
+          </div>
+        {{ /if }}
+        {{ if !target.affectsCommonArea && target.units.length === 0 }}
+          <div class="text-sm text-base-content/40 italic">Por definir</div>
+        {{ /if }}
+      </div>
+
+      <div class="border-t border-base-200 pt-3 space-y-2 text-xs">
+        <div class="flex justify-between gap-2">
+          <span class="text-base-content/60">Detectada</span>
+          <span class="tabular-nums">{{ target.detectedAt |> formatDate }}</span>
+        </div>
+        {{ if target.resolvedAt }}
+          <div class="flex justify-between items-center gap-2">
+            <span class="text-base-content/60">Resolvida</span>
+            <span class="tabular-nums text-success inline-flex items-center gap-1.5">
+              {{ target.resolvedAt |> formatDate }}
+              {{ if isResolved }}
+                <button type="button" title="Editar data de resolução"
+                        onclick="document.getElementById('modal_edit_resolved_at').showModal()"
+                        class="text-base-content/40 hover:text-primary transition-colors">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/>
+                  </svg>
+                </button>
+              {{ /if }}
+            </span>
+          </div>
+        {{ /if }}
+        {{ if target.dismissedAt }}
+          <div class="flex justify-between gap-2">
+            <span class="text-base-content/60">Dispensada</span>
+            <span class="tabular-nums text-base-content/70">{{ target.dismissedAt |> formatDate }}</span>
+          </div>
+        {{ /if }}
+        <div class="flex justify-between gap-2">
+          <span class="text-base-content/60">Visível portal</span>
+          <span class="font-medium">{{ isDraft ? "Não (rascunho)" : "Sim" }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{{# ── Modal: editar data de resolução (só isResolved) ──────────────────
+   Submete ao endpoint /update com resolvedAt. #}}
+{{ if isResolved }}
+  <dialog id="modal_edit_resolved_at" class="modal">
+    <form method="post" action="/admin/c/{{ currentCondominiumId }}/pathologies/{{ target.id }}/update" class="modal-box max-w-md">
+      <h3 class="text-lg font-bold mb-1">Editar data de resolução</h3>
+      <p class="text-xs text-base-content/60 mb-4">
+        Corrige a data em que a patologia foi efetivamente resolvida.
+      </p>
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text text-xs">Resolvida em</span></label>
+        <input type="date" name="resolvedAt" required
+               value="{{ target.resolvedAt }}"
+               class="input input-sm input-bordered">
+      </div>
+      <div class="modal-action">
+        <button type="button" class="btn btn-sm btn-ghost"
+                onclick="document.getElementById('modal_edit_resolved_at').close()">Cancelar</button>
+        <button type="submit" class="btn btn-sm btn-primary">Guardar</button>
+      </div>
+    </form>
+    <form method="dialog" class="modal-backdrop"><button>fechar</button></form>
+  </dialog>
+{{ /if }}
+
+{{# ── Modal: dispensar patologia (exige razão) ──────────────────────────
+   CHECK constraint obriga `dismissed_reason` quando status=`dismissed`.
+   Submete a /status com dismissedReason. #}}
+{{ if !isDismissed }}
+  <dialog id="modal_dismiss_pathology" class="modal">
+    <form method="post" action="/admin/c/{{ currentCondominiumId }}/pathologies/{{ target.id }}/status" class="modal-box max-w-md">
+      <input type="hidden" name="status" value="dismissed">
+      <h3 class="text-lg font-bold mb-1">Dispensar patologia</h3>
+      <p class="text-xs text-base-content/60 mb-4">
+        Marca {{ target.code }} como dispensada (encerrada sem reparação). Explica
+        a razão - fica registada no histórico.
+      </p>
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text text-xs">Razão *</span></label>
+        <textarea name="dismissedReason" required minlength="3" maxlength="4000" rows="4"
+                  placeholder="Ex: anomalia cosmética sem risco estrutural; falsa patologia; decisão da assembleia de não reparar."
+                  class="textarea textarea-sm textarea-bordered"></textarea>
+      </div>
+      <div class="modal-action">
+        <button type="button" class="btn btn-sm btn-ghost"
+                onclick="document.getElementById('modal_dismiss_pathology').close()">Cancelar</button>
+        <button type="submit" class="btn btn-sm btn-warning">Dispensar</button>
+      </div>
+    </form>
+    <form method="dialog" class="modal-backdrop"><button>fechar</button></form>
+  </dialog>
+{{ /if }}
+
+{{ include "partials/danger_zone.vto" {
+  entityName: "patologia",
+  entityLabel: target.code,
+  actionUrl: "/admin/c/" + currentCondominiumId + "/pathologies/" + target.id + "/delete",
+  confirmBody: "Apaga " + target.code + " e os anexos associados. Após eliminada, não se pode recuperar.",
+  currentUser,
+} }}
+
+{{ /layout }}

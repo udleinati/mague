@@ -1,0 +1,383 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId } }}
+
+<div class="max-w-5xl">
+  {{ layout "partials/page_header.vto" {
+    title: "Orçamento " + target.year,
+    scale: "detail",
+    breadcrumbs: [
+      { label: "Orçamentos", href: "/admin/c/" + currentCondominiumId + "/budget" },
+      { label: String(target.year) },
+    ],
+    status: target.type === "suplementar" ? { label: "Suplementar", tone: "warning" } : null,
+    meta: [
+      target.status === "draft" ? { value: "Rascunho", plain: true } : (target.status === "not_approved" ? { value: "Não aprovado", plain: true } : { value: "Aprovado", tone: "success" }),
+      target.type !== "suplementar" ? { value: "FCR " + target.fcrPercentage + "%", plain: true } : null,
+      target.type === "suplementar" && target.installments ? { value: target.installments + "x prestações", plain: true } : null,
+      target.approvedAt ? { value: "Aprovado em " + target.approvedAt, plain: true } : null,
+    ]
+  } }}
+    <a href="/admin/c/{{ currentCondominiumId }}/budget/{{ target.id }}/pdf" target="_blank" class="btn btn-sm btn-outline" title="Abrir o orçamento em PDF">
+      📄 PDF
+    </a>
+    {{ if target.status === "draft" }}
+      <a href="/admin/c/{{ currentCondominiumId }}/assembly" class="btn btn-sm btn-primary" title="Aprovação passa sempre por uma decisão de assembleia">
+        Aprovar via assembleia →
+      </a>
+      <form method="post" action="/admin/c/{{ currentCondominiumId }}/budget/{{ target.id }}/reject" class="inline"
+            data-confirm-title="Marcar como não aprovado?"
+            data-confirm-body="Esta proposta sai da lista por defeito e fica como histórico. É reversível - podes reabri-la depois."
+            data-confirm-typed-match="NAO APROVAR"
+            data-confirm-ok="Marcar não aprovado">
+        <button type="submit" class="btn btn-sm btn-ghost" title="Marcar esta proposta como não aprovada (reversível)">
+          Marcar não aprovado
+        </button>
+      </form>
+    {{ /if }}
+    {{ if target.status === "not_approved" }}
+      <form method="post" action="/admin/c/{{ currentCondominiumId }}/budget/{{ target.id }}/reopen" class="inline">
+        <button type="submit" class="btn btn-sm btn-outline" title="Voltar a rascunho">
+          Reabrir
+        </button>
+      </form>
+    {{ /if }}
+    {{ if target.status === "approved" }}
+      <button type="button" class="btn btn-sm btn-outline"
+              onclick="document.getElementById('modal_gen_quotas').showModal()">
+        ⚡ {{ if target.type === "suplementar" }}Gerar prestações{{ else }}Gerar quotas{{ /if }}
+      </button>
+    {{ /if }}
+    {{ if target.quotasGeneratedAt }}
+      <span class="inline-flex items-center gap-1.5 text-xs font-medium text-success px-2 py-1">
+        <span class="inline-block w-1.5 h-1.5 rounded-full bg-success"></span> Quotas geradas
+      </span>
+    {{ /if }}
+  {{ /layout }}
+
+  {{ if target.notes }}
+    <div class="flex items-start gap-2 -mt-4 mb-6">
+      <p class="text-lg text-base-content/70">{{ target.notes }}</p>
+      {{ if target.status === "draft" }}
+        <button type="button" class="btn btn-ghost btn-xs text-base-content/50" title="Editar descrição"
+                onclick="document.getElementById('modal_edit_desc').showModal()">✏️ Editar</button>
+      {{ /if }}
+    </div>
+  {{ else if target.status === "draft" }}
+    <button type="button" class="btn btn-ghost btn-sm -mt-4 mb-6 text-base-content/50"
+            onclick="document.getElementById('modal_edit_desc').showModal()">+ Adicionar descrição</button>
+  {{ /if }}
+
+  <!-- Resumo -->
+  <div class="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-6">
+    <div class="card bg-base-100 shadow-sm border border-base-200 p-6">
+      <div class="text-base-content/60 font-medium mb-1">Despesas ordinárias</div>
+      <div class="text-xl sm:text-2xl xl:text-3xl font-bold whitespace-nowrap">{{ ordinaryTotal |> formatMoney }}</div>
+      <div class="text-sm text-base-content/50 mt-1">{{ lines.length |> num }} rubricas</div>
+    </div>
+    {{ if target.type !== "suplementar" }}
+    <div class="card bg-base-100 shadow-sm border border-base-200 p-6">
+      <div class="text-base-content/60 font-medium mb-1">FCR ({{ target.fcrPercentage }}%)</div>
+      <div class="text-xl sm:text-2xl xl:text-3xl font-bold whitespace-nowrap">{{ fcrAmount |> formatMoney }}</div>
+      <div class="text-sm text-base-content/50 mt-1">DL 268/94, art. 4.º</div>
+    </div>
+    {{ /if }}
+    <div class="card bg-base-100 shadow-sm border border-base-200 p-6">
+      <div class="text-base-content/60 font-medium mb-1">Total do orçamento</div>
+      <div class="text-xl sm:text-2xl xl:text-3xl font-bold whitespace-nowrap text-primary">{{ grandTotal |> formatMoney }}</div>
+      <div class="text-sm text-base-content/50 mt-1">{{ if target.type === "suplementar" }}Custo total{{ else }}Ordinário + FCR{{ /if }}</div>
+    </div>
+  </div>
+
+  {{ if target.status === "draft" }}
+    <div class="card bg-base-100 shadow-sm border border-base-200 p-6 mb-6">
+      <h2 class="text-xl font-bold mb-4">Adicionar linha</h2>
+      <form method="post" action="/admin/c/{{ currentCondominiumId }}/budget/{{ target.id }}/lines" class="grid grid-cols-1 md:grid-cols-[2fr_1fr_auto] gap-4 items-end">
+        <div class="form-control w-full relative" data-combobox>
+          <label class="label" for="new_category"><span class="label-text font-medium">Categoria</span></label>
+          <input
+            type="text"
+            id="new_category"
+            data-combobox-search
+            autocomplete="off"
+            placeholder="Pesquisar código ou nome…"
+            class="input input-bordered w-full"
+          >
+          <input type="hidden" name="accountId" data-combobox-value required>
+          <ul data-combobox-list class="hidden absolute top-full left-0 right-0 z-20 mt-1 max-h-72 overflow-y-auto bg-base-100 border border-base-200 rounded-lg shadow-lg py-1">
+            {{ for cat of categories }}
+              {{ if cat.type === "expense" }}
+                <li
+                  data-combobox-option
+                  data-id="{{ cat.id }}"
+                  data-label="{{ cat.code }} - {{ cat.name }}"
+                  data-haystack="{{ (cat.code + ' ' + cat.name + ' ' + (cat.description ?? '')).toLowerCase() }}"
+                  class="px-3 py-1.5 text-sm hover:bg-base-200 cursor-pointer"
+                  title="{{ cat.description ?? '' }}"
+                >
+                  <span class="font-semibold tabular-nums">{{ cat.code }}</span><span class="text-base-content/70"> - {{ cat.name }}</span>
+                </li>
+              {{ /if }}
+            {{ /for }}
+            <li data-combobox-empty class="hidden px-3 py-2 text-sm text-base-content/50 italic">Sem resultados.</li>
+          </ul>
+        </div>
+        <div class="form-control w-full">
+          <label class="label" for="new_amount"><span class="label-text font-medium">{{ if target.type === "suplementar" }}Valor (€){{ else }}Valor anual (€){{ /if }}</span></label>
+          <input type="text" id="new_amount" name="annualAmount" inputmode="decimal" class="input input-bordered w-full" required placeholder="0,00">
+        </div>
+        <button type="submit" class="btn btn-primary">Adicionar</button>
+      </form>
+    </div>
+  {{ /if }}
+
+  <!-- Linhas (ordenadas pelo código no controller) -->
+  <div class="card bg-base-100 shadow-sm border border-base-200 overflow-hidden mb-6">
+    <div class="table-scroll">
+      <table class="table table-sm w-full">
+        <thead>
+          <tr class="text-base-content/40 text-xs uppercase tracking-widest border-b border-base-200">
+            <th class="py-3 pl-4 w-24">Código</th>
+            <th class="py-3">Categoria</th>
+            <th class="py-3 text-right">{{ if target.type === "suplementar" }}Valor{{ else }}Anual{{ /if }}</th>
+            {{ if target.status === "draft" }}<th class="py-3 pr-4 w-16"></th>{{ /if }}
+          </tr>
+        </thead>
+        <tbody>
+          {{ if lines.length === 0 }}
+            <tr>
+              <td colspan="{{ if target.status === 'draft' }}4{{ else }}3{{ /if }}" class="py-8 text-center text-base-content/50">Sem linhas. Adicione a primeira acima.</td>
+            </tr>
+          {{ else }}
+            {{ for line of lines }}
+              <tr class="border-b border-base-100 last:border-0 align-top">
+                <td class="py-3 pl-4 font-mono text-xs text-base-content/60">{{ line.categoryCode ?? "-" }}</td>
+                <td class="py-3">
+                  <div class="font-medium">{{ line.categoryName ?? "-" }}</div>
+                  {{ if line.categoryDescription }}
+                    <div class="text-xs text-base-content/50 mt-0.5">{{ line.categoryDescription }}</div>
+                  {{ /if }}
+                </td>
+                <td class="py-3 text-right tabular-nums">{{ line.annualAmount |> formatMoney }}</td>
+                {{ if target.status === "draft" }}
+                  <td class="py-3 pr-4 text-right">
+                    <form method="post" action="/admin/c/{{ currentCondominiumId }}/budget/{{ target.id }}/lines/{{ line.id }}/delete" class="inline"
+                          data-confirm-title="Remover linha"
+                          data-confirm-body="Queres mesmo remover esta linha do orçamento?"
+                          data-confirm-ok="Remover"
+                          data-confirm-danger="true">
+                      <button type="submit" class="btn btn-xs btn-ghost text-error" title="Remover">✕</button>
+                    </form>
+                  </td>
+                {{ /if }}
+              </tr>
+            {{ /for }}
+          {{ /if }}
+        </tbody>
+        {{ if lines.length > 0 }}
+          <tfoot>
+            <tr class="font-bold border-t border-base-200">
+              <td class="py-3 pl-4"></td>
+              <td class="py-3">Total ordinárias</td>
+              <td class="py-3 text-right tabular-nums">{{ ordinaryTotal |> formatMoney }}</td>
+              {{ if target.status === "draft" }}<td></td>{{ /if }}
+            </tr>
+            {{ if target.type !== "suplementar" }}
+            <tr class="bg-base-200/50">
+              <td class="py-3 pl-4"></td>
+              <td class="py-3">FCR ({{ target.fcrPercentage }}%)</td>
+              <td class="py-3 text-right tabular-nums">{{ fcrAmount |> formatMoney }}</td>
+              {{ if target.status === "draft" }}<td></td>{{ /if }}
+            </tr>
+            {{ /if }}
+            <tr class="font-bold bg-base-200">
+              <td class="py-3 pl-4"></td>
+              <td class="py-3">Total orçamento</td>
+              <td class="py-3 text-right tabular-nums text-primary">{{ grandTotal |> formatMoney }}</td>
+              {{ if target.status === "draft" }}<td></td>{{ /if }}
+            </tr>
+          </tfoot>
+        {{ /if }}
+      </table>
+    </div>
+  </div>
+
+  {{ if quotaMap }}
+    {{ set isSupl = target.type === "suplementar" }}
+    {{# Suplementar não tem FCR: base = total, por isso só mostramos uma coluna por período. #}}
+    {{ set lblBase = "Mensal base" }}
+    {{ set lblFcr = "Mensal FCR" }}
+    {{ set lblPeriod = isSupl ? "Prestação" : "Mensal total" }}
+    {{ set lblGrand = "Total" }}
+    <div class="card bg-base-100 shadow-sm border border-base-200 overflow-hidden mb-6">
+      <div class="flex items-center justify-between px-6 pt-6 pb-2">
+        <h2 class="text-xl font-bold flex items-center gap-3">
+          {{ if isSupl }}Mapa de prestações{{ else }}Mapa de quotas{{ /if }}
+          {{ if target.quotasGeneratedAt }}
+            <span class="inline-flex items-center gap-1.5 text-xs font-medium text-success">
+              <span class="inline-block w-1.5 h-1.5 rounded-full bg-success"></span> Geradas
+            </span>
+          {{ else }}
+            <span class="inline-flex items-center gap-1.5 text-xs text-base-content/60">
+              <span class="inline-block w-1.5 h-1.5 rounded-full bg-base-content/40"></span> Previsão
+            </span>
+          {{ /if }}
+        </h2>
+        <div class="text-sm text-base-content/60">
+          {{ quotaMap.units.length }} fração(ões){{ if !isSupl }} · FCR {{ quotaMap.fcrPercentage }}%{{ /if }}{{ if isSupl && target.installments }} · {{ target.installments }} prestações{{ /if }}
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table class="table table-sm w-full">
+          <thead>
+            <tr class="text-base-content/40 text-xs uppercase tracking-widest border-b border-base-200">
+              <th class="py-3 pl-6">Fração</th>
+              <th class="py-3 text-right">Permilagem</th>
+              {{ if !isSupl }}
+                <th class="py-3 text-right">{{ lblBase }}</th>
+                <th class="py-3 text-right">{{ lblFcr }}</th>
+              {{ /if }}
+              <th class="py-3 text-right">{{ lblPeriod }}</th>
+              <th class="py-3 text-right pr-6">{{ lblGrand }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{ for u of quotaMap.units }}
+              <tr>
+                <td class="py-2 pl-6">
+                  <a href="/admin/c/{{ currentCondominiumId }}/units/{{ u.unitId }}" class="link link-hover">
+                    <span class="font-bold">{{ u.unitDesignation }}</span>{{ if u.identifier }}<span class="text-base-content/50 font-normal"> - {{ u.identifier }}</span>{{ /if }}
+                  </a>
+                </td>
+                <td class="py-2 text-right tabular-nums">{{ u.unitPermillage |> formatPermillage }} ‰</td>
+                {{ if !isSupl }}
+                  <td class="py-2 text-right tabular-nums">{{ u.monthlyBaseCents |> formatMoney }}</td>
+                  <td class="py-2 text-right tabular-nums text-base-content/60">{{ u.monthlyFcrCents |> formatMoney }}</td>
+                {{ /if }}
+                <td class="py-2 text-right tabular-nums">{{ u.monthlyTotalCents |> formatMoney }}</td>
+                <td class="py-2 text-right tabular-nums font-semibold pr-6">{{ u.annualTotalCents |> formatMoney }}</td>
+              </tr>
+            {{ /for }}
+          </tbody>
+          <tfoot>
+            <tr class="font-bold bg-base-200">
+              <td class="py-3 pl-6">Totais</td>
+              <td class="py-3 text-right tabular-nums">{{ quotaMap.totalPermillage |> formatPermillage }} ‰</td>
+              {{ if !isSupl }}
+                <td class="py-3 text-right tabular-nums">{{ quotaMap.totals.monthlyBaseCents |> formatMoney }}</td>
+                <td class="py-3 text-right tabular-nums">{{ quotaMap.totals.monthlyFcrCents |> formatMoney }}</td>
+              {{ /if }}
+              <td class="py-3 text-right tabular-nums">{{ quotaMap.totals.monthlyTotalCents |> formatMoney }}</td>
+              <td class="py-3 text-right tabular-nums text-primary pr-6">{{ quotaMap.totals.annualTotalCents |> formatMoney }}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      {{ if !target.quotasGeneratedAt }}
+        <div class="px-6 py-3 text-xs text-base-content/60 border-t border-base-200">
+          Previsão: estes são exatamente os valores que serão cobrados a cada fração ao gerar as quotas (não mudam). O total pode diferir alguns cêntimos do «Total orçamento»: o total anual nem sempre se divide em quotas {{ if isSupl }}por prestação{{ else }}mensais{{ /if }} de cêntimos exatos, e a diferença é absorvida pela fração de maior permilagem.
+        </div>
+      {{ else }}
+        <div class="px-6 py-3 text-xs text-base-content/60 border-t border-base-200">
+          Valores reais cobrados às frações{{ if quotaMap.periodsGenerated }} ({{ quotaMap.periodsGenerated }} {{ if isSupl }}prestações{{ else }}meses{{ /if }} gerados){{ /if }}. O total cobrado pode diferir alguns cêntimos do «Total orçamento»: o total anual nem sempre se divide em quotas {{ if isSupl }}por prestação{{ else }}mensais{{ /if }} de cêntimos exatos.
+        </div>
+      {{ /if }}
+    </div>
+  {{ /if }}
+</div>
+
+{{# ═════════ MODAL: Gerar quotas / prestações ═════════ #}}
+{{# Principal: meses 1..(mês de throughDate). Suplementar: N prestações desde firstMonth. #}}
+{{ if target.status === "approved" }}
+  <dialog id="modal_gen_quotas" class="modal">
+    <div class="modal-box max-w-md">
+      <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+      {{ if target.type === "suplementar" }}
+        <h3 class="font-bold text-lg mb-3">Gerar prestações</h3>
+        <p class="text-sm text-base-content/70 mb-4">
+          Gera as {{ target.installments }} prestações (valor total ÷ {{ target.installments }}) por fração,
+          em meses consecutivos a partir do mês escolhido. Re-executar só cria o que está em falta.
+        </p>
+        <form method="post" action="/admin/c/{{ currentCondominiumId }}/budget/{{ target.id }}/generate-quotas" class="space-y-3">
+          <div class="form-control">
+            <label class="label py-1" for="gen_quotas_firstMonth">
+              <span class="label-text text-xs font-medium">Mês da 1ª prestação</span>
+            </label>
+            {{ if target.firstCompetencePeriod }}
+              <input type="month" id="gen_quotas_firstMonth"
+                     value="{{ target.firstCompetencePeriod.slice(0, 7) }}"
+                     class="input input-sm input-bordered bg-base-200" readonly>
+              <label class="label py-0">
+                <span class="label-text-alt text-base-content/50">Calendário travado na 1ª geração.</span>
+              </label>
+            {{ else }}
+              <input type="month" id="gen_quotas_firstMonth" name="firstMonth"
+                     value="{{ defaultFirstMonth }}"
+                     class="input input-sm input-bordered" required>
+              <label class="label py-0">
+                <span class="label-text-alt text-base-content/50">Default: próximo mês. {{ target.installments }} prestações consecutivas a partir daqui.</span>
+              </label>
+            {{ /if }}
+          </div>
+          <div class="flex justify-end gap-2 pt-2">
+            <button type="button" class="btn btn-sm btn-ghost"
+                    onclick="document.getElementById('modal_gen_quotas').close()">Cancelar</button>
+            <button type="submit" class="btn btn-sm btn-primary">Gerar agora</button>
+          </div>
+        </form>
+      {{ else }}
+        <h3 class="font-bold text-lg mb-3">Gerar quotas do orçamento</h3>
+        <p class="text-sm text-base-content/70 mb-4">
+          Gera as quotas mensais (ordinária + FCR {{ target.fcrPercentage }}%) por fração,
+          dos meses de Janeiro até ao mês da data escolhida. Re-executar só cria o que está
+          em falta - charges já geradas não são duplicadas.
+        </p>
+        <form method="post" action="/admin/c/{{ currentCondominiumId }}/budget/{{ target.id }}/generate-quotas" class="space-y-3">
+          <div class="form-control">
+            <label class="label py-1" for="gen_quotas_throughDate">
+              <span class="label-text text-xs font-medium">Gerar até (inclusive)</span>
+            </label>
+            <input type="date" id="gen_quotas_throughDate" name="throughDate"
+                   value="{{ target.year }}-12-31"
+                   min="{{ target.year }}-01-01"
+                   max="{{ target.year }}-12-31"
+                   class="input input-sm input-bordered" required>
+            <label class="label py-0">
+              <span class="label-text-alt text-base-content/50">Default: fim do ano ({{ target.year }}-12-31) - gera todos os 12 meses</span>
+            </label>
+          </div>
+          <div class="flex justify-end gap-2 pt-2">
+            <button type="button" class="btn btn-sm btn-ghost"
+                    onclick="document.getElementById('modal_gen_quotas').close()">Cancelar</button>
+            <button type="submit" class="btn btn-sm btn-primary">Gerar agora</button>
+          </div>
+        </form>
+      {{ /if }}
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+{{ /if }}
+
+{{# ═════════ MODAL: Editar descrição (só rascunho) ═════════ #}}
+{{ if target.status === "draft" }}
+  <dialog id="modal_edit_desc" class="modal">
+    <div class="modal-box max-w-md">
+      <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+      <h3 class="font-bold text-lg mb-3">Editar descrição</h3>
+      <form method="post" action="/admin/c/{{ currentCondominiumId }}/budget/{{ target.id }}/edit" class="space-y-3">
+        <div class="form-control">
+          <label class="label py-1" for="edit_notes"><span class="label-text text-xs font-medium">Descrição</span></label>
+          <input type="text" id="edit_notes" name="notes" maxlength="255" value="{{ target.notes ?? '' }}"
+                 placeholder="Ex: Reparação do telhado" class="input input-sm input-bordered w-full" autofocus>
+          <label class="label py-0"><span class="label-text-alt text-base-content/50">Deixa vazio para remover a descrição.</span></label>
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" class="btn btn-sm btn-ghost"
+                  onclick="document.getElementById('modal_edit_desc').close()">Cancelar</button>
+          <button type="submit" class="btn btn-sm btn-primary">Guardar</button>
+        </div>
+      </form>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+{{ /if }}
+
+{{ /layout }}

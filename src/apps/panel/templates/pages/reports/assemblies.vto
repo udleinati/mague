@@ -1,0 +1,160 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{ set _base = "/admin/c/" + currentCondominiumId + "/reports/assemblies" }}
+{{ set _budgeted = assemblies.reduce((acc, a) => acc + a.totals.budgetedCents, 0) }}
+{{ set _actual = assemblies.reduce((acc, a) => acc + a.totals.actualCents, 0) }}
+{{ set _issued = assemblies.reduce((acc, a) => acc + a.totals.issuedCents, 0) }}
+{{ set _settled = assemblies.reduce((acc, a) => acc + a.totals.settledCents, 0) }}
+{{ set _open = assemblies.reduce((acc, a) => acc + a.totals.openCents, 0) }}
+{{ set _budgetedStr = _budgeted |> formatMoney }}
+{{ set _actualStr = _actual |> formatMoney }}
+{{ set _settledStr = _settled |> formatMoney }}
+{{ set _openStr = _open |> formatMoney }}
+{{ set _issuedStr = _issued |> formatMoney }}
+{{ set _actualCaption = "de " + _budgetedStr + " aprovados" }}
+{{ set _settledCaption = "de " + _issuedStr + " emitidos" }}
+
+{{ include "partials/page_header.vto" {
+  title: "Execução por Ata",
+  breadcrumbs: [
+    { label: "Painel", href: "/admin/c/" + currentCondominiumId + "/dashboard" },
+    { label: "Relatórios" },
+    { label: "Por Ata" },
+  ],
+  meta: [
+    { value: String(assemblies.length) + " assembleia(s) com orçamento aprovado", plain: true }
+  ]
+} }}
+
+{{ if assemblies.length === 0 }}
+  <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-10 text-center">
+    <div class="text-lg font-semibold mb-2">Ainda não há nada a mostrar</div>
+    <p class="text-sm text-base-content/60 max-w-lg mx-auto">
+      Uma Ata só entra neste relatório quando tem um ponto da ordem do dia ligado a um orçamento
+      (tipo "aprovação do orçamento", com o orçamento escolhido no campo de referência). É esse
+      ponto que liga a deliberação ao dinheiro.
+    </p>
+    <a href="/admin/c/{{ currentCondominiumId }}/assembly" class="btn btn-sm btn-primary mt-4">Abrir assembleias</a>
+  </div>
+{{ else }}
+
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+  {{ include "partials/kpi_card.vto" {
+    tone: "neutral", label: "Orçamentado", value: _budgetedStr, caption: "somatório dos orçamentos aprovados"
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "info", label: "Já gasto", value: _actualStr, caption: _actualCaption, highlightValue: true
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "success", label: "Quotas cobradas", value: _settledStr, caption: _settledCaption, highlightValue: true
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "error", label: "Quotas por cobrar", value: _openStr, caption: "ainda em dívida das frações", highlightValue: true
+  } }}
+</div>
+
+<div class="space-y-4">
+  {{ for a of assemblies }}
+    <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm overflow-hidden">
+      <div class="flex flex-wrap items-center justify-between gap-3 p-4 border-b border-base-200">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-base font-bold">
+              {{ if a.minutesNumber }}Ata {{ a.minutesNumber }}{{ else }}Assembleia sem número de ata{{ /if }}
+            </span>
+            {{ if a.type === "extraordinary" }}
+              {{ include "partials/status_badge.vto" { label: "Extraordinária", tone: "warning", size: "xs" } }}
+            {{ else }}
+              {{ include "partials/status_badge.vto" { label: "Ordinária", tone: "info", size: "xs" } }}
+            {{ /if }}
+            {{ if a.status === "held" }}
+              {{ include "partials/status_badge.vto" { label: "Realizada", tone: "success", size: "xs" } }}
+            {{ else if a.status === "cancelled" }}
+              {{ include "partials/status_badge.vto" { label: "Cancelada", tone: "error", size: "xs" } }}
+            {{ else if a.status === "draft" }}
+              {{ include "partials/status_badge.vto" { label: "Rascunho", tone: "info", size: "xs" } }}
+            {{ else }}
+              {{ include "partials/status_badge.vto" { label: "Convocada", tone: "warning", size: "xs" } }}
+            {{ /if }}
+          </div>
+          <div class="text-xs text-base-content/60 mt-1">
+            {{ if a.heldAt }}Realizada a {{ a.heldAt |> formatDate }}{{ else }}Marcada para {{ a.scheduledAt |> formatDate }}{{ /if }}
+          </div>
+        </div>
+        <a href="{{ _base }}/{{ a.id }}" class="btn btn-sm btn-primary shrink-0">Ver detalhe</a>
+      </div>
+
+      <div class="divide-y divide-base-200">
+        {{ for b of a.budgets }}
+          <div class="p-4">
+            <div class="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+              <div class="min-w-0">
+                <div class="text-sm font-semibold">
+                  Orçamento {{ b.year }}
+                  <span class="font-normal text-base-content/60">{{ if b.type === "suplementar" }}suplementar (obra){{ else }}principal{{ /if }}</span>
+                </div>
+                <div class="text-xs text-base-content/50 truncate" title="{{ b.agendaItem.subject }}">
+                  Ponto {{ String(b.agendaItem.sequence) }}: {{ b.agendaItem.subject }}
+                </div>
+              </div>
+              {{ if b.status !== "approved" }}
+                {{ include "partials/status_badge.vto" { label: "Orçamento não aprovado", tone: "warning", size: "xs" } }}
+              {{ /if }}
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {{# Despesa: quanto da previsão já saiu #}}
+              <div>
+                <div class="flex justify-between items-baseline text-xs mb-1">
+                  <span class="uppercase tracking-wider font-bold text-base-content/60">Despesa efetivada</span>
+                  <span class="tabular-nums font-semibold">{{ String(b.executionPct) }}%</span>
+                </div>
+                <div class="h-2 rounded-full bg-base-200 overflow-hidden">
+                  <div class="h-2 rounded-full {{ if b.executionPct > 100 }}bg-error{{ else }}bg-info{{ /if }}" style="width: {{ String(b.executionPct > 100 ? 100 : b.executionPct) }}%"></div>
+                </div>
+                <div class="text-xs text-base-content/60 mt-1 tabular-nums">
+                  {{ b.actualCents |> formatMoney }} de {{ b.budgetedCents |> formatMoney }}
+                  {{ if b.varianceCents >= 0 }}
+                    <span class="text-success">· folga {{ b.varianceCents |> formatMoney }}</span>
+                  {{ else }}
+                    <span class="text-error">· excedido</span>
+                  {{ /if }}
+                </div>
+              </div>
+
+              {{# Cobrança: quanto das quotas desta Ata já entrou #}}
+              <div>
+                <div class="flex justify-between items-baseline text-xs mb-1">
+                  <span class="uppercase tracking-wider font-bold text-base-content/60">Quotas cobradas</span>
+                  <span class="tabular-nums font-semibold">{{ String(b.quotas.collectionPct) }}%</span>
+                </div>
+                <div class="h-2 rounded-full bg-base-200 overflow-hidden">
+                  <div class="h-2 rounded-full bg-success" style="width: {{ String(b.quotas.collectionPct) }}%"></div>
+                </div>
+                <div class="text-xs text-base-content/60 mt-1 tabular-nums">
+                  {{ b.quotas.settledCents |> formatMoney }} de {{ b.quotas.issuedCents |> formatMoney }}
+                  <span class="text-error">· falta {{ b.quotas.openCents |> formatMoney }}</span>
+                  <span class="text-base-content/50">· {{ String(b.quotas.unitsPending) }} de {{ String(b.quotas.unitsTotal) }} frações em dívida</span>
+                </div>
+              </div>
+            </div>
+
+            {{ if b.ambiguousCount > 0 }}
+              <div class="mt-3 text-xs text-warning flex items-start gap-2">
+                <span class="font-bold shrink-0">!</span>
+                <span>
+                  {{ String(b.ambiguousCount) }} despesa(s) num total de {{ b.ambiguousCents |> formatMoney }}
+                  usam uma rubrica partilhada por mais do que um orçamento deste ano e não estão contadas.
+                  Abra o detalhe e etiquete cada uma com o orçamento certo.
+                </span>
+              </div>
+            {{ /if }}
+          </div>
+        {{ /for }}
+      </div>
+    </div>
+  {{ /for }}
+</div>
+{{ /if }}
+
+{{ /layout }}

@@ -1,0 +1,307 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{# Lembretes de cobrança. Ver ADR 0028 (guard + elegibilidade), ADR 0026 (swap
+   do bloco) e ADR 0039 (filtros bloco/plano + coluna "Vencido +30d"). #}}
+
+{{ set _baseUrl = "/admin/c/" + currentCondominiumId + "/billing-reminders" }}
+{{# Query string do filtro corrente - propagado aos envios para a vista
+   sobreviver ao swap HTMX. #}}
+{{ set _qs = "?overdue=" + String(filters.overdue) + "&plan=" + filters.plan }}
+{{ set _eligibleCount = units.filter((u) => !u.inCooldown && !u.hasActivePlan).length }}
+
+{{ include "partials/page_header.vto" { title: "Lembretes de cobrança" } }}
+<p class="text-sm text-base-content/60 -mt-4 mb-6">
+  Frações com dívida em atraso, segundo o bloco selecionado (+1d = vencida há 1 ou mais dias; +30/+60/+90 = há mais de 30/60/90 dias).
+  Conciliação até <strong>{{ if reconciledThroughDate }}{{ reconciledThroughDate |> formatDate }}{{ else }}(nunca){{ /if }}</strong>.
+</p>
+
+{{# Nota da administração - texto livre persistente no condomínio, mostrado no
+   topo do email de lembrete (ADR 0028). Fora de #billing-reminders para os
+   swaps de filtro/envio não recarregarem o que está a ser editado. #}}
+<form class="card bg-base-100 shadow-sm border border-base-200 mb-6"
+      method="post"
+      action="{{ _baseUrl }}/note"
+      hx-post="{{ _baseUrl }}/note"
+      hx-swap="none">
+  <div class="px-6 pt-5 pb-4">
+    <label class="label py-1" for="billing-note">
+      <span class="label-text font-semibold">Nota da administração</span>
+    </label>
+    <textarea id="billing-note" name="note" rows="4" maxlength="2000"
+              placeholder="Ex: Conforme deliberado em assembleia de 12/05/2026, os valores em atraso devem ser regularizados até 30/06/2026."
+              class="textarea textarea-bordered w-full leading-snug">{{ condominium?.billingReminderNote ?? '' }}</textarea>
+    <div class="flex flex-wrap items-center justify-between gap-2 mt-2">
+      <span class="text-xs text-base-content/50">
+        Aparece no topo do email de lembrete, numa caixa destacada. As quebras de linha são respeitadas. Deixa vazio para não mostrar nada. Guarda a nota antes de usar "Ver".
+      </span>
+      <button type="submit" class="btn btn-sm btn-primary">Guardar nota</button>
+    </div>
+  </div>
+</form>
+
+{{# Modal de pré-visualização do email (mesmo padrão do histórico de emails:
+   dialog + iframe sandbox). O HTML é gerado on-demand pela rota /preview e
+   injetado via srcdoc. Fora de #billing-reminders para os swaps HTMX não o
+   duplicarem; os botões "Ver" (dentro do swap) chamam a função global. #}}
+{{# max-w-4xl: o email é 720px + 48px de padding = ~768px; a 4xl o iframe fica
+   com folga e o email renderiza em tamanho real (centrado, como num cliente). #}}
+<dialog id="billing_preview_modal" class="modal">
+  <div class="modal-box max-w-4xl">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-base pr-8">Pré-visualização do email</h3>
+    <p class="text-xs text-base-content/60 mt-1">Mostra a nota gravada e os valores atuais da fração.</p>
+    <div class="mt-3 text-sm flex items-baseline gap-2">
+      <span class="text-base-content/50 shrink-0">Assunto:</span>
+      <strong id="billing_preview_subject" class="break-words"></strong>
+    </div>
+    <div class="mt-4 border border-base-200 rounded-lg overflow-hidden bg-base-200/40">
+      <iframe id="billing_preview_iframe" sandbox class="w-full h-[75vh] bg-white" title="Pré-visualização do email"></iframe>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>fechar</button></form>
+</dialog>
+
+<script>
+  window.openBillingPreview = async function (url) {
+    const modal = document.getElementById("billing_preview_modal");
+    const iframe = document.getElementById("billing_preview_iframe");
+    const subject = document.getElementById("billing_preview_subject");
+    subject.textContent = "";
+    iframe.srcdoc =
+      '<!doctype html><meta charset="utf-8"><body style="font-family:system-ui,sans-serif;padding:2rem;color:#6b7280;">A gerar pré-visualização...</body>';
+    modal.showModal();
+    try {
+      const resp = await fetch(url, { headers: { Accept: "application/json" } });
+      const data = await resp.json();
+      subject.textContent = data.subject || "-";
+      iframe.srcdoc = data.html;
+    } catch (_e) {
+      iframe.srcdoc =
+        '<!doctype html><meta charset="utf-8"><body style="font-family:system-ui,sans-serif;padding:2rem;color:#b91c1c;">Erro a gerar a pré-visualização.</body>';
+    }
+  };
+</script>
+
+<div id="billing-reminders">
+
+  {{# Banner guard - bloqueia envio quando conciliação atrasada / NULL. #}}
+  {{ if !guard.ok }}
+    <div class="mb-6 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm flex items-start gap-3">
+      <svg class="w-5 h-5 text-warning shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+        <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/>
+      </svg>
+      <div class="flex-1">
+        <div class="font-semibold mb-1">
+          {{ if guard.reason === "never_reconciled" }}
+            Condomínio ainda não foi reconciliado
+          {{ else }}
+            Conciliação atrasada (mais de 3 dias)
+          {{ /if }}
+        </div>
+        <div class="text-base-content/70">
+          Os botões de envio só ficam disponíveis quando a conciliação está a no máximo 3 dias de distância. ADR 0028.
+        </div>
+        <a href="/admin/c/{{ currentCondominiumId }}/reconciliation"
+           class="inline-flex items-center gap-1 mt-2 text-sm link link-primary">
+          Ir para conciliação →
+        </a>
+      </div>
+    </div>
+  {{ /if }}
+
+  {{# Filtros server-side (ADR 0039). Cada clique faz hx-get e troca este bloco;
+     a barra está dentro de #billing-reminders para o estado ativo refrescar. #}}
+  <div class="mb-5 flex flex-wrap items-center gap-x-6 gap-y-3">
+    <div class="flex items-center gap-2">
+      <span class="text-[11px] uppercase tracking-wider text-base-content/40 font-semibold">Atraso</span>
+      <div class="join">
+        {{ for _o of [1, 30, 60, 90] }}
+          <button type="button"
+                  class="join-item btn btn-xs {{ if filters.overdue === _o }}btn-primary{{ else }}btn-ghost{{ /if }}"
+                  hx-get="{{ _baseUrl }}?overdue={{ String(_o) }}&plan={{ filters.plan }}"
+                  hx-target="#billing-reminders" hx-select="#billing-reminders" hx-swap="outerHTML show:no">
+            +{{ String(_o) }}d
+          </button>
+        {{ /for }}
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="text-[11px] uppercase tracking-wider text-base-content/40 font-semibold">Plano</span>
+      <div class="join">
+        {{ for _p of [{ k: "all", l: "Todas" }, { k: "without", l: "Só sem plano" }, { k: "with", l: "Só com plano" }] }}
+          <button type="button"
+                  class="join-item btn btn-xs {{ if filters.plan === _p.k }}btn-primary{{ else }}btn-ghost{{ /if }}"
+                  hx-get="{{ _baseUrl }}?overdue={{ String(filters.overdue) }}&plan={{ _p.k }}"
+                  hx-target="#billing-reminders" hx-select="#billing-reminders" hx-swap="outerHTML show:no">
+            {{ _p.l }}
+          </button>
+        {{ /for }}
+      </div>
+    </div>
+  </div>
+
+  <div class="card bg-base-100 shadow-sm border border-base-200 overflow-hidden">
+    <div class="px-6 pt-5 pb-3 border-b border-base-200 flex items-center justify-between gap-3 flex-wrap">
+      <h2 class="text-lg font-bold">
+        Frações em atraso
+        <span class="text-sm font-normal text-base-content/50 ml-1">· {{ String(units.length) }}</span>
+      </h2>
+      {{ if units.length > 0 && guard.ok }}
+        <form method="post" action="{{ _baseUrl }}/send-all{{ _qs }}"
+              hx-post="{{ _baseUrl }}/send-all{{ _qs }}"
+              hx-target="#billing-reminders"
+              hx-select="#billing-reminders"
+              hx-swap="outerHTML show:no"
+              data-confirm-title="Enviar lembretes em massa"
+              data-confirm-body="Vai enviar {{ String(_eligibleCount) }} lembrete(s) (exclui cooldown e frações em plano de pagamento). Continuar?"
+              data-confirm-ok="Enviar"
+              data-confirm-danger="false"
+              class="inline">
+          <button type="submit" class="btn btn-sm btn-primary gap-1.5"
+                  {{ if _eligibleCount === 0 }}disabled{{ /if }}>
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75a4.5 4.5 0 01-4.884 4.484c-1.076-.091-2.264.071-2.95.904l-7.152 8.684a2.548 2.548 0 11-3.586-3.586l8.684-7.152c.833-.686.995-1.874.904-2.95a4.5 4.5 0 016.336-4.486l-3.276 3.276a3.004 3.004 0 002.25 2.25l3.276-3.276c.256.565.398 1.192.398 1.852z"/>
+            </svg>
+            Enviar a todas ({{ String(_eligibleCount) }})
+          </button>
+        </form>
+      {{ /if }}
+    </div>
+
+    {{ if units.length === 0 }}
+      <div class="p-12 text-center text-sm text-base-content/50">
+        Nenhuma fração corresponde a este filtro.
+      </div>
+    {{ else }}
+      <div class="table-scroll">
+        <table class="table table-sm">
+          <thead>
+            <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+              <th class="pl-6">Fração</th>
+              <th class="text-right">Vencido +{{ String(filters.overdue) }}d</th>
+              <th class="text-right hidden md:table-cell">Total vencido</th>
+              <th class="text-right hidden md:table-cell">Crédito</th>
+              <th class="hidden md:table-cell">Dívida mais antiga</th>
+              <th class="hidden md:table-cell">Último lembrete</th>
+              <th class="pr-6 text-right">Ação</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{ for u of units }}
+              <tr>
+                <td class="pl-6">
+                  <a href="/admin/c/{{ currentCondominiumId }}/units/{{ u.unitId }}" class="link link-hover font-semibold">
+                    {{ u.unitLabel }}
+                  </a>
+                  {{# Badge do plano de pagamento (ADR 0039) - tooltip com as duas notas. #}}
+                  {{ if u.hasActivePlan }}
+                    {{ set _planTip = [u.paymentPlan.notes ? "Partilhada: " + u.paymentPlan.notes : "", u.paymentPlan.internalNotes ? "Interna: " + u.paymentPlan.internalNotes : ""].filter((t) => t).join(" · ") }}
+                    <span class="tooltip tooltip-quick tooltip-right cursor-help ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-info/10 text-info"
+                          data-tip="{{ _planTip }}{{ if u.paymentPlan.endDate }} (até {{ u.paymentPlan.endDate |> formatDate }}){{ /if }}">
+                      Em plano
+                    </span>
+                  {{ /if }}
+                  {{# Mobile: resume as colunas escondidas (mesmo padrão de budget/list). #}}
+                  <div class="md:hidden mt-1 space-y-0.5 text-[11px] font-normal text-base-content/60">
+                    <div>
+                      Total vencido <span class="font-mono text-base-content/80">{{ u.totalOwedCents |> formatMoney }}</span>{{ if u.creditCents > 0 }} · crédito {{ u.creditCents |> formatMoney }}{{ /if }}
+                    </div>
+                    <div>
+                      Desde {{ u.oldestOverdueDueDate |> formatDate }} ·
+                      {{ if u.lastReminderAt }}lembrete {{ u.lastReminderAt |> formatDate }}{{ if u.inCooldown }} <span class="font-semibold text-warning">(cooldown)</span>{{ /if }}{{ else }}<span class="italic">nunca enviado</span>{{ /if }}
+                    </div>
+                  </div>
+                </td>
+                {{# Vencido: subset vencido há mais do que o bloco selecionado
+                   (1/30/60/90). Acompanha o filtro de antiguidade. #}}
+                <td class="text-right font-mono font-semibold text-error">
+                  {{ u.overdueBeyondThresholdCents |> formatMoney }}
+                </td>
+                {{# Total vencido: inclui o que está atrasado há menos de 30 dias. #}}
+                <td class="text-right font-mono font-semibold text-base-content/80 hidden md:table-cell">
+                  {{ u.totalOwedCents |> formatMoney }}
+                </td>
+                <td class="text-right font-mono text-base-content/60 text-xs hidden md:table-cell">
+                  {{ if u.creditCents > 0 }}{{ u.creditCents |> formatMoney }}{{ else }}-{{ /if }}
+                </td>
+                <td class="text-xs text-base-content/70 tabular-nums hidden md:table-cell">{{ u.oldestOverdueDueDate |> formatDate }}</td>
+                <td class="text-xs text-base-content/70 hidden md:table-cell">
+                  {{ if u.lastReminderAt }}
+                    {{ u.lastReminderAt |> formatDate }}
+                    {{ if u.inCooldown }}
+                      {{# Tooltip "quanto falta" + instante de reenvio. Ver ADR 0032. #}}
+                      {{ set _left = u.cooldownUntil |> formatRemaining }}
+                      <span class="tooltip tooltip-quick tooltip-left cursor-help ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-warning/10 text-warning"
+                            data-tip="{{ if _left }}{{ _left }} - {{ /if }}reenvio a partir de {{ u.cooldownUntil |> formatDateTime }}">
+                        em cooldown
+                      </span>
+                    {{ /if }}
+                  {{ else }}
+                    <span class="text-base-content/40 italic">Nunca</span>
+                  {{ /if }}
+                </td>
+                <td class="pr-6 text-right">
+                  <div class="inline-flex items-center justify-end gap-3">
+                  {{# "Ver" = olho + label (ADR 0022); abre o email num modal/iframe,
+                     mesmo padrão de visualização do histórico de emails. #}}
+                  <button type="button"
+                          class="inline-flex items-center gap-1 link link-primary text-xs"
+                          title="Ver email"
+                          onclick="openBillingPreview('{{ _baseUrl }}/units/{{ u.unitId }}/preview')">
+                    <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"/>
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    </svg>
+                    Ver
+                  </button>
+                  <form method="post"
+                        action="{{ _baseUrl }}/units/{{ u.unitId }}/send{{ _qs }}"
+                        hx-post="{{ _baseUrl }}/units/{{ u.unitId }}/send{{ _qs }}"
+                        hx-target="#billing-reminders"
+                        hx-select="#billing-reminders"
+                        hx-swap="outerHTML show:no"
+                        class="inline"
+                        data-confirm-title="Enviar lembrete?"
+                        data-confirm-body="{{ if u.hasActivePlan }}Esta fração tem um plano de pagamento ativo: segue o email de plano, com a descrição do plano e os valores pendentes. {{ /if }}Vai enviar email a todos os proprietários e residentes da fração {{ u.unitLabel }}."
+                        data-confirm-ok="Enviar"
+                        data-confirm-danger="false">
+                    <input type="hidden" name="trigger" value="individual">
+                    <button type="submit"
+                            class="btn btn-xs btn-primary"
+                            {{ if u.inCooldown || !guard.ok }}disabled{{ /if }}>
+                      Enviar
+                    </button>
+                  </form>
+                  </div>
+                </td>
+              </tr>
+            {{ /for }}
+          </tbody>
+          {{# Somatória das frações listadas (acompanha o filtro corrente): vencido
+             além do bloco + total vencido. Cêntimos integer -> formatMoney. #}}
+          {{ set _sumOverdueBeyond = units.reduce((acc, u) => acc + u.overdueBeyondThresholdCents, 0) }}
+          {{ set _sumTotalOwed = units.reduce((acc, u) => acc + u.totalOwedCents, 0) }}
+          <tfoot>
+            <tr class="border-t-2 border-base-300 font-semibold">
+              <td class="pl-6">
+                Total
+                {{# Mobile: a coluna "Total vencido" está escondida - resume aqui. #}}
+                <div class="md:hidden mt-1 text-[11px] font-normal text-base-content/60">
+                  Total vencido <span class="font-mono text-base-content/80">{{ _sumTotalOwed |> formatMoney }}</span>
+                </div>
+              </td>
+              <td class="text-right font-mono text-error">{{ _sumOverdueBeyond |> formatMoney }}</td>
+              <td class="text-right font-mono text-base-content/80 hidden md:table-cell">{{ _sumTotalOwed |> formatMoney }}</td>
+              <td class="hidden md:table-cell"></td>
+              <td class="hidden md:table-cell"></td>
+              <td class="hidden md:table-cell"></td>
+              <td class="pr-6"></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    {{ /if }}
+  </div>
+</div>
+
+{{ /layout }}

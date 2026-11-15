@@ -1,0 +1,314 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser, unitId } }}
+
+{{ include "partials/page_header.vto" {
+  title: "Fração " + unit.designation,
+  scale: "detail",
+  breadcrumbs: [
+    { label: "Frações", href: "/admin/c/" + currentCondominiumId + "/units" },
+    { label: "Fração " + unit.designation },
+    { label: "Editar" },
+  ],
+  status: unit.isActive
+    ? { label: "Ativa", tone: "success" }
+    : { label: "Inactiva", tone: "muted" }
+} }}
+
+{{ set matchKeywords = unit.matchKeywords ?? [] }}
+
+<div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-6 mb-6">
+  <h2 class="text-sm font-semibold mb-4">Dados da fração</h2>
+  <form method="post" action="/admin/c/{{ currentCondominiumId }}/units/{{ unitId }}/update" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div class="form-control">
+      <label class="label py-1" for="designation"><span class="label-text text-xs">Designação</span></label>
+      <input type="text" id="designation" name="designation" required class="input input-sm input-bordered" value="{{ unit.designation }}">
+    </div>
+    <div class="form-control">
+      <label class="label py-1"><span class="label-text text-xs">Tipo (readonly)</span></label>
+      <input type="text" class="input input-sm input-bordered bg-base-200" value="{{ unit.unitType }}" readonly>
+    </div>
+    <div class="form-control">
+      <label class="label py-1"><span class="label-text text-xs">Permilagem (readonly)</span></label>
+      <input type="text" class="input input-sm input-bordered bg-base-200" value="{{ unit.permillage |> formatPermillage }}‰" readonly>
+    </div>
+    <div class="form-control">
+      <label class="label py-1" for="block"><span class="label-text text-xs">Bloco</span></label>
+      <input type="text" id="block" name="block" class="input input-sm input-bordered" value="{{ unit.block ?? '' }}">
+    </div>
+    <div class="form-control">
+      <label class="label py-1" for="floor"><span class="label-text text-xs">Piso</span></label>
+      <input type="text" id="floor" name="floor" class="input input-sm input-bordered" value="{{ unit.floor ?? '' }}">
+    </div>
+    <div class="form-control">
+      <label class="label py-1" for="door"><span class="label-text text-xs">Porta</span></label>
+      <input type="text" id="door" name="door" class="input input-sm input-bordered" value="{{ unit.door ?? '' }}">
+    </div>
+    <div class="form-control md:col-span-3">
+      {{# Label "Nota" no UI - coluna DB continua `description` (intencional,
+         renaming só de fachada). #}}
+      <label class="label py-1" for="description"><span class="label-text text-xs">Nota</span></label>
+      <textarea id="description" name="description" rows="2" maxlength="500"
+                placeholder="Notas livres sobre a fração - visível ao condómino no portal."
+                class="textarea textarea-sm textarea-bordered">{{ unit.description ?? '' }}</textarea>
+    </div>
+    <div class="md:col-span-3">
+      <button type="submit" class="btn btn-sm btn-primary">Guardar alterações</button>
+    </div>
+  </form>
+</div>
+
+{{# ═════════ Palavras-chave para match automático na conciliação ═════════ #}}
+<div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-6 mb-6" data-kw-card>
+  <h2 class="text-sm font-semibold mb-1">Palavras-chave para match automático</h2>
+  <p class="text-xs text-base-content/60 mb-4">
+    Quando qualquer destas palavras aparecer na descrição de um movimento
+    bancário, esta fração é sugerida automaticamente na conciliação.
+    Match é <strong>case-insensitive</strong> e <strong>ignora acentos</strong> -
+    "BEATRIZ LEITAO" bate com "beatriz leitão".
+  </p>
+  <form method="post" action="/admin/c/{{ currentCondominiumId }}/units/{{ unitId }}/match-keywords"
+        data-kw-form class="space-y-3">
+    <div class="flex flex-wrap gap-2 min-h-[32px]" data-kw-list>
+      {{ for k of matchKeywords }}
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium" data-kw-tag data-kw-value="{{ k }}">
+          <span>{{ k }}</span>
+          <button type="button" class="text-primary/60 hover:text-error font-bold leading-none" data-kw-remove aria-label="Remover">×</button>
+        </span>
+      {{ /for }}
+      <span data-kw-empty class="text-xs text-base-content/40 italic py-1 {{ if matchKeywords.length > 0 }}hidden{{ /if }}">
+        Sem palavras-chave configuradas.
+      </span>
+    </div>
+    <div class="flex gap-2">
+      <input type="text" data-kw-input autocomplete="off"
+             placeholder="Ex: BEATRIZ LEITAO"
+             class="input input-sm input-bordered flex-1"
+             maxlength="100">
+      <button type="button" data-kw-add class="btn btn-sm btn-outline">+ Adicionar</button>
+    </div>
+    <input type="hidden" name="matchKeywords" data-kw-hidden value="{{ JSON.stringify(matchKeywords) }}">
+    <div class="flex justify-end pt-2 border-t border-base-200">
+      <button type="submit" class="btn btn-sm btn-primary">Guardar palavras-chave</button>
+    </div>
+  </form>
+</div>
+
+<script>
+  (function () {
+    var card = document.querySelector("[data-kw-card]");
+    if (!card) return;
+    var form  = card.querySelector("[data-kw-form]");
+    var list  = card.querySelector("[data-kw-list]");
+    var empty = card.querySelector("[data-kw-empty]");
+    var input = card.querySelector("[data-kw-input]");
+    var addBtn = card.querySelector("[data-kw-add]");
+    var hidden = card.querySelector("[data-kw-hidden]");
+
+    function readTags() {
+      return Array.from(list.querySelectorAll("[data-kw-tag]")).map(function (el) {
+        return el.getAttribute("data-kw-value") || "";
+      });
+    }
+    function syncHidden() {
+      hidden.value = JSON.stringify(readTags());
+      var hasAny = readTags().length > 0;
+      empty.classList.toggle("hidden", hasAny);
+    }
+    function makeTagEl(value) {
+      var span = document.createElement("span");
+      span.className = "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium";
+      span.setAttribute("data-kw-tag", "");
+      span.setAttribute("data-kw-value", value);
+      var text = document.createElement("span");
+      text.textContent = value;
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "text-primary/60 hover:text-error font-bold leading-none";
+      btn.setAttribute("data-kw-remove", "");
+      btn.setAttribute("aria-label", "Remover");
+      btn.textContent = "×";
+      span.appendChild(text);
+      span.appendChild(btn);
+      return span;
+    }
+    function addTag() {
+      var v = (input.value || "").trim();
+      if (!v) return;
+      // Dedup case-insensitive (evita a mesma palavra 2 vezes só por case).
+      var existing = readTags().map(function (x) { return x.toLowerCase(); });
+      if (existing.indexOf(v.toLowerCase()) < 0) {
+        list.insertBefore(makeTagEl(v), empty);
+      }
+      input.value = "";
+      input.focus();
+      syncHidden();
+    }
+
+    addBtn.addEventListener("click", addTag);
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); addTag(); }
+    });
+    list.addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-kw-remove]");
+      if (!btn) return;
+      var tag = btn.closest("[data-kw-tag]");
+      if (tag) tag.remove();
+      syncHidden();
+    });
+    // Garante que o hidden reflete sempre o estado atual (caso o submit
+    // aconteça sem o user ter adicionado/removido nada depois do render).
+    form.addEventListener("submit", syncHidden);
+  })();
+</script>
+
+<details class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-4 mb-6" {{ if activeOccupants.length === 0 }}open{{ /if }}>
+  <summary class="cursor-pointer text-sm font-semibold">+ Associar ocupante existente</summary>
+  {{ if availableOccupants.length === 0 }}
+    <p class="text-xs text-base-content/60 mt-3">
+      Todos os ocupantes já estão associados a esta fração, ou ainda não criaste nenhum.
+      <a href="/admin/c/{{ currentCondominiumId }}/occupants/new" class="link link-primary">Criar novo ocupante →</a>
+    </p>
+  {{ else }}
+    <form method="post" action="/admin/c/{{ currentCondominiumId }}/units/{{ unitId }}/occupants" class="flex flex-wrap gap-3 items-end mt-4">
+      <div class="form-control flex-1 min-w-[240px]">
+        <label class="label py-1"><span class="label-text text-xs">Ocupante</span></label>
+        <select name="occupantId" required class="select select-sm select-bordered">
+          <option value="">- selecionar -</option>
+          {{ for o of availableOccupants }}
+            <option value="{{ o.id }}">{{ o.name }}{{ if o.email }} · {{ o.email }}{{ /if }}{{ if o.nif }} · NIF {{ o.nif }}{{ /if }}</option>
+          {{ /for }}
+        </select>
+      </div>
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text text-xs">Relação</span></label>
+        <select name="relationshipType" class="select select-sm select-bordered">
+          <option value="owner">Proprietário</option>
+          <option value="tenant">Inquilino</option>
+          <option value="resident">Residente</option>
+        </select>
+      </div>
+      <button type="submit" class="btn btn-sm btn-primary">Associar</button>
+      <span class="text-xs text-base-content/60">ou <a href="/admin/c/{{ currentCondominiumId }}/occupants/new" class="link link-primary">criar novo ocupante</a></span>
+    </form>
+  {{ /if }}
+</details>
+
+<div class="bg-base-100 rounded-xl border border-base-200 overflow-hidden shadow-sm" data-table-search-scope>
+  <div class="flex justify-between items-center p-4 border-b border-base-200">
+    <div class="text-sm font-semibold">Ocupantes da fração <span class="text-base-content/50 font-normal">· {{ activeOccupants.length }}</span></div>
+    <div class="flex items-center gap-2">
+      <input type="search" data-table-search placeholder="Pesquisar…" class="input input-sm input-bordered">
+    </div>
+  </div>
+  <div class="table-scroll">
+  <table class="table table-sm">
+    <thead>
+      <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+        <th class="pl-4">Nome</th>
+        <th>Email</th>
+        <th>Telemóvel</th>
+        <th>Relação</th>
+        <th>Desde</th>
+        <th>Até</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ if activeOccupants.length === 0 }}
+        <tr><td colspan="7" class="p-8 text-center text-base-content/50">Sem ocupantes associados.</td></tr>
+      {{ else }}
+        {{ for occ of activeOccupants }}
+          <tr class="hover:bg-base-200/30 border-t border-base-100 text-sm">
+            <td class="pl-4 font-bold" data-search>
+              <a href="/admin/c/{{ currentCondominiumId }}/occupants/{{ occ.occupant.id }}"
+                 class="link link-hover">{{ occ.occupant.name }}</a>
+            </td>
+            <td class="text-base-content/70" data-search>{{ occ.occupant.email ?? "-" }}</td>
+            <td class="text-base-content/70" data-search>{{ occ.occupant.phone ?? "-" }}</td>
+            <td>
+              {{ if occ.relationshipType === "owner" }}
+                <span class="inline-flex items-center gap-1.5 text-xs font-medium text-success">
+                  <span class="inline-block w-1.5 h-1.5 rounded-full bg-success"></span> Proprietário
+                </span>
+              {{ else if occ.relationshipType === "tenant" }}
+                <span class="inline-flex items-center gap-1.5 text-xs font-medium text-warning">
+                  <span class="inline-block w-1.5 h-1.5 rounded-full bg-warning"></span> Inquilino
+                </span>
+              {{ else if occ.relationshipType === "resident" }}
+                <span class="inline-flex items-center gap-1.5 text-xs font-medium text-info">
+                  <span class="inline-block w-1.5 h-1.5 rounded-full bg-info"></span> Residente
+                </span>
+              {{ /if }}
+            </td>
+            <td class="text-base-content/70">{{ occ.startDate }}</td>
+            <td class="text-base-content/70">
+              {{ if occ.endDate }}<span class="text-warning">{{ occ.endDate |> formatDate }}</span>{{ else }}-{{ /if }}
+            </td>
+            <td class="pr-4 text-right">
+              <a href="/admin/c/{{ currentCondominiumId }}/occupants/{{ occ.occupant.id }}" class="link link-primary text-xs">ver</a>
+              <form method="post" action="/admin/c/{{ currentCondominiumId }}/units/{{ unitId }}/occupants/{{ occ.occupant.id }}/remove" class="inline ml-1"
+                data-confirm-title="Remover ocupante"
+                data-confirm-body="O ocupante deixa de estar associado a esta fração. O histórico fica preservado."
+                data-confirm-ok="Remover"
+                data-confirm-danger="true">
+                <button type="submit" class="link link-error text-xs">×</button>
+              </form>
+            </td>
+          </tr>
+        {{ /for }}
+      {{ /if }}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+{{# Associações já terminadas. As datas editam-se na ficha do ocupante - aqui
+   só se garante que continuam visíveis e alcançáveis. #}}
+{{ if pastOccupants.length > 0 }}
+  <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-4 mt-4">
+    <div class="text-sm font-semibold mb-2">
+      Ocupantes anteriores <span class="text-base-content/50 font-normal">· {{ pastOccupants.length }}</span>
+    </div>
+    <div class="divide-y divide-base-200/60">
+      {{ for occ of pastOccupants }}
+        <div class="flex items-center justify-between gap-3 text-sm py-2 opacity-60">
+          <a href="/admin/c/{{ currentCondominiumId }}/occupants/{{ occ.occupant.id }}"
+             class="font-semibold link link-hover truncate">{{ occ.occupant.name }}</a>
+          <span class="text-xs text-base-content/60 whitespace-nowrap shrink-0">
+            {{ occ.startDate |> formatDate }} a {{ occ.endDate |> formatDate }}
+          </span>
+        </div>
+      {{ /for }}
+    </div>
+  </div>
+{{ /if }}
+
+{{# Auditoria - quem (id/email/ip) e quando #}}
+<div class="mt-6 text-xs text-base-content/50 space-y-1">
+  <div>
+    Criada{{ if audit.createdBy }}
+      por <span class="font-semibold text-base-content/70">{{ audit.createdBy.name }}</span>
+      {{ if audit.createdBy.email }} · {{ audit.createdBy.email }}{{ /if }}
+      {{ if audit.createdBy.ip }} · IP {{ audit.createdBy.ip }}{{ /if }}
+    {{ /if }}
+    {{ if unit.createdAt }} em {{ unit.createdAt |> formatDate }}{{ /if }}
+  </div>
+  {{ if audit.updatedBy || unit.updatedAt }}
+    <div>
+      Última alteração{{ if audit.updatedBy }}
+        por <span class="font-semibold text-base-content/70">{{ audit.updatedBy.name }}</span>
+        {{ if audit.updatedBy.email }} · {{ audit.updatedBy.email }}{{ /if }}
+        {{ if audit.updatedBy.ip }} · IP {{ audit.updatedBy.ip }}{{ /if }}
+      {{ /if }}
+      {{ if unit.updatedAt }} em {{ unit.updatedAt |> formatDate }}{{ /if }}
+    </div>
+  {{ /if }}
+  {{ if audit.deletedBy }}
+    <div class="text-error/70">
+      Apagada por <span class="font-semibold">{{ audit.deletedBy.name }}</span>
+      {{ if audit.deletedBy.email }} · {{ audit.deletedBy.email }}{{ /if }}
+      {{ if audit.deletedBy.ip }} · IP {{ audit.deletedBy.ip }}{{ /if }}
+    </div>
+  {{ /if }}
+</div>
+
+{{ /layout }}

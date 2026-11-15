@@ -1,0 +1,298 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{ set active = templates.filter((t) => t.isActive).length }}
+{{ set payables = templates.filter((t) => t.kind === "payable").length }}
+{{ set receivables = templates.filter((t) => t.kind === "receivable").length }}
+{{ set monthlyTotal = templates.filter((t) => t.isActive).reduce((s, t) => s + Number(t.amount || 0), 0) }}
+
+{{ layout "partials/page_header.vto" { title: "Despesas recorrentes" } }}
+  <button type="button" class="btn btn-sm btn-outline" onclick="document.getElementById('modal_generate').showModal()">
+    ⚡ Gerar despesas
+  </button>
+  <button type="button" class="btn btn-sm btn-primary" onclick="openRecurringModal('create')">
+    + Novo template
+  </button>
+{{ /layout }}
+
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+  {{ include "partials/kpi_card.vto" {
+    tone: "primary", label: "Templates", value: String(templates.length), caption: String(active) + " ativos"
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "error", label: "Despesas", value: String(payables), caption: "a pagar"
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "success", label: "Receitas", value: String(receivables), caption: "a receber"
+  } }}
+  {{ set _monthlyTotalValue = monthlyTotal |> formatMoney }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "warning", label: "Valor ativo", value: _monthlyTotalValue, caption: "somatório dos ativos"
+  } }}
+</div>
+
+
+{{ layout "partials/table_card.vto" { title: "Lista", count: templates.length, searchable: true } }}
+  <table class="table table-sm">
+    <thead>
+      <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+        <th class="pl-4">Descrição</th>
+        <th>Tipo</th>
+        <th class="text-right">Valor</th>
+        <th>Pagamento</th>
+        <th>Intervalo</th>
+        <th>Próxima</th>
+        <th>Última</th>
+        <th>Estado</th>
+        <th class="pr-4 text-right">Ações</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ if templates.length === 0 }}
+        <tr><td colspan="9" class="p-8 text-center text-base-content/50">Sem templates.</td></tr>
+      {{ else }}
+        {{ for t of templates }}
+          <tr class="hover:bg-base-200/30 border-t border-base-100 text-sm">
+            <td class="pl-4 font-bold" data-search>{{ t.description }}</td>
+            <td>
+              {{# "Despesa" usa warning (saída de dinheiro, não erro); "Receita" success. #}}
+              {{ if t.kind === "payable" }}
+                {{ include "partials/status_badge.vto" { label: "Despesa", tone: "warning", size: "xs" } }}
+              {{ else }}
+                {{ include "partials/status_badge.vto" { label: "Receita", tone: "success", size: "xs" } }}
+              {{ /if }}
+            </td>
+            <td class="text-right tabular-nums font-semibold">{{ t.amount |> formatMoney }}</td>
+            <td>
+              {{# Badge por método: manual = neutro, DD = info, TA = success (menor fricção). #}}
+              {{ if t.paymentMethod === "direct_debit" }}
+                <span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-info/10 text-info border border-info/20" title="Débito Direto - banco cobra automaticamente">
+                  DD
+                </span>
+              {{ else if t.paymentMethod === "auto_transfer" }}
+                <span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-success/10 text-success border border-success/20" title="Transferência Automática - standing order">
+                  TA
+                </span>
+              {{ else }}
+                <span class="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded bg-base-200 text-base-content/60 border border-base-300" title="Pagamento manual - exige ação do gestor">
+                  Manual
+                </span>
+              {{ /if }}
+            </td>
+            <td class="text-base-content/70">{{ t.intervalType }}</td>
+            <td class="text-base-content/70">{{ t.nextRunDate }}</td>
+            <td class="text-xs text-base-content/60">{{ t.lastGeneratedAt ?? "nunca" }}</td>
+            <td>
+              {{ if t.isActive }}
+                {{ include "partials/status_badge.vto" { label: "Ativo", tone: "success", size: "xs" } }}
+              {{ else }}
+                {{ include "partials/status_badge.vto" { label: "Pausado", tone: "muted", size: "xs" } }}
+              {{ /if }}
+            </td>
+            <td class="pr-4 text-right">
+              <div class="inline-flex items-center gap-4">
+                {{# Botão de editar segue o padrão visual do ADR 0022. #}}
+                <button type="button"
+                        class="inline-flex items-center gap-1 link link-hover text-xs text-base-content/70 hover:text-base-content"
+                        title="Editar template"
+                        data-template-id="{{ t.id }}"
+                        data-description="{{ t.description ?? '' }}"
+                        data-amount="{{ (Number(t.amount ?? 0) / 100).toFixed(2) }}"
+                        data-account-id="{{ t.accountId ?? '' }}"
+                        data-supplier-id="{{ t.supplierId ?? '' }}"
+                        data-interval-type="{{ t.intervalType ?? 'monthly' }}"
+                        data-payment-method="{{ t.paymentMethod ?? 'manual' }}"
+                        data-day-of-month="{{ t.dayOfMonth ?? '' }}"
+                        data-next-run-date="{{ t.nextRunDate ?? '' }}"
+                        data-notes="{{ t.notes ?? '' }}"
+                        onclick="openRecurringModal('edit', this)">
+                  <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/>
+                  </svg>
+                  Editar
+                </button>
+                <form method="post" action="/admin/c/{{ currentCondominiumId }}/recurring/{{ t.id }}/toggle" class="inline">
+                  <input type="hidden" name="isActive" value="{{ t.isActive ? 'false' : 'true' }}">
+                  {{ include "partials/action_link.vto" {
+                    kind: t.isActive ? "pause" : "resume",
+                    asButton: true,
+                    title: t.isActive ? "Pausar geração" : "Retomar geração",
+                  } }}
+                </form>
+                <form method="post" action="/admin/c/{{ currentCondominiumId }}/recurring/{{ t.id }}/delete" class="inline"
+                      data-confirm-title="Apagar template recorrente?"
+                      data-confirm-body="As charges já geradas mantêm-se; apenas pára de gerar futuras."
+                      data-confirm-ok="Apagar"
+                      data-confirm-danger="true">
+                  {{ include "partials/action_link.vto" { kind: "delete", asButton: true } }}
+                </form>
+              </div>
+            </td>
+          </tr>
+        {{ /for }}
+      {{ /if }}
+    </tbody>
+  </table>
+{{ /layout }}
+
+{{# ═════════ MODAL: Novo / Editar template recorrente ═════════ #}}
+{{# Modal único partilhado por ambos os modos - o JS alterna action + campos. #}}
+<dialog id="modal_recurring" class="modal">
+  <div class="modal-box max-w-2xl">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-lg mb-4" id="modal_recurring_title">Novo template recorrente</h3>
+    <form method="post" id="recurring_form" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+      {{# Tipo e data de início são imutáveis após criação - escondidos no modo edit. #}}
+      <div class="form-control" data-only-create>
+        <label class="label py-1"><span class="label-text text-xs">Tipo</span></label>
+        <select name="kind" id="rec_kind" class="select select-sm select-bordered">
+          <option value="payable">Despesa</option>
+          <option value="receivable">Receita</option>
+        </select>
+      </div>
+      <div class="form-control md:col-span-2">
+        <label class="label py-1"><span class="label-text text-xs">Descrição</span></label>
+        <input type="text" id="rec_description" name="description" class="input input-sm input-bordered" required>
+      </div>
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text text-xs">Valor (€)</span></label>
+        <input type="number" id="rec_amount" name="amount" step="0.01" min="0" class="input input-sm input-bordered" required>
+      </div>
+      <div class="form-control md:col-span-2">
+        <label class="label py-1"><span class="label-text text-xs">Fornecedor</span></label>
+        <select id="rec_supplierId" name="supplierId" class="select select-sm select-bordered">
+          <option value="">-</option>
+          {{ for s of suppliers }}<option value="{{ s.id }}">{{ s.name }}</option>{{ /for }}
+        </select>
+      </div>
+      <div class="form-control md:col-span-3 relative" data-combobox id="rec_account_combobox">
+        <label class="label py-1"><span class="label-text text-xs">Categoria</span></label>
+        <input type="text" data-combobox-search autocomplete="off"
+               placeholder="Pesquisar código ou nome…"
+               class="input input-sm input-bordered">
+        <input type="hidden" name="accountId" data-combobox-value>
+        <ul data-combobox-list class="hidden absolute top-full left-0 right-0 z-20 mt-1 max-h-60 overflow-y-auto bg-base-100 border border-base-200 rounded-lg shadow-lg py-1">
+          {{ for a of accounts }}
+            {{ if a.type === "expense" }}
+              <li data-combobox-option
+                  data-id="{{ a.id }}"
+                  data-label="{{ a.code }} - {{ a.name }}"
+                  data-haystack="{{ (a.code + ' ' + a.name + ' ' + (a.description ?? '')).toLowerCase() }}"
+                  class="px-3 py-1.5 text-sm hover:bg-base-200 cursor-pointer"
+                  title="{{ a.description ?? '' }}">
+                <span class="font-semibold tabular-nums">{{ a.code }}</span><span class="text-base-content/70"> - {{ a.name }}</span>
+              </li>
+            {{ /if }}
+          {{ /for }}
+          <li data-combobox-empty class="hidden px-3 py-2 text-sm text-base-content/50 italic">Sem resultados.</li>
+        </ul>
+      </div>
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text text-xs">Intervalo</span></label>
+        <select id="rec_intervalType" name="intervalType" class="select select-sm select-bordered">
+          <option value="monthly">Mensal</option>
+          <option value="bimonthly">Bimestral</option>
+          <option value="quarterly">Trimestral</option>
+          <option value="semiannual">Semestral</option>
+          <option value="annual">Anual</option>
+        </select>
+      </div>
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text text-xs">Dia do mês</span></label>
+        <input type="number" id="rec_dayOfMonth" name="dayOfMonth" min="1" max="28" class="input input-sm input-bordered" value="1">
+      </div>
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text text-xs">Pagamento</span></label>
+        <select id="rec_paymentMethod" name="paymentMethod" class="select select-sm select-bordered">
+          <option value="manual">Manual</option>
+          <option value="direct_debit">Débito Direto</option>
+          <option value="auto_transfer">Transferência Automática</option>
+        </select>
+      </div>
+      <div class="form-control" data-only-create>
+        <label class="label py-1"><span class="label-text text-xs">Data início</span></label>
+        <input type="date" id="rec_startDate" name="startDate" class="input input-sm input-bordered" value="{{ today }}" required>
+      </div>
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text text-xs">Próxima geração</span></label>
+        <input type="date" id="rec_nextRunDate" name="nextRunDate" class="input input-sm input-bordered" value="{{ today }}" required>
+      </div>
+      <div class="form-control"></div>
+      <div class="md:col-span-3 flex justify-end gap-2 pt-3 border-t border-base-200 mt-2">
+        <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('modal_recurring').close()">Cancelar</button>
+        <button type="submit" class="btn btn-sm btn-primary" id="recurring_submit">Adicionar template</button>
+      </div>
+    </form>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+{{# ═════════ MODAL: Gerar despesas pendentes ═════════ #}}
+<dialog id="modal_generate" class="modal">
+  <div class="modal-box max-w-md">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-lg mb-3">Gerar despesas pendentes</h3>
+    <p class="text-sm text-base-content/70 mb-4">
+      Dispara todos os templates ativos com <code class="text-xs bg-base-200 px-1 py-0.5 rounded">nextRunDate</code> ≤ data abaixo. É idempotente - re-executar não cria duplicados.
+    </p>
+    <form method="post" action="/admin/c/{{ currentCondominiumId }}/recurring/generate" class="space-y-3">
+      <div class="form-control">
+        <label class="label py-1" for="gen_throughDate"><span class="label-text text-xs font-medium">Gerar até</span></label>
+        <input type="date" id="gen_throughDate" name="throughDate" class="input input-sm input-bordered" value="{{ today }}" required>
+      </div>
+      <div class="flex justify-end gap-2 pt-2">
+        <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('modal_generate').close()">Cancelar</button>
+        <button type="submit" class="btn btn-sm btn-primary">Gerar agora</button>
+      </div>
+    </form>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<script>
+  (function () {
+    var condoPrefix = "/admin/c/{{ currentCondominiumId }}/recurring";
+    var modal = document.getElementById("modal_recurring");
+    var form = document.getElementById("recurring_form");
+    var title = document.getElementById("modal_recurring_title");
+    var submit = document.getElementById("recurring_submit");
+    var accBox = document.getElementById("rec_account_combobox");
+    var accSearch = accBox.querySelector("[data-combobox-search]");
+    var accHidden = accBox.querySelector("[data-combobox-value]");
+    var onlyCreate = document.querySelectorAll("[data-only-create]");
+
+    window.openRecurringModal = function (mode, btn) {
+      form.reset();
+      onlyCreate.forEach(function (el) { el.classList.toggle("hidden", mode === "edit"); });
+
+      if (mode === "create") {
+        title.textContent = "Novo template recorrente";
+        submit.textContent = "Adicionar template";
+        form.action = condoPrefix;
+        document.getElementById("rec_kind").value = "payable";
+        document.getElementById("rec_dayOfMonth").value = "1";
+        document.getElementById("rec_paymentMethod").value = "manual";
+        accSearch.value = "";
+        accHidden.value = "";
+      } else {
+        title.textContent = "Editar template recorrente";
+        submit.textContent = "Guardar alterações";
+        var id = btn.getAttribute("data-template-id");
+        form.action = condoPrefix + "/" + id + "/update";
+        document.getElementById("rec_description").value = btn.getAttribute("data-description") || "";
+        document.getElementById("rec_amount").value = btn.getAttribute("data-amount") || "";
+        document.getElementById("rec_supplierId").value = btn.getAttribute("data-supplier-id") || "";
+        document.getElementById("rec_intervalType").value = btn.getAttribute("data-interval-type") || "monthly";
+        document.getElementById("rec_paymentMethod").value = btn.getAttribute("data-payment-method") || "manual";
+        document.getElementById("rec_dayOfMonth").value = btn.getAttribute("data-day-of-month") || "";
+        document.getElementById("rec_nextRunDate").value = btn.getAttribute("data-next-run-date") || "";
+        var accId = btn.getAttribute("data-account-id") || "";
+        accHidden.value = accId;
+        var opt = accId ? accBox.querySelector('[data-combobox-option][data-id="' + accId + '"]') : null;
+        accSearch.value = opt ? opt.dataset.label : "";
+      }
+      modal.showModal();
+    };
+  })();
+</script>
+
+{{ /layout }}

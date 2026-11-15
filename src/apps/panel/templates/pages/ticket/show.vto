@@ -1,0 +1,180 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{# Detalhe da ocorrência. Mutações fazem partial swap HTMX do `#ticket-body`
+   (ver `_ticket_body.vto`); o header fica fora do swap. #}}
+
+{{# Header canónico (ADR 0036). Sem status - vive no `_ticket_body.vto`. #}}
+{{ include "partials/page_header.vto" {
+  title: ticket.title,
+  scale: "detail",
+  code: ticket.code,
+  breadcrumbs: [
+    { label: "Ocorrências", href: "/admin/c/" + currentCondominiumId + "/tickets" },
+    { label: ticket.title },
+  ],
+} }}
+
+{{ include "pages/ticket/_ticket_body.vto" {
+  ticket,
+  units,
+  submitterName,
+  categoryLabels,
+  priorityLabels,
+  statusLabels,
+  currentCondominiumId,
+  toast: null,
+} }}
+
+{{# Modal "Associar a patologia existente" - reusa o endpoint /update do
+   ticket (pathologyId escolhido). Combobox padrão (overflow-visible no
+   modal-box). #}}
+{{ if !ticket.pathology }}
+  {{ set pathologyCategoryLabels = {
+    crack: "Fissura",
+    infiltration: "Infiltração",
+    humidity: "Humidade",
+    efflorescence: "Eflorescência",
+    detachment: "Descolamento",
+    corrosion: "Corrosão",
+    mould: "Fungos",
+    structural: "Estrutural",
+    other: "Outra",
+  } }}
+  <dialog id="modal_link_pathology" class="modal">
+    <div class="modal-box max-w-xl overflow-visible">
+      <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+      <h3 class="font-bold text-lg mb-1">Associar a patologia existente</h3>
+      <p class="text-xs text-base-content/60 mb-4">
+        Pesquisa por código (ex: <span class="font-mono">PAT-001</span>) ou pelo título.
+        O ticket fica ligado - várias intervenções podem partilhar a mesma patologia.
+      </p>
+      {{ if pathologies.length === 0 }}
+        <div class="bg-base-200/40 rounded-lg p-4 text-sm text-base-content/60 text-center">
+          Ainda não há patologias registadas neste condomínio.
+          <span class="block text-xs mt-1">Usa <strong>Nova patologia</strong> para criar a primeira.</span>
+        </div>
+        <div class="flex justify-end pt-3 mt-4 border-t border-base-200">
+          <form method="dialog"><button class="btn btn-sm">Fechar</button></form>
+        </div>
+      {{ else }}
+        <form method="post"
+              action="/admin/c/{{ currentCondominiumId }}/tickets/{{ ticket.id }}/update"
+              class="space-y-4">
+          <div class="form-control relative" data-combobox>
+            <label class="label py-1"><span class="label-text text-xs">Patologia *</span></label>
+            <input type="text" data-combobox-search autocomplete="off" required
+                   placeholder="Pesquisar por código ou título…"
+                   class="input input-sm input-bordered">
+            <input type="hidden" name="pathologyId" data-combobox-value required>
+            <ul data-combobox-list class="hidden absolute top-full left-0 right-0 z-30 mt-1 max-h-72 overflow-y-auto bg-base-100 border border-base-200 rounded-lg shadow-lg py-1">
+              {{ for p of pathologies }}
+                {{# Status dot: admin vê se liga a algo ativo ou histórico. #}}
+                {{ set statusColor = p.status === "active" ? "bg-success"
+                  : p.status === "resolved" ? "bg-base-content/30"
+                  : p.status === "dismissed" ? "bg-base-content/20"
+                  : "bg-warning" }}
+                <li data-combobox-option
+                    data-id="{{ p.id }}"
+                    data-label="{{ p.code }} · {{ p.title }}"
+                    data-haystack="{{ (p.code + ' ' + p.title + ' ' + (pathologyCategoryLabels[p.category] ?? p.category)).toLowerCase() }}"
+                    class="px-3 py-2 text-sm hover:bg-base-200 cursor-pointer whitespace-nowrap"
+                    title="{{ p.title }}">
+                  <div class="flex items-center gap-2">
+                    <span class="inline-block w-1.5 h-1.5 rounded-full {{ statusColor }} shrink-0"></span>
+                    <span class="font-mono font-semibold text-xs">{{ p.code }}</span>
+                    <span class="truncate flex-1">{{ p.title }}</span>
+                    <span class="text-[10px] uppercase tracking-wider text-base-content/50 shrink-0">{{ pathologyCategoryLabels[p.category] ?? p.category }}</span>
+                  </div>
+                </li>
+              {{ /for }}
+              <li data-combobox-empty class="hidden px-3 py-2 text-sm text-base-content/50 italic">Sem resultados.</li>
+            </ul>
+          </div>
+          <div class="flex justify-end gap-2 pt-3 border-t border-base-200">
+            <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('modal_link_pathology').close()">Cancelar</button>
+            <button type="submit" class="btn btn-sm btn-primary">Associar</button>
+          </div>
+        </form>
+      {{ /if }}
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+{{ /if }}
+
+{{# Modal "Promover a patologia" - só renderiza se ainda não há patologia
+   associada. Pré-preenche title/description com os do ticket. #}}
+{{ if !ticket.pathology }}
+  <dialog id="modal_promote_pathology" class="modal">
+    <div class="modal-box max-w-2xl">
+      <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+      <h3 class="font-bold text-lg mb-1">Promover a patologia</h3>
+      <p class="text-xs text-base-content/60 mb-4">
+        Cria uma patologia formal pré-preenchida com o conteúdo desta ocorrência e
+        liga-a automaticamente. O ticket mantém-se aberto - workflows independentes.
+      </p>
+      <form method="post" action="/admin/c/{{ currentCondominiumId }}/tickets/{{ ticket.id }}/promote-to-pathology" class="space-y-4">
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Título *</span></label>
+          <input type="text" name="title" required maxlength="255"
+                 value="{{ ticket.title }}"
+                 class="input input-sm input-bordered">
+        </div>
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Descrição</span></label>
+          <textarea name="description" rows="4" maxlength="4000"
+                    class="textarea textarea-sm textarea-bordered">{{ ticket.description ?? "" }}</textarea>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div class="form-control">
+            <label class="label py-1"><span class="label-text text-xs">Categoria *</span></label>
+            <select name="category" required class="select select-sm select-bordered">
+              <option value="other" selected>Outra</option>
+              <option value="crack">Fissura</option>
+              <option value="infiltration">Infiltração</option>
+              <option value="humidity">Humidade</option>
+              <option value="efflorescence">Eflorescência</option>
+              <option value="detachment">Descolamento</option>
+              <option value="corrosion">Corrosão</option>
+              <option value="mould">Fungos</option>
+              <option value="structural">Estrutural</option>
+            </select>
+          </div>
+          <div class="form-control">
+            <label class="label py-1"><span class="label-text text-xs">Detectada em</span></label>
+            <input type="date" name="detectedAt" class="input input-sm input-bordered">
+          </div>
+        </div>
+        {{# Sentinel + checkbox: pre-marca affects_common_area=true quando ticket
+           é de zona comum (unit_id é null). Admin pode desligar se for específico. #}}
+        <input type="hidden" name="affectsCommonAreaSubmitted" value="1">
+        <div class="form-control bg-base-200/30 rounded-lg p-3">
+          <label class="label cursor-pointer py-1 justify-start gap-3">
+            <input type="checkbox" name="affectsCommonArea" value="1" class="checkbox checkbox-primary checkbox-sm" {{ if !ticket.unitId }}checked{{ /if }}>
+            <span class="label-text text-xs">
+              <span class="font-medium">Afecta partes comuns</span>
+              <span class="text-base-content/50"> · fachadas, escadas, garagem, etc.</span>
+            </span>
+          </label>
+        </div>
+        <div class="flex justify-end gap-2 pt-3 border-t border-base-200">
+          <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('modal_promote_pathology').close()">Cancelar</button>
+          <button type="submit" class="btn btn-sm btn-primary">Criar patologia + ligar</button>
+        </div>
+      </form>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+{{ /if }}
+
+{{# Zona perigosa - pattern canónico (ADR 0025). Vive em show.vto (não
+   em _ticket_body.vto) porque (1) o partial precisa de currentUser do
+   layout scope e (2) fica fora do swap target HTMX. #}}
+{{ include "partials/danger_zone.vto" {
+  entityName: "ocorrência",
+  entityLabel: ticket.code,
+  actionUrl: "/admin/c/" + currentCondominiumId + "/tickets/" + ticket.id + "/delete",
+  confirmBody: "Apaga a ocorrência e o histórico associado (comentários, anexos).",
+  currentUser,
+} }}
+
+{{ /layout }}

@@ -1,0 +1,54 @@
+{{# PDF do orçamento (Vento -> HTML -> Chromium -> A4). Dados:
+     • condominium    -> { name, fiscalNumber?, address?, postalCode?, city? }
+     • budget         -> formatBudgetForResponse(): year, type, status, notes,
+                         fcrPercentage, installments, approvedAt, totalAmount,
+                         fcrAmount, lines[{categoryCode, categoryName,
+                         categoryDescription, annualAmount}]
+     • quotaMap       -> null OU { units[], totalPermillage, totals{} }
+     • grandTotal     -> totalAmount + fcrAmount (cêntimos)
+     • installmentValue -> valor por prestação (suplementar) OU null
+     • generatedAt    -> ISO string
+   Filtros globais: formatMoney, formatDate, formatDateTime. autoescape ON.
+#}}
+<!doctype html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<title>Orçamento {{ budget.year }} - {{ condominium.name }}</title>
+<style>
+  * { box-sizing: border-box; }
+  @page { size: A4; margin: 0; }
+  html, body { margin: 0; padding: 0; font-family: "Helvetica Neue", Arial, sans-serif; font-size: 10.5pt; color: #1a1a1a; line-height: 1.45; }
+  .page { padding: 1.6cm 1.8cm; }
+  .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1a1a1a; padding-bottom: 10px; margin-bottom: 18px; }
+  .head .condo { font-size: 13pt; font-weight: bold; }
+  .head .condo-meta { font-size: 8.5pt; color: #555; margin-top: 2px; }
+  .head .docmeta { text-align: right; font-size: 8.5pt; color: #666; }
+  .footer { margin-top: 30px; padding-top: 10px; border-top: 1px solid #eee; font-size: 8pt; color: #999; text-align: center; }
+</style>
+{{# Estilos do corpo (rubricas + mapa de quotas + totais), escopados em .orc-doc
+   e partilhados com os anexos da ata. #}}
+{{ include "partials/budget_body_styles.vto" }}
+</head>
+<body>
+<div class="page">
+  <div class="head">
+    <div>
+      <div class="condo">{{ condominium.name }}</div>
+      {{ if condominium.fiscalNumber }}<div class="condo-meta">NIF {{ condominium.fiscalNumber }}</div>{{ /if }}
+      {{ if condominium.address }}<div class="condo-meta">{{ condominium.address }}{{ if condominium.postalCode || condominium.city }}, {{ condominium.postalCode }} {{ condominium.city }}{{ /if }}</div>{{ /if }}
+    </div>
+    <div class="docmeta">Gerado em<br>{{ generatedAt |> formatDateTime }}</div>
+  </div>
+
+  {{ include "partials/budget_body.vto" {
+    budget,
+    quotaMap,
+    grandTotal,
+    installmentValue,
+  } }}
+
+  <div class="footer">{{ condominium.name }} · Orçamento {{ budget.year }} · Gerado em {{ generatedAt |> formatDateTime }}</div>
+</div>
+</body>
+</html>

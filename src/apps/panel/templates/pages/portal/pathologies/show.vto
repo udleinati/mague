@@ -1,0 +1,158 @@
+{{ layout "layouts/portal.vto" { title, section, condominium, unit, currentUser, currentPortalUnitId, currentCondominiumId } }}
+
+{{# Patologia - detalhe portal (read-only, sem caminho de escrita).
+   ADR 0024: só status != 'draft' visível ao condómino. Anexos via proxy
+   panel com ownershipQuery que valida o status (anti-IDOR). #}}
+
+{{ set isResolved = target.status === "resolved" }}
+{{ set isDismissed = target.status === "dismissed" }}
+{{ set isTerminal = isResolved || isDismissed }}
+{{ set sColor = statusColor[target.status] ?? "base-content/40" }}
+{{ set isMustard = sColor === "warning_mustard" }}
+
+<div class="mb-6">
+  <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/pathologies"
+     class="text-sm text-base-content/60 hover:text-base-content">← Voltar à lista</a>
+  <div class="flex items-baseline gap-3 mt-2 flex-wrap">
+    <span class="font-mono text-base-content/40 text-2xl">{{ target.code }}</span>
+    <h1 class="text-2xl sm:text-3xl font-black break-words">{{ target.title }}</h1>
+  </div>
+  {{ if target.detectedAt }}
+    <p class="text-xs text-base-content/60 mt-1">
+      Detectada em <span class="font-medium tabular-nums">{{ target.detectedAt |> formatDate }}</span>
+      {{ if target.resolvedAt }}
+        · Resolvida em <span class="font-medium tabular-nums text-success">{{ target.resolvedAt |> formatDate }}</span>
+      {{ /if }}
+      {{ if target.dismissedAt }}
+        · Encerrada em <span class="font-medium tabular-nums">{{ target.dismissedAt |> formatDate }}</span>
+      {{ /if }}
+    </p>
+  {{ /if }}
+</div>
+
+{{# ── Status pill grande ──────────────────────────────────────────────── #}}
+<div class="mb-6">
+  {{ if isMustard }}
+    <span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium bg-amber-100" style="color:#854D0E">
+      <span class="w-2 h-2 rounded-full" style="background:#A16207"></span>
+      {{ statusLabels[target.status] ?? target.status }}
+    </span>
+  {{ else }}
+    <span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium bg-{{ sColor }}/10 text-{{ sColor }}">
+      <span class="w-2 h-2 rounded-full bg-{{ sColor }}"></span>
+      {{ statusLabels[target.status] ?? target.status }}
+    </span>
+  {{ /if }}
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  {{# COLUNA ESQUERDA: descrição + notas + fotos ───────────────────────── #}}
+  <div class="lg:col-span-2 space-y-6">
+
+    {{# ─── Descrição ─────────────────────────────────────────────────── #}}
+    {{ if target.description }}
+      <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+        <h2 class="text-xs uppercase font-bold text-base-content/50 tracking-wider mb-2">Descrição</h2>
+        <div class="text-sm whitespace-pre-line text-base-content/80 break-words">{{ target.description }}</div>
+      </div>
+    {{ /if }}
+
+    {{# ─── Notas de resolução ───────────────────────────────────────── #}}
+    {{ if isResolved && target.resolutionNotes }}
+      <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+        <h2 class="text-xs uppercase font-bold text-success/80 tracking-wider mb-2">Notas de resolução</h2>
+        <div class="text-sm whitespace-pre-line text-base-content/80 break-words">{{ target.resolutionNotes }}</div>
+      </div>
+    {{ /if }}
+
+    {{# ─── Razão de encerramento ─────────────────────────────────────── #}}
+    {{ if isDismissed && target.dismissedReason }}
+      <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+        <h2 class="text-xs uppercase font-bold text-base-content/50 tracking-wider mb-2">Razão de encerramento</h2>
+        <div class="text-sm whitespace-pre-line text-base-content/80 break-words">{{ target.dismissedReason }}</div>
+      </div>
+    {{ /if }}
+
+    {{# ─── Fotos / anexos ────────────────────────────────────────────── #}}
+    {{ if target.attachments && target.attachments.length > 0 }}
+      {{ set _attachBase = "/portal/c/" + currentCondominiumId + "/u/" + currentPortalUnitId + "/pathologies/" + target.id + "/attachments" }}
+      <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+        <h2 class="text-xs uppercase font-bold text-base-content/50 tracking-wider mb-4">
+          Fotos / anexos
+          <span class="text-base-content/40 font-normal normal-case tracking-normal">· {{ String(target.attachments.length) }}</span>
+        </h2>
+        {{ include "partials/attachments_list.vto" {
+          attachments: target.attachments,
+          baseUrl: _attachBase,
+          layout: "grid",
+          canDelete: false,
+        } }}
+      </div>
+    {{ /if }}
+
+    {{ if !target.description && !target.attachments }}
+      <div class="bg-base-100 rounded-xl border border-base-200 p-8 text-center text-sm text-base-content/50">
+        Sem detalhes adicionais.
+      </div>
+    {{ /if }}
+  </div>
+
+  {{# COLUNA DIREITA: metadados ────────────────────────────────────────── #}}
+  <div class="space-y-4">
+    <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5 space-y-4">
+      <div>
+        <h3 class="text-xs uppercase font-bold text-base-content/50 tracking-wider mb-2">Categoria</h3>
+        <div class="text-sm font-medium">{{ categoryLabels[target.category] ?? target.category }}</div>
+      </div>
+
+      <div>
+        <h3 class="text-xs uppercase font-bold text-base-content/50 tracking-wider mb-2">Âmbito</h3>
+        {{ if target.affectsCommonArea }}
+          <div class="text-sm">
+            <span class="inline-flex items-center gap-1.5 text-base-content/80">
+              <svg class="w-3.5 h-3.5 text-success" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                <path d="M9.293 2.293a1 1 0 011.414 0l7 7A1 1 0 0117 11h-1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-3a1 1 0 00-1-1H9a1 1 0 00-1 1v3a1 1 0 01-1 1H5a1 1 0 01-1-1v-6H3a1 1 0 01-.707-1.707l7-7z"/>
+              </svg>
+              Partes comuns
+            </span>
+          </div>
+        {{ /if }}
+        {{ if target.units && target.units.length > 0 }}
+          <div class="mt-1.5 flex flex-wrap gap-1.5">
+            {{ for u of target.units }}
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold tabular-nums bg-primary/10 text-primary">
+                {{ u.designation }}{{ if u.identifier }}<span class="opacity-60"> - {{ u.identifier }}</span>{{ /if }}
+              </span>
+            {{ /for }}
+          </div>
+        {{ /if }}
+        {{ if !target.affectsCommonArea && (!target.units || target.units.length === 0) }}
+          <div class="text-sm text-base-content/40 italic">Sem âmbito definido</div>
+        {{ /if }}
+      </div>
+
+      <div class="border-t border-base-200 pt-3 space-y-2 text-xs">
+        {{ if target.detectedAt }}
+          <div class="flex justify-between gap-2">
+            <span class="text-base-content/60">Detectada</span>
+            <span class="tabular-nums">{{ target.detectedAt |> formatDate }}</span>
+          </div>
+        {{ /if }}
+        {{ if target.resolvedAt }}
+          <div class="flex justify-between gap-2">
+            <span class="text-base-content/60">Resolvida</span>
+            <span class="tabular-nums text-success">{{ target.resolvedAt |> formatDate }}</span>
+          </div>
+        {{ /if }}
+        {{ if target.dismissedAt }}
+          <div class="flex justify-between gap-2">
+            <span class="text-base-content/60">Encerrada</span>
+            <span class="tabular-nums">{{ target.dismissedAt |> formatDate }}</span>
+          </div>
+        {{ /if }}
+      </div>
+    </div>
+  </div>
+</div>
+
+{{ /layout }}

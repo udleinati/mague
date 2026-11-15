@@ -1,0 +1,124 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{# KPIs contam LIGAÇÕES ativas, não ocupantes (ADR 0018): owner+tenant conta
+   em cada bucket; órfãos só no total de ocupantes. #}}
+{{ set totalLinks = occupantMap.reduce((s, e) => s + e.units.length, 0) }}
+{{ set ownerLinks = occupantMap.reduce((s, e) => s + e.units.filter((u) => u.relationshipType === "owner").length, 0) }}
+{{ set tenantLinks = occupantMap.reduce((s, e) => s + e.units.filter((u) => u.relationshipType === "tenant").length, 0) }}
+{{ set residentLinks = occupantMap.reduce((s, e) => s + e.units.filter((u) => u.relationshipType === "resident").length, 0) }}
+
+{{ layout "partials/page_header.vto" { title: "Ocupantes" } }}
+  <button type="button" class="btn btn-sm btn-primary" onclick="openOccupantModal('create')">
+    + Novo ocupante
+  </button>
+{{ /layout }}
+
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+  {{ include "partials/kpi_card.vto" {
+    tone: "primary", label: "Ocupantes", value: String(occupantMap.length), caption: String(totalLinks) + " ligações a frações"
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "success", label: "Proprietários", value: String(ownerLinks), caption: "ligações ativas"
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "warning", label: "Inquilinos / Residentes", value: String(tenantLinks + residentLinks),
+    caption: String(tenantLinks) + " inquilinos · " + String(residentLinks) + " residentes"
+  } }}
+  <div class="bg-gradient-to-br from-info/10 to-info/5 rounded-xl border border-info/20 p-5">
+    <div class="text-xs uppercase font-bold text-info/80 tracking-wider">Filtro</div>
+    <div class="flex gap-1 mt-3 flex-wrap">
+      <a href="/admin/c/{{ currentCondominiumId }}/occupants" class="btn btn-xs {{ if !filter }}btn-primary{{ else }}btn-ghost{{ /if }}">Todos</a>
+      <a href="/admin/c/{{ currentCondominiumId }}/occupants?filter=owner" class="btn btn-xs {{ if filter === 'owner' }}btn-primary{{ else }}btn-ghost{{ /if }}">Propr.</a>
+      <a href="/admin/c/{{ currentCondominiumId }}/occupants?filter=tenant" class="btn btn-xs {{ if filter === 'tenant' }}btn-primary{{ else }}btn-ghost{{ /if }}">Inquil.</a>
+      <a href="/admin/c/{{ currentCondominiumId }}/occupants?filter=resident" class="btn btn-xs {{ if filter === 'resident' }}btn-primary{{ else }}btn-ghost{{ /if }}">Resid.</a>
+    </div>
+  </div>
+</div>
+
+{{ set withUnits = occupantMap.filter((e) => e.units.length > 0) }}
+{{ set withoutUnits = occupantMap.filter((e) => e.units.length === 0) }}
+{{ layout "partials/table_card.vto" { title: "Lista de ocupantes", count: occupantMap.length, searchable: true } }}
+  <table class="table table-sm">
+    <thead>
+      <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+        <th class="pl-4">Nome</th>
+        <th>Fração(ões)</th>
+        <th>Email</th>
+        <th>Portal</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ if occupantMap.length === 0 }}
+        <tr><td colspan="5" class="p-8 text-center text-base-content/50">Nenhum ocupante encontrado.</td></tr>
+      {{ else }}
+        {{ for entry of withUnits }}
+          <tr class="hover:bg-base-200/30 border-t border-base-100 text-sm align-top">
+            <td class="pl-4 font-bold py-2" data-search>{{ entry.occupant.name }}</td>
+            <td class="py-2" data-search>
+              <div class="space-y-1">
+                {{ for u of entry.units }}
+                  <div class="flex items-center gap-2">
+                    <a href="/admin/c/{{ currentCondominiumId }}/units/{{ u.unit.id }}" class="link link-hover whitespace-nowrap">
+                      <span class="font-bold">{{ u.unit.designation }}</span>{{ if u.unit.identifier }}<span class="text-base-content/50 font-normal"> - {{ u.unit.identifier }}</span>{{ /if }}
+                    </a>
+                    {{ if u.relationshipType === "owner" }}
+                      <span class="inline-flex items-center gap-1 text-[10px] font-medium text-success whitespace-nowrap">
+                        <span class="inline-block w-1 h-1 rounded-full bg-success"></span>propr.
+                      </span>
+                    {{ else if u.relationshipType === "tenant" }}
+                      <span class="inline-flex items-center gap-1 text-[10px] font-medium text-warning whitespace-nowrap">
+                        <span class="inline-block w-1 h-1 rounded-full bg-warning"></span>inquil.
+                      </span>
+                    {{ else if u.relationshipType === "resident" }}
+                      <span class="inline-flex items-center gap-1 text-[10px] font-medium text-info whitespace-nowrap">
+                        <span class="inline-block w-1 h-1 rounded-full bg-info"></span>resid.
+                      </span>
+                    {{ /if }}
+                  </div>
+                {{ /for }}
+              </div>
+            </td>
+            <td class="text-base-content/70 py-2" data-search>{{ entry.occupant.email ?? "" }}</td>
+            <td class="py-2">
+              {{ include "partials/occupant_portal_status.vto" { occupant: entry.occupant, currentCondominiumId } }}
+            </td>
+            <td class="pr-4 text-right py-2">
+              {{ include "partials/action_link.vto" {
+                kind: "view",
+                href: "/admin/c/" + currentCondominiumId + "/occupants/" + entry.occupant.id,
+              } }}
+            </td>
+          </tr>
+        {{ /for }}
+        {{ if withoutUnits.length > 0 }}
+          <tr class="bg-base-200/40 border-t-2 border-base-300">
+            <td colspan="5" class="pl-4 py-2 text-[10px] uppercase tracking-widest font-bold text-base-content/60">
+              Sem fração associada <span class="font-normal normal-case text-base-content/40">· {{ withoutUnits.length }}</span>
+            </td>
+          </tr>
+          {{ for entry of withoutUnits }}
+            <tr class="hover:bg-base-200/30 border-t border-base-100 text-sm opacity-80">
+              <td class="pl-4 font-bold" data-search>{{ entry.occupant.name }}</td>
+              <td class="text-base-content/40 text-xs italic">-</td>
+              <td class="text-base-content/70" data-search>{{ entry.occupant.email ?? "" }}</td>
+              <td>
+                {{ include "partials/occupant_portal_status.vto" { occupant: entry.occupant, currentCondominiumId } }}
+              </td>
+              <td class="pr-4 text-right">
+                {{ include "partials/action_link.vto" {
+                  kind: "view",
+                  href: "/admin/c/" + currentCondominiumId + "/occupants/" + entry.occupant.id,
+                } }}
+              </td>
+            </tr>
+          {{ /for }}
+        {{ /if }}
+      {{ /if }}
+    </tbody>
+  </table>
+{{ /layout }}
+
+{{ include "pages/occupants/_form_modal.vto" { currentCondominiumId } }}
+
+{{ /layout }}

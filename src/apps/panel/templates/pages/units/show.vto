@@ -1,0 +1,498 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser, unitId } }}
+
+{{ set typeLabels = { quota: "Quota", extraordinary_quota: "Quota extraordinária", interest: "Juros", refacturation: "Refaturação", credit_balance: "Crédito", supplier_service: "Serviço fornecedor", penalty: "Penalização", opening_balance_debit: "Saldo anterior" } }}
+
+{{ set _pm = unit.permillage |> formatPermillage }}
+
+{{ layout "partials/page_header.vto" {
+  title: "Fração " + unit.designation,
+  scale: "detail",
+  breadcrumbs: [
+    { label: "Frações", href: "/admin/c/" + currentCondominiumId + "/units" },
+    { label: "Fração " + unit.designation },
+  ],
+  status: unit.isActive
+    ? { label: "Ativa", tone: "success" }
+    : { label: "Inactiva", tone: "muted" },
+  meta: [
+    unit.identifier ? { label: "Identificador", value: unit.identifier } : null,
+    { value: unit.unitType, plain: true },
+    { value: _pm + "‰", plain: true },
+    unit.block ? { value: "Bloco " + unit.block, plain: true } : null,
+    unit.floor ? { value: "Piso " + unit.floor, plain: true } : null,
+    unit.door ? { value: unit.door, plain: true } : null,
+  ]
+} }}
+  <button type="button" onclick="document.getElementById('add_charge_modal').showModal()" class="btn btn-sm">Adicionar cobrança</button>
+  <button type="button" onclick="document.getElementById('add_credit_modal').showModal()" class="btn btn-sm">Adicionar crédito</button>
+  {{# Impersonate: abre o portal como esta fração (sem login), para o admin testar a vista do condómino. #}}
+  <form method="post" action="/admin/c/{{ currentCondominiumId }}/units/{{ unitId }}/impersonate" class="inline">
+    <button type="submit" class="btn btn-sm btn-outline" title="Abrir portal do condómino como esta fração">
+      👁 Entrar como condómino
+    </button>
+  </form>
+  <a href="/admin/c/{{ currentCondominiumId }}/units/{{ unitId }}/edit" class="btn btn-sm btn-primary">Editar</a>
+{{ /layout }}
+
+{{# Nota da fração - texto multilinha fica fora do page_header (por design). #}}
+{{ if unit.description }}
+  <p class="text-sm -mt-4 mb-6 max-w-2xl text-base-content/70 whitespace-pre-line">
+    <span class="text-xs uppercase tracking-wider text-base-content/40 font-semibold mr-1">Nota:</span>
+    {{ unit.description }}
+  </p>
+{{ /if }}
+
+{{# KPIs financeiros - dívida separada em "em atraso" vs "futuras" #}}
+{{ set _overdueVal = stats.overdueCents |> formatMoney }}
+{{ set _futureVal = stats.futureDebtCents |> formatMoney }}
+{{ set _creditVal = stats.creditBalanceCents |> formatMoney }}
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+  {{# Em atraso: só vencidas até à conciliação (due_date <= reconciled_through_date), não hoje - a "dívida real" #}}
+  {{ include "partials/kpi_card.vto" {
+    tone: stats.overdueCents > 0 ? "error" : "success",
+    label: "Em atraso",
+    value: _overdueVal,
+    caption: stats.overdueCents > 0 ? "charges vencidas sem pagamento" : "sem atrasos",
+    highlightValue: true,
+  } }}
+
+  {{# Futuras: lançamentos ainda dentro do prazo #}}
+  {{ include "partials/kpi_card.vto" {
+    tone: "warning",
+    label: "Futuras",
+    value: _futureVal,
+    caption: stats.futureDebtCents > 0 ? "quotas lançadas por vencer" : "nada pendente",
+  } }}
+
+  {{ include "partials/kpi_card.vto" {
+    tone: "info",
+    label: "Crédito disponível",
+    value: _creditVal,
+    caption: "adiantamentos por aplicar",
+  } }}
+
+  {{ include "partials/kpi_card.vto" {
+    tone: "primary",
+    label: "Ocupantes",
+    value: String(activeOccupants.length),
+    caption: "ativos nesta fração · " + _pm + "‰",
+  } }}
+</div>
+
+{{# ─── Plano de pagamento (ADR 0039) ──────────────────────────────────
+   Anotação informativa (não toca no ledger): descreve como o plano se vai
+   dar + data final opcional. Transições terminais são manuais. #}}
+<section class="rounded-xl border shadow-sm mb-6 {{ if activePaymentPlan }}border-info/30 bg-info/5{{ else }}border-base-200 bg-base-100{{ /if }}">
+  <div class="px-5 py-3 border-b flex items-center justify-between gap-3 {{ if activePaymentPlan }}border-info/20{{ else }}border-base-200{{ /if }}">
+    <h2 class="text-sm font-bold flex items-center gap-2">
+      Plano de pagamento
+      {{ if activePaymentPlan }}
+        {{ include "partials/status_badge.vto" { label: "Ativo", tone: "info", size: "xs" } }}
+      {{ /if }}
+    </h2>
+    {{ if !activePaymentPlan }}
+      <button type="button" class="btn btn-xs btn-primary"
+              onclick="document.getElementById('payment_plan_create_modal').showModal()">+ Criar plano</button>
+    {{ else }}
+      <button type="button" class="btn btn-xs btn-ghost"
+              onclick="document.getElementById('payment_plan_edit_modal').showModal()">Editar</button>
+    {{ /if }}
+  </div>
+
+  <div class="px-5 py-4">
+    {{ if !activePaymentPlan }}
+      <p class="text-sm text-base-content/50">Esta fração não está em plano de pagamento.</p>
+    {{ else }}
+      {{ if activePaymentPlan.notes }}
+        <div class="text-[11px] uppercase tracking-wider text-base-content/40 font-semibold">Nota partilhada <span class="normal-case tracking-normal font-normal">· vai no email ao condómino</span></div>
+        <p class="text-sm whitespace-pre-line text-base-content/80 mt-0.5">{{ activePaymentPlan.notes }}</p>
+      {{ /if }}
+      {{ if activePaymentPlan.internalNotes }}
+        <div class="text-[11px] uppercase tracking-wider text-base-content/40 font-semibold {{ if activePaymentPlan.notes }}mt-3{{ /if }}">Nota interna <span class="normal-case tracking-normal font-normal">· só a administração</span></div>
+        <p class="text-sm whitespace-pre-line text-base-content/80 mt-0.5">{{ activePaymentPlan.internalNotes }}</p>
+      {{ /if }}
+      <div class="mt-2 flex items-center gap-2 flex-wrap text-xs text-base-content/60">
+        {{ if activePaymentPlan.endDate }}
+          <span>Data final: <strong>{{ activePaymentPlan.endDate |> formatDate }}</strong></span>
+          {{ if activePaymentPlanExpired }}
+            {{ include "partials/status_badge.vto" { label: "terminou - rever", tone: "warning", size: "xs" } }}
+          {{ /if }}
+        {{ else }}
+          <span>Sem data final definida.</span>
+        {{ /if }}
+        <span class="text-base-content/30">·</span>
+        <span>Criado {{ activePaymentPlan.createdAt |> formatDate }}</span>
+      </div>
+
+      {{# Transições terminais - manuais (ADR 0039). Renegociar = fechar + criar novo. #}}
+      <div class="mt-4 flex items-center gap-2 flex-wrap">
+        {{# `l` é o botão, `n` é o estado em que o plano fica - o corpo do confirm
+           dizia "marcar o plano como «Marcar quebrado»". #}}
+        {{ for _t of [{ s: "completed", l: "Marcar cumprido", n: "cumprido" }, { s: "broken", l: "Marcar incumprimento", n: "em incumprimento" }, { s: "cancelled", l: "Cancelar", n: "cancelado" }] }}
+          <form method="post"
+                action="/admin/c/{{ currentCondominiumId }}/units/{{ unitId }}/payment-plans/{{ activePaymentPlan.id }}/transition"
+                class="inline"
+                data-confirm-title="Fechar plano de pagamento?"
+                data-confirm-body="Vai marcar o plano como «{{ _t.n }}». Fica no histórico e a fração deixa de ter plano ativo."
+                data-confirm-ok="Confirmar"
+                data-confirm-danger="{{ if _t.s === 'broken' }}true{{ else }}false{{ /if }}">
+            <input type="hidden" name="status" value="{{ _t.s }}">
+            <button type="submit" class="btn btn-xs btn-ghost">{{ _t.l }}</button>
+          </form>
+        {{ /for }}
+      </div>
+    {{ /if }}
+  </div>
+
+  {{# Histórico de planos terminais. #}}
+  {{ if paymentPlanHistory && paymentPlanHistory.length > 0 }}
+    {{ set _planStatusLabel = { completed: "Cumprido", broken: "Em incumprimento", cancelled: "Cancelado" } }}
+    {{ set _planStatusTone = { completed: "success", broken: "error", cancelled: "muted" } }}
+    <div class="border-t border-base-200 px-5 py-3">
+      <div class="text-[11px] uppercase tracking-wider text-base-content/40 font-semibold mb-2">Histórico</div>
+      <ul class="divide-y divide-base-200/60">
+        {{ for p of paymentPlanHistory }}
+          <li class="py-2 flex items-start justify-between gap-3 text-sm">
+            <div class="min-w-0">
+              {{ if p.notes }}<p class="whitespace-pre-line text-base-content/70 text-xs">{{ p.notes }}</p>{{ /if }}
+              {{ if p.internalNotes }}<p class="whitespace-pre-line text-base-content/50 text-xs"><span class="font-semibold">Interna:</span> {{ p.internalNotes }}</p>{{ /if }}
+              <div class="text-[11px] text-base-content/40 mt-0.5">
+                {{ if p.endDate }}meta {{ p.endDate |> formatDate }} · {{ /if }}terminou {{ p.endedAt |> formatDate }}
+              </div>
+            </div>
+            {{ include "partials/status_badge.vto" { label: _planStatusLabel[p.status] ?? p.status, tone: _planStatusTone[p.status] ?? "muted", size: "xs" } }}
+          </li>
+        {{ /for }}
+      </ul>
+    </div>
+  {{ /if }}
+</section>
+
+{{# Ocupantes - consulta. Criar/convidar vive em Ocupantes (1 occupant pode estar em várias frações);
+   gerir as ligações desta fração (datas, remover) vive em Editar fração. #}}
+<div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5 mb-6">
+  <div class="flex items-center justify-between gap-3 mb-3">
+    <div class="text-sm font-semibold">Ocupantes ativos{{ if activeOccupants.length > 0 }} <span class="text-base-content/50 font-normal">· {{ activeOccupants.length }}</span>{{ /if }}</div>
+    <a href="/admin/c/{{ currentCondominiumId }}/occupants" class="link link-primary text-xs">Gerir ocupantes →</a>
+  </div>
+  {{ if activeOccupants.length === 0 }}
+    <div class="text-xs text-base-content/50 py-4 text-center">
+      Sem ocupantes associados -
+      <a href="/admin/c/{{ currentCondominiumId }}/occupants" class="link link-primary">adicionar na página de ocupantes</a>.
+    </div>
+  {{ else }}
+    <div class="divide-y divide-base-200/60">
+      {{ for occ of activeOccupants }}
+        <div class="flex items-center justify-between gap-3 text-sm py-2">
+          <div class="flex items-center gap-2.5 min-w-0">
+            <a href="/admin/c/{{ currentCondominiumId }}/occupants/{{ occ.occupant.id }}"
+               class="font-semibold link link-hover truncate">{{ occ.occupant.name }}</a>
+            {{ if occ.relationshipType === "owner" }}
+              {{ include "partials/status_badge.vto" { label: "Proprietário", tone: "success", size: "xs" } }}
+            {{ else if occ.relationshipType === "tenant" }}
+              {{ include "partials/status_badge.vto" { label: "Inquilino", tone: "warning", size: "xs" } }}
+            {{ else if occ.relationshipType === "resident" }}
+              {{ include "partials/status_badge.vto" { label: "Residente", tone: "info", size: "xs" } }}
+            {{ /if }}
+            {{# Opt-in dos recibos por email - só owners; o estado negativo
+               vê-se na página do ocupante (menos ruído aqui). #}}
+            {{ if occ.relationshipType === "owner" && occ.occupant.receiveReceiptEmails }}
+              <span class="hidden sm:inline" title="Recebe recibos por email">
+                {{ include "partials/status_badge.vto" { label: "Recibos por email", tone: "success", size: "xs" } }}
+              </span>
+            {{ /if }}
+          </div>
+          <div class="flex items-center gap-3 text-xs text-base-content/60 shrink-0">
+            {{ if occ.occupant.email }}
+              <span class="hidden md:inline truncate max-w-[220px]">{{ occ.occupant.email }}</span>
+            {{ /if }}
+            <span class="whitespace-nowrap">desde {{ occ.startDate }}</span>
+            {{ if occ.endDate }}
+              <span class="whitespace-nowrap text-warning">sai a {{ occ.endDate |> formatDate }}</span>
+            {{ /if }}
+          </div>
+        </div>
+      {{ /for }}
+    </div>
+  {{ /if }}
+
+  {{# Saídas já efetivas. Sem esta lista, marcar a data de fim fazia o ocupante
+     desaparecer do Panel como se tivesse sido removido. #}}
+  {{ if pastOccupants.length > 0 }}
+    <details class="mt-4 pt-3 border-t border-base-200/60">
+      <summary class="text-xs text-base-content/60 cursor-pointer">
+        Ocupantes anteriores <span class="text-base-content/40">· {{ pastOccupants.length }}</span>
+      </summary>
+      <div class="divide-y divide-base-200/60 mt-2">
+        {{ for occ of pastOccupants }}
+          <div class="flex items-center justify-between gap-3 text-sm py-2 opacity-60">
+            <a href="/admin/c/{{ currentCondominiumId }}/occupants/{{ occ.occupant.id }}"
+               class="font-semibold link link-hover truncate">{{ occ.occupant.name }}</a>
+            <span class="text-xs text-base-content/60 whitespace-nowrap shrink-0">
+              {{ occ.startDate |> formatDate }} a {{ occ.endDate |> formatDate }}
+            </span>
+          </div>
+        {{ /for }}
+      </div>
+    </details>
+  {{ /if }}
+</div>
+
+{{# Charges (todas) #}}
+{{ layout "partials/table_card.vto" { title: "Cobranças", count: charges.length, searchable: true, wrapperClass: "mb-6" } }}
+  <table class="table table-sm">
+    <thead>
+      <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
+        <th class="pl-4 hidden md:table-cell">Competência</th>
+        <th class="hidden md:table-cell">Tipo</th>
+        <th class="pl-4 md:pl-3">Descrição</th>
+        <th class="text-right hidden md:table-cell">Original</th>
+        <th class="text-right hidden md:table-cell">Pago</th>
+        <th class="text-right">Em aberto</th>
+        <th>Estado</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ if charges.length === 0 }}
+        <tr><td colspan="7" class="p-8 text-center text-base-content/50">Sem cobranças nesta fração.</td></tr>
+      {{ else }}
+        {{ for c of charges }}
+          <tr class="hover:bg-base-200/30 border-t border-base-100 text-sm">
+            <td class="pl-4 text-base-content/70 hidden md:table-cell" data-search>{{ c.competencePeriod ?? "-" }}</td>
+            <td class="hidden md:table-cell">
+              {{ if c.nature === "credit" }}
+                <span class="inline-flex items-center gap-1 text-xs font-medium text-info">
+                  <span class="inline-block w-1.5 h-1.5 rounded-full bg-info"></span> {{ typeLabels[c.chargeType] ?? c.chargeType }}
+                </span>
+              {{ else }}
+                <span class="text-xs text-base-content/70" data-search>{{ typeLabels[c.chargeType] ?? c.chargeType }}</span>
+              {{ /if }}
+            </td>
+            <td data-search class="pl-4 md:pl-3 align-top md:align-middle">
+              <div class="max-w-[36vw] md:max-w-[320px]">
+                <div class="truncate" title="{{ c.description ?? '' }}">{{ c.description ?? "-" }}</div>
+                {{# Mobile: dobra Tipo/Competência/Original/Pago (colunas escondidas) numa
+                   sub-linha sob a descrição - mesmo padrão de billing_reminders/budget. #}}
+                <div class="md:hidden mt-0.5 text-[11px] font-normal text-base-content/50 truncate">
+                  {{ typeLabels[c.chargeType] ?? c.chargeType }}{{ if c.competencePeriod }} · {{ c.competencePeriod }}{{ /if }} · orig. {{ c.originalAmount |> formatMoney }} · pago {{ c.settledAmount |> formatMoney }}
+                </div>
+              </div>
+            </td>
+            <td class="text-right tabular-nums hidden md:table-cell">{{ c.originalAmount |> formatMoney }}</td>
+            <td class="text-right tabular-nums text-success/80 hidden md:table-cell">{{ c.settledAmount |> formatMoney }}</td>
+            <td class="text-right tabular-nums font-semibold align-top md:align-middle {{ if c.openAmount > 0 && c.nature === 'debit' }}text-error/80{{ /if }}">
+              {{ c.openAmount |> formatMoney }}
+            </td>
+            <td class="align-top md:align-middle">
+              {{# Estado efetivo (ADR 0037) - "Vencido" via cutoff, coerente
+                 com o KPI "Em atraso" acima. #}}
+              {{ set _b = chargeStatusBadge(c, condominium.reconciledThroughDate ?? null) }}
+              {{ include "partials/status_badge.vto" { label: _b.label, tone: _b.tone, size: "xs" } }}
+            </td>
+          </tr>
+        {{ /for }}
+      {{ /if }}
+    </tbody>
+  </table>
+{{ /layout }}
+
+{{# Extrato bancário conciliado: agrupa cada pagamento que tocou esta fração e como foi imputado.
+   Pensado para o admin justificar ao condómino o que cada movimento liquidou. #}}
+{{ set _bkCount = String(bankBreakdown.length) + (bankBreakdown.length === 1 ? " movimento" : " movimentos") }}
+{{ layout "partials/table_card.vto" {
+  title: "Extrato bancário conciliado",
+  subtitle: "Movimentos do banco que entraram/saíram para esta fração e respetiva imputação.",
+  headerRight: _bkCount,
+  wrapperClass: "mb-6"
+} }}
+  {{ if bankBreakdown.length === 0 }}
+    <div class="p-8 text-center text-sm text-base-content/50">Sem movimentos bancários conciliados para esta fração.</div>
+  {{ else }}
+    <div class="divide-y divide-base-200">
+      {{ for bk of bankBreakdown }}
+        <div class="px-4 py-3 {{ if bk.reversed }}opacity-60{{ /if }}">
+          <div class="flex flex-wrap items-baseline justify-between gap-2 mb-1.5">
+            <div class="flex items-baseline gap-2 flex-wrap">
+              <span class="text-sm font-semibold tabular-nums">{{ bk.transactionDate |> formatDate }}</span>
+              <span class="text-sm">{{ bk.description ?? "-" }}</span>
+              {{ if bk.reversed }}
+                <span class="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold text-error/80">estornado</span>
+              {{ /if }}
+            </div>
+            <div class="text-sm tabular-nums font-bold {{ if bk.bankAmount < 0 }}text-error/80{{ else }}text-success/80{{ /if }}">
+              {{ bk.bankAmount |> formatMoney }}
+            </div>
+          </div>
+          <ul class="space-y-1 text-xs ml-3">
+            {{ for a of bk.allocations }}
+              <li class="flex items-baseline gap-2 {{ if a.status === 'reversed' }}line-through opacity-60{{ /if }}">
+                <span class="text-base-content/40">↳</span>
+                <a href="/admin/c/{{ currentCondominiumId }}/charges/{{ a.chargeId }}" class="link link-hover flex-1 truncate" title="{{ a.chargeDescription }}">
+                  <span class="font-medium">{{ a.chargeDescription }}</span>
+                  {{ if a.competencePeriod }}<span class="text-base-content/50"> · {{ a.competencePeriod }}</span>{{ /if }}
+                  <span class="text-base-content/50"> · {{ typeLabels[a.chargeType] ?? a.chargeType }}</span>
+                </a>
+                <span class="tabular-nums whitespace-nowrap">{{ a.amount |> formatMoney }}</span>
+              </li>
+            {{ /for }}
+          </ul>
+          {{# Excedente: bk.bankAmount > totalAllocated → o resto entrou como
+             credit_balance. Mostramos como nota explícita. #}}
+          {{ set residual = Math.abs(Number(bk.bankAmount)) - Number(bk.totalAllocated) }}
+          {{ if residual > 0 && !bk.reversed }}
+            <div class="text-[11px] text-base-content/50 ml-3 mt-1.5 italic">
+              Excedente {{ residual |> formatMoney }} ficou em saldo de crédito da fração.
+            </div>
+          {{ /if }}
+        </div>
+      {{ /for }}
+    </div>
+  {{ /if }}
+{{ /layout }}
+
+
+{{# ─── Seguro de habitação ──────────────────────────────────────────── #}}
+<section class="bg-base-100 rounded-xl border border-base-200 shadow-sm overflow-hidden mt-6 mb-6">
+  <div class="px-5 py-3 border-b border-base-200 flex items-center justify-between">
+    <h2 class="text-sm font-bold">Seguro de habitação</h2>
+    <a href="/admin/c/{{ currentCondominiumId }}/insurances" class="text-xs text-primary hover:underline">ver tudo →</a>
+  </div>
+
+  {{# Estado atual #}}
+  <div class="px-5 py-4 border-b border-base-200">
+    {{ if !insuranceStatus || insuranceStatus.status.kind === "never_submitted" }}
+      <div class="text-sm">
+        <span class="inline-flex items-center gap-1.5 font-medium text-base-content/40">
+          <span class="inline-block w-1.5 h-1.5 rounded-full bg-base-content/20"></span>
+          Nenhuma apólice submetida
+        </span>
+      </div>
+    {{ else if insuranceStatus.status.kind === "active" }}
+      <div class="text-sm">
+        <span class="inline-flex items-center gap-1.5 font-medium text-success">
+          <span class="inline-block w-1.5 h-1.5 rounded-full bg-success"></span>
+          Apólice ativa
+        </span>
+        <span class="text-base-content/60 ml-2">até {{ insuranceStatus.status.policy.validTo |> formatDate }} · {{ String(insuranceStatus.status.daysUntilExpiry) }} dias</span>
+      </div>
+    {{ else if insuranceStatus.status.kind === "expiring_soon" }}
+      <div class="text-sm">
+        <span class="inline-flex items-center gap-1.5 font-medium text-warning">
+          <span class="inline-block w-1.5 h-1.5 rounded-full bg-warning"></span>
+          A expirar em {{ String(insuranceStatus.status.daysUntilExpiry) }} dias
+        </span>
+        <span class="text-base-content/60 ml-2">cobertura até {{ insuranceStatus.status.policy.validTo |> formatDate }}</span>
+      </div>
+    {{ else if insuranceStatus.status.kind === "expired" }}
+      <div class="text-sm">
+        <span class="inline-flex items-center gap-1.5 font-medium text-error">
+          <span class="inline-block w-1.5 h-1.5 rounded-full bg-error"></span>
+          Vencido há {{ String(insuranceStatus.status.daysOverdue) }} dias
+        </span>
+        <span class="text-base-content/60 ml-2">expirou em {{ insuranceStatus.status.policy.validTo |> formatDate }}</span>
+      </div>
+    {{ else if insuranceStatus.status.kind === "awaiting_approval" }}
+      <div class="text-sm flex items-center gap-3 flex-wrap">
+        <span class="inline-flex items-center gap-1.5 font-medium text-info">
+          <span class="inline-block w-1.5 h-1.5 rounded-full bg-info"></span>
+          Aguarda aprovação
+        </span>
+        <form method="post" action="/admin/c/{{ currentCondominiumId }}/insurances/{{ insuranceStatus.status.policy.id }}/approve" class="inline"
+              data-confirm-title="Aprovar apólice?"
+              data-confirm-body="A apólice fica ativa e a fração passa a contar como coberta.">
+          <button type="submit" class="btn btn-xs btn-ghost text-success">Aprovar</button>
+        </form>
+        <form method="post" action="/admin/c/{{ currentCondominiumId }}/insurances/{{ insuranceStatus.status.policy.id }}/reject" class="inline"
+              data-confirm-title="Rejeitar apólice?"
+              data-confirm-body="Indica a razão para o condómino saber porquê e poder corrigir."
+              data-confirm-prompt="reason"
+              data-confirm-prompt-label="Razão da rejeição"
+              data-confirm-prompt-placeholder="Escreve aqui ou escolhe uma opção acima…"
+              data-confirm-prompt-options="Apólice vencida|Apólice não corresponde à fração|PDF ilegível ou incompleto|Dados inconsistentes com o condomínio"
+              data-confirm-danger="true"
+              data-confirm-ok="Rejeitar">
+          <button type="submit" class="btn btn-xs btn-ghost text-error">Rejeitar</button>
+        </form>
+      </div>
+    {{ else if insuranceStatus.status.kind === "awaiting_confirmation" }}
+      <div class="text-sm">
+        <span class="inline-flex items-center gap-1.5 font-medium text-base-content/60">
+          <span class="inline-block w-1.5 h-1.5 rounded-full bg-base-content/40"></span>
+          Aguarda confirmação do condómino
+        </span>
+      </div>
+    {{ else if insuranceStatus.status.kind === "rejected_only" }}
+      <div class="text-sm">
+        <span class="inline-flex items-center gap-1.5 font-medium text-base-content/60">
+          <span class="inline-block w-1.5 h-1.5 rounded-full bg-base-content/40"></span>
+          Última apólice rejeitada
+        </span>
+        {{ if insuranceStatus.status.policy.rejectedReason }}
+          <div class="text-xs text-base-content/60 mt-1">Razão: <em>{{ insuranceStatus.status.policy.rejectedReason }}</em></div>
+        {{ /if }}
+      </div>
+    {{ /if }}
+  </div>
+
+  {{# Histórico #}}
+  {{ if !insurancePolicies || insurancePolicies.length === 0 }}
+    <div class="px-5 py-6 text-center text-sm text-base-content/50">
+      Sem histórico de submissões.
+    </div>
+  {{ else }}
+    <ul class="divide-y divide-base-200">
+      {{ for p of insurancePolicies }}
+        <li class="px-5 py-3 flex items-center justify-between gap-3">
+          <div class="min-w-0 flex-1">
+            <div class="text-sm font-medium">
+              {{ if p.validTo }}Cobertura até <strong>{{ p.validTo |> formatDate }}</strong>{{ else }}Sem data{{ /if }}
+              {{ if p.insurer }} · <span class="text-base-content/60">{{ p.insurer }}</span>{{ /if }}
+            </div>
+            <div class="text-xs text-base-content/50 mt-0.5 flex items-center gap-2 flex-wrap">
+              <span>Submetida {{ p.createdAt |> formatDate }}</span>
+              <span class="text-base-content/30">·</span>
+              {{# `kind`, nunca o `status` cru: este bloco reimplementava a
+                 classificação à mão e já mentia - rotulava "Rejeitada" uma
+                 apólice substituída e "Por confirmar" um documento entregue à
+                 administração. Ver `libs/insurance_status.ts`. #}}
+              {{ include "partials/status_badge.vto" { ...insuranceStatusBadge(p.kind, "policy"), size: "xs" } }}
+            </div>
+          </div>
+          <div class="flex items-center gap-1 shrink-0">
+            <a href="/admin/c/{{ currentCondominiumId }}/insurances/{{ p.id }}/pdf"
+               target="_blank"
+               class="btn btn-xs btn-ghost">PDF</a>
+            {{# Gate do domínio (ADR 0040): protege cobertura viva saudável, mas
+               deixa apagar uma vencida. O `p.status !== "active"` que estava cá
+               escondia o botão nas vencidas (que na BD são `active`). #}}
+            {{ if p.can.delete }}
+              <form method="post" action="/admin/c/{{ currentCondominiumId }}/insurances/{{ p.id }}/delete" class="inline"
+                    data-confirm-title="Apagar apólice?"
+                    data-confirm-body="Apaga o PDF e a submissão. Esta ação é irreversível."
+                    data-confirm-ok="Apagar"
+                    data-confirm-danger="true">
+                <button type="submit" class="btn btn-xs btn-ghost text-error">Apagar</button>
+              </form>
+            {{ /if }}
+          </div>
+        </li>
+      {{ /for }}
+    </ul>
+  {{ /if }}
+</section>
+
+{{# Audit de emails enviados para esta fração (audit.email_log por unit_id). #}}
+{{ include "partials/email_log_table.vto" { emails: unitEmails } }}
+
+{{# Zona perigosa - pattern canónico (ADR 0025). #}}
+{{ include "partials/danger_zone.vto" {
+  entityName: "fração",
+  entityLabel: "fração " + unit.designation,
+  actionUrl: "/admin/c/" + currentCondominiumId + "/units/" + unitId + "/delete",
+  confirmBody: "Apaga a fração " + unit.designation + " do painel. Cobranças, ocupantes e settlements ficam preservados no histórico.",
+  currentUser,
+} }}
+
+{{ include "pages/units/_show_modals.vto" { currentCondominiumId, unitId, unit, activePaymentPlan } }}
+
+{{ /layout }}

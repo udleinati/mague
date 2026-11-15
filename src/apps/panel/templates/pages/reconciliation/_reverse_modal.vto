@@ -1,0 +1,122 @@
+{{# Modal de reversão (hx-get lazy). Exige digitar "REVERTER" para ativar o botão. #}}
+<dialog id="modal_reverse_{{ t.id }}" class="modal">
+  <div class="modal-box max-w-lg">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-lg mb-1">Reverter conciliação</h3>
+    <p class="text-sm text-base-content/60 mb-4">
+      Esta operação é destrutiva: as quotas/charges abaixo voltam a aberto, o ledger é estornado e qualquer recibo emitido contra este movimento é anulado. Para evitar enganos, escreve <code class="font-mono px-1 rounded bg-base-200">REVERTER</code> no fundo.
+    </p>
+
+    <div class="bg-base-200/50 rounded-lg p-3 mb-4 space-y-1">
+      <div class="flex flex-wrap items-baseline gap-x-2">
+        <span class="text-xs uppercase tracking-wider text-base-content/50 font-bold">Movimento</span>
+        <span class="tabular-nums font-medium">{{ t.transactionDate |> formatDate }}</span>
+        <span class="text-base-content/40">·</span>
+        <span class="tabular-nums font-bold {{ if t.amount < 0 }}text-error{{ else }}text-success{{ /if }}">{{ t.amount |> formatMoney }}</span>
+      </div>
+      {{ if t.description }}
+        <div class="text-sm text-base-content/80 break-words">{{ t.description }}</div>
+      {{ /if }}
+      {{ if bankAccount }}
+        <div class="text-xs text-base-content/50">{{ bankAccount.bankName }}{{ if bankAccount.accountName }} · {{ bankAccount.accountName }}{{ /if }}</div>
+      {{ /if }}
+    </div>
+
+    {{ if settlements && settlements.length > 0 }}
+      <div class="text-xs uppercase tracking-wider text-base-content/50 font-bold mb-1">A reverter ({{ String(settlements.length) }})</div>
+      <ul class="bg-base-100 rounded-lg border border-base-200 divide-y divide-base-200 mb-4 max-h-48 overflow-y-auto">
+        {{ for s of settlements }}
+          <li class="px-3 py-2 flex items-center justify-between gap-3">
+            <div class="min-w-0 flex-1">
+              <div class="text-sm">
+                {{ if s.label }}{{ s.label }}{{ else }}<span class="text-base-content/50">Compensação</span>{{ /if }}
+                {{ if s.unitLabel }}<span class="text-xs text-base-content/50 ml-1">· {{ s.unitLabel }}</span>{{ /if }}
+                {{ if s.supplierLabel }}<span class="text-xs text-base-content/50 ml-1">· {{ s.supplierLabel }}</span>{{ /if }}
+              </div>
+              <div class="text-xs text-base-content/50">
+                {{ s.settlementType }}
+                {{ if s.competencePeriod }} · {{ s.competencePeriod |> formatDate }}{{ /if }}
+              </div>
+            </div>
+            <div class="text-right tabular-nums font-semibold whitespace-nowrap text-sm">{{ s.amount |> formatMoney }}</div>
+          </li>
+        {{ /for }}
+      </ul>
+    {{ else }}
+      <div class="text-sm text-base-content/60 mb-4">Sem settlements ativos para reverter.</div>
+    {{ /if }}
+
+    <form method="post" action="/admin/c/{{ currentCondominiumId }}/reconciliation/tx/{{ t.id }}/reverse"
+          hx-post="/admin/c/{{ currentCondominiumId }}/reconciliation/tx/{{ t.id }}/reverse"
+          hx-target="#tx-row-{{ t.id }}" hx-swap="outerHTML"
+          hx-on::after-request="if(event.detail.successful) document.getElementById('modal_reverse_{{ t.id }}').close()"
+          class="space-y-3" data-reverse-form="{{ t.id }}">
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text">Razão (mínimo 10 caracteres)</span></label>
+        {{# Chips de motivos comuns - clicar substitui o textarea (editável). #}}
+        <div class="flex flex-wrap gap-1.5 mb-2" data-reverse-presets>
+          <button type="button" class="text-xs px-2 py-0.5 rounded-md bg-base-200 hover:bg-base-300 text-base-content/70 hover:text-base-content"
+                  data-reverse-preset="Feito por engano">Feito por engano</button>
+          <button type="button" class="text-xs px-2 py-0.5 rounded-md bg-base-200 hover:bg-base-300 text-base-content/70 hover:text-base-content"
+                  data-reverse-preset="Cheque devolvido pelo banco">Cheque devolvido</button>
+          <button type="button" class="text-xs px-2 py-0.5 rounded-md bg-base-200 hover:bg-base-300 text-base-content/70 hover:text-base-content"
+                  data-reverse-preset="Conciliação errada - pagamento de outra fração">Conciliação errada</button>
+          <button type="button" class="text-xs px-2 py-0.5 rounded-md bg-base-200 hover:bg-base-300 text-base-content/70 hover:text-base-content"
+                  data-reverse-preset="Movimento duplicado no extrato">Movimento duplicado</button>
+          <button type="button" class="text-xs px-2 py-0.5 rounded-md bg-base-200 hover:bg-base-300 text-base-content/70 hover:text-base-content"
+                  data-reverse-preset="Estorno bancário pelo cliente">Estorno do cliente</button>
+          <button type="button" class="text-xs px-2 py-0.5 rounded-md bg-base-200 hover:bg-base-300 text-base-content/70 hover:text-base-content"
+                  data-reverse-preset="Valor incorreto na conciliação original">Valor incorreto</button>
+        </div>
+        <textarea name="reason" required minlength="10" maxlength="500" rows="2"
+                  class="textarea textarea-bordered w-full"
+                  placeholder="Escreve aqui ou escolhe uma opção acima…"
+                  data-reverse-reason></textarea>
+      </div>
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text">Para confirmar, digita <strong>REVERTER</strong></span></label>
+        <input type="text" autocomplete="off" required pattern="REVERTER"
+               class="input input-bordered input-sm font-mono"
+               placeholder="REVERTER"
+               data-reverse-confirm>
+      </div>
+      <div class="flex justify-end gap-2 pt-2">
+        <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('modal_reverse_{{ t.id }}').close()">Cancelar</button>
+        <button type="submit" class="btn btn-sm btn-error" data-reverse-submit disabled>Reverter</button>
+      </div>
+    </form>
+
+    {{# JS local: chips preenchem o textarea; botão só ativa com "REVERTER" literal (case-sensitive). #}}
+    <script>
+      (function () {
+        var form = document.querySelector('[data-reverse-form="{{ t.id }}"]');
+        if (!form) return;
+        var confirmInput = form.querySelector("[data-reverse-confirm]");
+        var btn = form.querySelector("[data-reverse-submit]");
+        var reason = form.querySelector("[data-reverse-reason]");
+        if (!confirmInput || !btn) return;
+        confirmInput.addEventListener("input", function () {
+          btn.disabled = confirmInput.value !== "REVERTER";
+        });
+        // Chips → preenchem o textarea com o texto presetado.
+        var presets = form.querySelectorAll("[data-reverse-preset]");
+        presets.forEach(function (chip) {
+          chip.addEventListener("click", function () {
+            if (!reason) return;
+            reason.value = chip.getAttribute("data-reverse-preset");
+            reason.focus();
+          });
+        });
+      })();
+    </script>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+{{# Auto-open ao swap (hx-get response). Idempotente. #}}
+<script>
+  (function () {
+    var m = document.getElementById("modal_reverse_{{ t.id }}");
+    if (m && !m.open) m.showModal();
+  })();
+</script>

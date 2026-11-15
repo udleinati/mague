@@ -1,0 +1,209 @@
+{{ layout "layouts/portal.vto" { title, section, condominium, unit, currentUser, currentPortalUnitId, currentCondominiumId } }}
+
+{{# Aviso "ninguém recebe recibos" quando nenhum owner ativo tem
+   `receiveReceiptEmails`. `iAmOwner` habilita o atalho "Activar agora". #}}
+{{ set owners = activeOccupants.filter((o) => o.relationshipType === "owner") }}
+{{ set ownersReceiving = owners.filter((o) => o.occupant.receiveReceiptEmails) }}
+{{ set noOwnerReceives = owners.length > 0 && ownersReceiving.length === 0 }}
+{{ set myEntry = currentUser ? activeOccupants.find((o) => o.occupant.userId === currentUser.id) : null }}
+{{ set iAmOwner = myEntry && myEntry.relationshipType === "owner" }}
+
+{{# Paleta do avatar - cor determinística por índice (não salta entre renders). #}}
+{{ set avatarPalette = ["bg-teal-500", "bg-purple-500", "bg-indigo-500", "bg-pink-500", "bg-orange-500", "bg-cyan-500"] }}
+
+<div class="mb-6">
+  <h1 class="text-2xl sm:text-3xl font-black">Perfil</h1>
+  <p class="text-sm text-base-content/60 mt-1">Dados da fração e ocupantes registados.</p>
+</div>
+
+{{# ─── Aviso: ninguém a receber recibos por email ─────────────────────
+   CTA "Activar agora" só quando o user logado é owner. #}}
+{{ if noOwnerReceives }}
+  <div class="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 mb-6 flex items-start gap-3">
+    <svg class="w-5 h-5 text-warning shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+    </svg>
+    <div class="flex-1 text-sm text-warning-content/90">
+      <strong>Nenhum ocupante está a receber recibos por email.</strong>
+      Activa as notificações no perfil de cada ocupante para receberem recibos e avisos de pagamento.
+      {{ if iAmOwner }}
+        {{# Usa o mesmo endpoint do toggle, para audit consistente. #}}
+        <form method="post"
+              action="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/profile/toggle-receipts"
+              class="inline">
+          <input type="hidden" name="receiveReceiptEmails" value="on">
+          <button type="submit" class="link link-warning font-semibold underline-offset-2 ml-1">
+            Activar agora →
+          </button>
+        </form>
+      {{ /if }}
+    </div>
+  </div>
+{{ /if }}
+
+{{# ─── FRAÇÃO ────────────────────────────────────────────────────────── #}}
+{{ set locParts = [] }}
+{{ if unit.block }}{{ set locParts = locParts.concat([{label: "Bloco", value: unit.block}]) }}{{ /if }}
+{{ if unit.floor }}{{ set locParts = locParts.concat([{label: "Piso", value: unit.floor}]) }}{{ /if }}
+{{ if unit.door }}{{ set locParts = locParts.concat([{label: "Porta", value: unit.door}]) }}{{ /if }}
+{{ if unit.description }}{{ set locParts = locParts.concat([{label: "Nota", value: unit.description.replace(/\s+/g, " ").trim()}]) }}{{ /if }}
+
+<h2 class="text-xs font-bold text-base-content/60 uppercase tracking-wider mb-2">Fração</h2>
+<div class="bg-base-100 rounded-xl border border-base-200 shadow-sm overflow-hidden mb-6">
+  <div class="grid grid-cols-2 md:grid-cols-4 divide-x divide-base-200">
+    <div class="p-4 min-w-0">
+      <div class="text-[10px] uppercase tracking-wider text-base-content/50">Designação</div>
+      <div class="text-base sm:text-lg font-bold mt-1 break-words">{{ unit.designation }}</div>
+    </div>
+    <div class="p-4 min-w-0">
+      <div class="text-[10px] uppercase tracking-wider text-base-content/50">Identificador</div>
+      <div class="text-base sm:text-lg font-bold mt-1 break-words">{{ unit.identifier ?? '-' }}</div>
+    </div>
+    <div class="p-4 min-w-0">
+      <div class="text-[10px] uppercase tracking-wider text-base-content/50">Tipo</div>
+      <div class="text-base sm:text-lg font-bold mt-1">{{ unit.unitType === "commercial" ? "Comercial" : "Residencial" }}</div>
+    </div>
+    <div class="p-4 min-w-0">
+      <div class="text-[10px] uppercase tracking-wider text-base-content/50">Permilagem</div>
+      <div class="text-base sm:text-lg font-bold mt-1 tabular-nums">{{ unit.permillage |> formatPermillage }}‰</div>
+      <div class="text-[10px] text-base-content/50 mt-0.5">do total do edifício</div>
+    </div>
+  </div>
+  {{ if locParts.length > 0 }}
+    <div class="border-t border-base-200 bg-base-200/30 px-4 py-2.5 text-xs text-base-content/60 flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
+      {{ for i, p of locParts }}
+        {{ if i > 0 }}<span class="text-base-content/30">·</span>{{ /if }}
+        <span><strong class="text-base-content/70 font-semibold">{{ p.label }}:</strong> {{ p.value }}</span>
+      {{ /for }}
+    </div>
+  {{ /if }}
+</div>
+
+{{# ─── OCUPANTES ───────────────────────────────────────────────────────
+   Botão Editar e toggle de recibos só para o próprio user; toggle só para
+   owners (recibos só são emitidos a owners). #}}
+<div class="mt-6">
+  <h2 class="text-xs font-bold text-base-content/60 uppercase tracking-wider mb-3">Ocupantes</h2>
+  {{ if activeOccupants.length === 0 }}
+    <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-8 text-center text-sm text-base-content/50">
+      Sem ocupantes registados.
+    </div>
+  {{ else }}
+    <div class="space-y-3">
+      {{ for i, occ of activeOccupants }}
+        {{ set isMine = currentUser && occ.occupant.userId === currentUser.id }}
+        {{# Iniciais: 1ª letra do 1º nome + 1ª letra do último nome. #}}
+        {{ set nameParts = occ.occupant.name.trim().split(/\s+/) }}
+        {{ set initials = (nameParts[0][0] + (nameParts.length > 1 ? nameParts[nameParts.length - 1][0] : "")).toUpperCase() }}
+        {{ set avatarColor = avatarPalette[i % avatarPalette.length] }}
+        <article class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-4 sm:p-5">
+          <div class="flex items-start gap-3 sm:gap-4">
+            <div class="w-11 h-11 rounded-full {{ avatarColor }} text-white font-bold text-sm flex items-center justify-center shrink-0">
+              {{ initials }}
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                <div class="min-w-0 flex-1 flex items-center gap-2 flex-wrap">
+                  <span class="text-base font-bold break-words">{{ occ.occupant.name }}</span>
+                  {{ if occ.relationshipType === "owner" }}
+                    <span class="inline-flex items-center text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded bg-success/10 text-success border border-success/20">Proprietário</span>
+                    {{# Opt-in de recibos - só owners. #}}
+                    {{ if occ.occupant.receiveReceiptEmails }}
+                      <span class="inline-flex items-center text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded bg-success/10 text-success border border-success/20">✉ Recebe recibos</span>
+                    {{ else }}
+                      <span class="inline-flex items-center text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded bg-base-200 text-base-content/50 border border-base-300">Não recebe recibos</span>
+                    {{ /if }}
+                  {{ else if occ.relationshipType === "tenant" }}
+                    <span class="inline-flex items-center text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-200">Inquilino</span>
+                  {{ else }}
+                    <span class="inline-flex items-center text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded bg-info/10 text-info border border-info/20">Residente</span>
+                  {{ /if }}
+                </div>
+                {{# Botão Editar - só para o próprio user. #}}
+                {{ if isMine }}
+                  <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/profile/edit"
+                     class="btn btn-xs btn-ghost gap-1 shrink-0">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/></svg>
+                    Editar
+                  </a>
+                {{ /if }}
+              </div>
+              <div class="text-xs text-base-content/50 mt-0.5">Registado desde {{ occ.startDate |> formatDate }}</div>
+
+              {{# Grid de campos. Campo vazio para o próprio user → link de editar; para outros só "Não registado". #}}
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 mt-4 text-sm">
+                <div>
+                  <div class="text-[10px] uppercase tracking-wider text-base-content/50">Email</div>
+                  {{ if occ.occupant.email }}
+                    <div class="break-all text-base-content/90 mt-0.5">{{ occ.occupant.email }}</div>
+                  {{ else }}
+                    <div class="text-base-content/40 italic mt-0.5">não registado</div>
+                  {{ /if }}
+                </div>
+                <div>
+                  <div class="text-[10px] uppercase tracking-wider text-base-content/50">Telefone</div>
+                  {{ if occ.occupant.phone }}
+                    <div class="text-base-content/90 mt-0.5">{{ occ.occupant.phone }}</div>
+                  {{ else if isMine }}
+                    <div class="mt-0.5">
+                      <span class="text-base-content/50">Não registado · </span>
+                      <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/profile/edit" class="link link-primary">+ Adicionar</a>
+                    </div>
+                  {{ else }}
+                    <div class="text-base-content/40 italic mt-0.5">não registado</div>
+                  {{ /if }}
+                </div>
+                <div>
+                  <div class="text-[10px] uppercase tracking-wider text-base-content/50">NIF</div>
+                  {{ if occ.occupant.nif }}
+                    <div class="text-base-content/90 tabular-nums mt-0.5">{{ occ.occupant.nif }}</div>
+                  {{ else if isMine }}
+                    <div class="mt-0.5">
+                      <button type="button" class="link link-warning" onclick="document.getElementById('modal_set_nif').showModal()">preencher</button>
+                    </div>
+                  {{ else }}
+                    <div class="text-base-content/40 italic mt-0.5">não registado</div>
+                  {{ /if }}
+                </div>
+                <div>
+                  <div class="text-[10px] uppercase tracking-wider text-base-content/50">Última atualização</div>
+                  <div class="text-base-content/90 tabular-nums mt-0.5">{{ occ.occupant.updatedAt |> formatDate }}</div>
+                </div>
+              </div>
+
+              {{# Toggle de recibos - só para o próprio user e só owners. Submit ao mudar a checkbox (JS no fim). #}}
+              {{ if isMine && occ.relationshipType === "owner" }}
+                <div class="mt-4 pt-3 border-t border-base-200">
+                  <form method="post"
+                        action="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/profile/toggle-receipts"
+                        data-toggle-form
+                        class="flex items-center justify-between gap-3">
+                    <label class="text-sm cursor-pointer flex items-center gap-2 flex-1">
+                      <svg class="w-4 h-4 text-base-content/40" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75"/></svg>
+                      Receber recibos e avisos por email
+                    </label>
+                    <input type="checkbox" name="receiveReceiptEmails" value="on"
+                           class="toggle toggle-primary toggle-sm"
+                           {{ if occ.occupant.receiveReceiptEmails }}checked{{ /if }}>
+                  </form>
+                </div>
+              {{ /if }}
+            </div>
+          </div>
+        </article>
+      {{ /for }}
+    </div>
+  {{ /if }}
+</div>
+
+<script>
+  // Toggle inline: ao mudar a checkbox, submete o form (full-page reload
+  // com flash). Sem JS de fetch - mantém o pattern simples e auditável.
+  document.querySelectorAll("[data-toggle-form] input[type=checkbox]").forEach(function (cb) {
+    cb.addEventListener("change", function () {
+      cb.form.submit();
+    });
+  });
+</script>
+
+{{ /layout }}

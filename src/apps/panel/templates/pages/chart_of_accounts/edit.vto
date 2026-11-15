@@ -1,0 +1,102 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser, categoryId } }}
+
+{{ set isGlobal = category.isGlobal }}
+{{ set readonlyClass = isGlobal ? " bg-base-200 cursor-not-allowed" : "" }}
+
+{{# Ação destrutiva na Zona perigosa no fim, só quando !isGlobal. Ver ADR 0025. #}}
+{{ include "partials/page_header.vto" {
+  title: category.name,
+  scale: "detail",
+  breadcrumbs: [
+    { label: "Plano de contas", href: "/admin/c/" + currentCondominiumId + "/expense-categories" },
+    { label: category.name },
+    { label: "Editar" },
+  ],
+  status: isGlobal
+    ? { label: "Global · só leitura", tone: "info" }
+    : (category.isActive ? { label: "Ativa", tone: "success" } : { label: "Inactiva", tone: "muted" })
+} }}
+
+{{ if isGlobal }}
+  <div class="rounded-lg bg-info/10 border border-info/30 px-4 py-3 flex items-start gap-3 mb-6">
+    <span class="text-info text-lg leading-none">ℹ</span>
+    <span class="text-sm font-medium text-info">Esta conta é <strong>global</strong> (partilhada entre todos os condomínios). Os campos aparecem apenas para consulta e não podem ser alterados. Para adicionar uma variante, cria uma nova conta custom com código semelhante.</span>
+  </div>
+{{ /if }}
+
+<div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-6 mb-6">
+  <h2 class="text-sm font-semibold mb-4">Dados da conta</h2>
+  <form method="post" action="/admin/c/{{ currentCondominiumId }}/expense-categories/{{ categoryId }}/update" class="grid grid-cols-1 md:grid-cols-4 gap-4">
+    <div class="form-control md:col-span-2">
+      <label class="label py-1" for="name"><span class="label-text text-xs">Nome *</span></label>
+      <input type="text" id="name" name="name" required maxlength="150" value="{{ category.name }}" class="input input-sm input-bordered{{ readonlyClass }}" {{ if isGlobal }}readonly{{ /if }}>
+    </div>
+    <div class="form-control">
+      <label class="label py-1" for="code"><span class="label-text text-xs">Código *</span></label>
+      <input type="text" id="code" name="code" required maxlength="20" value="{{ category.code }}" class="input input-sm input-bordered uppercase font-mono{{ readonlyClass }}" {{ if isGlobal }}readonly{{ /if }}>
+    </div>
+    <div class="form-control">
+      <label class="label py-1" for="type"><span class="label-text text-xs">Tipo *</span></label>
+      <select id="type" name="type" class="select select-sm select-bordered{{ readonlyClass }}" {{ if isGlobal }}disabled{{ /if }}>
+        <option value="asset" {{ if category.type === "asset" }}selected{{ /if }}>Ativo</option>
+        <option value="liability" {{ if category.type === "liability" }}selected{{ /if }}>Passivo</option>
+        <option value="equity" {{ if category.type === "equity" }}selected{{ /if }}>Capital próprio</option>
+        <option value="revenue" {{ if category.type === "revenue" }}selected{{ /if }}>Receita</option>
+        <option value="expense" {{ if category.type === "expense" }}selected{{ /if }}>Despesa</option>
+      </select>
+    </div>
+    <div class="form-control">
+      <label class="label py-1" for="parentCode"><span class="label-text text-xs">Conta-pai (código)</span></label>
+      <input type="text" id="parentCode" name="parentCode" maxlength="20" value="{{ category.parentCode ?? '' }}" class="input input-sm input-bordered uppercase font-mono{{ readonlyClass }}" {{ if isGlobal }}readonly{{ /if }}>
+    </div>
+    <div class="form-control md:col-span-3">
+      <label class="label py-1" for="description"><span class="label-text text-xs">Descrição</span></label>
+      <input type="text" id="description" name="description" value="{{ category.description ?? '' }}" placeholder="Notas opcionais" class="input input-sm input-bordered{{ readonlyClass }}" {{ if isGlobal }}readonly{{ /if }}>
+    </div>
+    <div class="form-control md:col-span-4">
+      <label class="label py-2 cursor-pointer justify-start gap-3 {{ if isGlobal }}opacity-60 cursor-not-allowed{{ /if }}">
+        <input type="checkbox" name="isActive" class="checkbox checkbox-sm checkbox-primary" {{ if category.isActive }}checked{{ /if }} {{ if isGlobal }}disabled{{ /if }}>
+        <span class="label-text text-sm">Conta ativa (disponível para escolha em formulários)</span>
+      </label>
+    </div>
+
+    {{ if !isGlobal }}
+      <div class="md:col-span-4 flex gap-2">
+        <button type="submit" class="btn btn-sm btn-primary">Guardar alterações</button>
+        <a href="/admin/c/{{ currentCondominiumId }}/expense-categories" class="btn btn-sm btn-ghost">Cancelar</a>
+      </div>
+    {{ /if }}
+  </form>
+</div>
+
+{{ set meta = [
+  { label: "ID", value: categoryId },
+  { label: "Origem", value: isGlobal ? "Global" : "Custom" },
+  { label: "Condomínio", value: category.condominiumId ?? "-" },
+  { label: "Criada em", value: category.createdAt ?? "-" },
+  { label: "Atualizada em", value: category.updatedAt ?? "-" },
+] }}
+<div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-6 mb-6">
+  <h2 class="text-sm font-semibold mb-4">Metadados</h2>
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+    {{ for m of meta }}
+      <div>
+        <div class="text-xs uppercase text-base-content/50 tracking-wider">{{ m.label }}</div>
+        <div class="font-mono text-xs mt-1 truncate" title="{{ m.value }}">{{ m.value }}</div>
+      </div>
+    {{ /for }}
+  </div>
+</div>
+
+{{ if !isGlobal }}
+  {{# Zona perigosa - pattern canónico. Ver ADR 0025. #}}
+  {{ include "partials/danger_zone.vto" {
+    entityName: "conta",
+    entityLabel: category.code + " - " + category.name,
+    actionUrl: "/admin/c/" + currentCondominiumId + "/expense-categories/" + categoryId + "/delete",
+    confirmBody: "Apaga a conta " + category.code + " " + category.name + " do plano de contas deste condomínio.",
+    currentUser,
+  } }}
+{{ /if }}
+
+{{ /layout }}

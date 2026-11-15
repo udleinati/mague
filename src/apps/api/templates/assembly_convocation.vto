@@ -1,0 +1,204 @@
+{{# PDF da CONVOCATÓRIA (convocation_pdf.ts → Chromium headless → A4). Distinto da
+   ata (assembly_minutes.vto): anuncia o que VAI acontecer (datas, local, ordem do
+   dia); a ata regista o que ACONTECEU. CSS inline, sem dependências externas.
+
+   Dados esperados:
+     • condominium  - { name, fiscalNumber?, address? }
+     • assembly     - { type, scheduledAt, secondConvocationAt?, location,
+                       convocationIntro?, convocationFooter? }
+     • agendaItems  - array [{ sequence, subject, description? }] (ordem do dia)
+     • generatedAt  - string ISO (timestamp da geração - rodapé)
+#}}
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<title>Convocatória - {{ condominium.name }}</title>
+{{# Mesma fonte dos recibos (coerência); fonte do sistema, fallback sans-serif
+    cobre Chromium sem Helvetica Neue/Arial. #}}
+<style>
+  @page { size: A4; margin: 25mm 20mm 22mm 25mm; }
+  * { box-sizing: border-box; }
+  html, body {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 11.5pt;
+    line-height: 1.55;
+    color: #1a1a1a;
+    margin: 0;
+    padding: 0;
+    font-feature-settings: "kern" 1, "liga" 1;
+  }
+  .doc-meta {
+    text-align: center;
+    color: #555;
+    font-size: 9pt;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 24pt;
+  }
+  h1 {
+    font-size: 18pt;
+    font-weight: bold;
+    text-align: center;
+    margin: 0 0 16pt 0;
+    letter-spacing: 0.02em;
+  }
+  h2 {
+    font-size: 12pt;
+    font-weight: bold;
+    margin: 22pt 0 8pt 0;
+    border-bottom: 0.5pt solid #888;
+    padding-bottom: 3pt;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .header-block {
+    margin-bottom: 18pt;
+    padding-bottom: 12pt;
+    border-bottom: 0.5pt solid #ccc;
+  }
+  .header-block .condo { font-size: 13pt; font-weight: bold; margin-bottom: 2pt; }
+  .header-block .condo-meta { font-size: 9pt; color: #666; }
+  .lead { margin: 10pt 0 4pt 0; text-align: justify; }
+  .session-info {
+    display: table;
+    width: 100%;
+    margin: 12pt 0;
+    border-collapse: collapse;
+  }
+  .session-info .row { display: table-row; }
+  .session-info .label {
+    display: table-cell;
+    width: 130pt;
+    color: #555;
+    font-size: 9.5pt;
+    padding: 5pt 8pt 5pt 0;
+    vertical-align: top;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .session-info .value {
+    display: table-cell;
+    padding: 5pt 0;
+    vertical-align: top;
+    font-weight: 500;
+  }
+  .session-info .value .hint {
+    font-weight: normal;
+    font-size: 9pt;
+    color: #777;
+    font-style: italic;
+    margin-top: 1pt;
+  }
+  .narrative {
+    white-space: pre-wrap;
+    text-align: justify;
+    margin: 10pt 0;
+  }
+  .narrative.empty { color: #999; font-style: italic; }
+  ol.agenda {
+    margin: 6pt 0 0 0;
+    padding-left: 22pt;
+  }
+  ol.agenda li {
+    margin: 0 0 10pt 0;
+    padding-left: 4pt;
+    page-break-inside: avoid;
+  }
+  ol.agenda li .agenda-subject { font-weight: bold; }
+  ol.agenda li .agenda-body {
+    margin-top: 2pt;
+    white-space: pre-wrap;
+    text-align: justify;
+    color: #333;
+  }
+  .footer-text {
+    margin-top: 14pt;
+    padding-top: 10pt;
+    border-top: 0.5pt dashed #bbb;
+    font-size: 10.5pt;
+  }
+  .sign-off {
+    margin-top: 28pt;
+    text-align: right;
+    font-weight: 500;
+  }
+  .footer-note {
+    margin-top: 28pt;
+    padding-top: 8pt;
+    border-top: 0.5pt solid #ccc;
+    font-size: 8pt;
+    color: #888;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<div class="doc-meta">Convocatória de Assembleia de Condóminos</div>
+
+<div class="header-block">
+  <div class="condo">{{ condominium.name }}</div>
+  {{ if condominium.fiscalNumber }}
+    <div class="condo-meta">NIF {{ condominium.fiscalNumber }}{{ if condominium.address }} · {{ condominium.address }}{{ /if }}</div>
+  {{ else if condominium.address }}
+    <div class="condo-meta">{{ condominium.address }}</div>
+  {{ /if }}
+</div>
+
+<h1>Convocatória de Assembleia {{ if assembly.type === "ordinary" }}Ordinária{{ else }}Extraordinária{{ /if }}</h1>
+
+{{ if assembly.convocationIntro }}
+  <div class="narrative">{{ assembly.convocationIntro }}</div>
+{{ /if }}
+
+<div class="lead">
+  Nos termos dos artigos 1430.º e seguintes do Código Civil, convocam-se os
+  senhores condóminos para a assembleia {{ if assembly.type === "ordinary" }}ordinária{{ else }}extraordinária{{ /if }} de condóminos, a realizar:
+</div>
+
+<div class="session-info">
+  <div class="row">
+    <div class="label">1.ª convocatória</div>
+    <div class="value">{{ assembly.scheduledAt |> formatDateTime }}</div>
+  </div>
+  {{ if assembly.secondConvocationAt }}
+    <div class="row">
+      <div class="label">2.ª convocatória</div>
+      <div class="value">
+        {{ assembly.secondConvocationAt |> formatDateTime }}
+        <div class="hint">Caso não se reúna quórum na 1.ª convocatória, a assembleia delibera por maioria dos votos dos condóminos presentes ou representados, desde que estes representem, pelo menos, um quarto (25%) do valor total do prédio (art. 1432.º, n.os 6 e 7, do Código Civil).</div>
+      </div>
+    </div>
+  {{ /if }}
+  {{ if assembly.location }}
+    <div class="row"><div class="label">Local</div><div class="value">{{ assembly.location }}</div></div>
+  {{ /if }}
+</div>
+
+<h2>Ordem do dia</h2>
+{{ if agendaItems.length > 0 }}
+  <ol class="agenda">
+    {{ for d of agendaItems }}
+      <li>
+        {{# Só o assunto: a convocatória não mostra a nota/texto de cada ponto. #}}
+        <div class="agenda-subject">{{ d.subject }}</div>
+      </li>
+    {{ /for }}
+  </ol>
+{{ else }}
+  <div class="narrative empty">Ordem do dia por definir.</div>
+{{ /if }}
+
+{{ if assembly.convocationFooter }}
+  <div class="narrative footer-text">{{ assembly.convocationFooter }}</div>
+{{ /if }}
+
+<div class="sign-off">A Administração</div>
+
+<div class="footer-note">
+  Documento gerado em {{ generatedAt |> formatDate }} · {{ condominium.name }}
+</div>
+
+</body>
+</html>

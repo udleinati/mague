@@ -1,0 +1,43 @@
+# Ambiente
+.env
+.env.local
+.env.prod
+
+# Deno
+.deno/
+deno.lock
+
+# node_modules da build de CSS (src/apps/panel/styles - ver deno task build:css)
+node_modules/
+
+# Cobertura de testes (gerada por `deno task test:unit:cov`)
+coverage/
+
+# Logs
+*.log
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Editores
+.vscode/
+.idea/
+*.swp
+
+# Claude Code (estado local)
+.claude/settings.local.json
+
+# Dados de runtime (documentos carregados, etc.)
+data/
+
+# Documentação gerada
+static/docs/docs.html
+
+# Backups de produção (pg_dump custom format)
+deploy/backups/
+/.claude
+
+# PRDs e planos de trabalho (locais, não versionados)
+docs/prd/
+plans/

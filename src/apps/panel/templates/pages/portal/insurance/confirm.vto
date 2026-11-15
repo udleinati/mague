@@ -1,0 +1,221 @@
+{{ layout "layouts/portal.vto" { title, section, condominium, unit, currentUser, currentPortalUnitId, currentCondominiumId } }}
+
+<div class="mb-4">
+  {{ include "partials/breadcrumbs.vto" {
+    items: [
+      { label: "Seguro", href: "/portal/c/" + currentCondominiumId + "/u/" + currentPortalUnitId + "/insurances" },
+      { label: "Confirmar dados" }
+    ]
+  } }}
+
+  <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/insurances" class="btn btn-sm btn-ghost gap-1">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+    Voltar à listagem de seguros
+  </a>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-[1fr_minmax(0,440px)] gap-6">
+  {{# ─── Coluna 1: formulário ─────────────────────────────────────────── #}}
+  <div>
+    <h1 class="text-2xl font-bold mb-1">Confirma os dados da apólice</h1>
+    <p class="text-sm text-base-content/60 mb-4">
+      Verifica os campos extraídos automaticamente do PDF. Corrige onde
+      precisar. Campos com <span class="text-error">*</span> são obrigatórios.
+    </p>
+
+    <form method="post" class="space-y-4">
+      <div class="grid grid-cols-2 gap-3">
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Data de início <span class="text-error">*</span></span></label>
+          <input type="date" name="validFrom" required
+                 value="{{ if policy.validFrom }}{{ policy.validFrom }}{{ else if policy.ocrExtracted && policy.ocrExtracted.candidatesValidFrom && policy.ocrExtracted.candidatesValidFrom.length > 0 }}{{ policy.ocrExtracted.candidatesValidFrom[0] }}{{ /if }}"
+                 class="input input-sm input-bordered">
+        </div>
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Data de fim <span class="text-error">*</span></span></label>
+          <input type="date" name="validTo" required
+                 min="{{ new Date().toISOString().slice(0, 10) }}"
+                 value="{{ if policy.validTo }}{{ policy.validTo }}{{ else if policy.ocrExtracted && policy.ocrExtracted.candidatesValidUntil && policy.ocrExtracted.candidatesValidUntil.length > 0 }}{{ policy.ocrExtracted.candidatesValidUntil[0] }}{{ /if }}"
+                 class="input input-sm input-bordered">
+        </div>
+      </div>
+
+      {{# Outras datas detetadas pelo OCR. #}}
+      {{ if policy.ocrExtracted && policy.ocrExtracted.candidatesValidUntil && policy.ocrExtracted.candidatesValidUntil.length > 1 }}
+        <p class="text-xs text-base-content/50 -mt-2">
+          Outras datas detetadas:
+          {{ for d of policy.ocrExtracted.candidatesValidUntil }}
+            <code class="bg-base-200 px-1 rounded">{{ d }}</code>
+          {{ /for }}
+        </p>
+      {{ /if }}
+
+      <div class="grid grid-cols-2 gap-3">
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Número da apólice <span class="text-error">*</span></span></label>
+          <input type="text" name="policyNumber" maxlength="60" required
+                 value="{{ if policy.policyNumber }}{{ policy.policyNumber }}{{ else if policy.ocrExtracted && policy.ocrExtracted.policyNumberCandidate }}{{ policy.ocrExtracted.policyNumberCandidate }}{{ /if }}"
+                 class="input input-sm input-bordered">
+        </div>
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Seguradora <span class="text-error">*</span></span></label>
+          <input type="text" name="insurer" maxlength="80" required
+                 value="{{ if policy.insurer }}{{ policy.insurer }}{{ else if policy.ocrExtracted && policy.ocrExtracted.insurerCandidate }}{{ policy.ocrExtracted.insurerCandidate }}{{ /if }}"
+                 class="input input-sm input-bordered">
+        </div>
+      </div>
+
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text text-xs">Capital segurado (€)</span></label>
+        <input type="text" name="coverageAmountEuros" inputmode="decimal" placeholder="0,00"
+               value="{{ if policy.coverageAmountCents }}{{ String(policy.coverageAmountCents / 100).replace('.', ',') }}{{ /if }}"
+               class="input input-sm input-bordered">
+      </div>
+
+      <button type="submit" class="btn btn-primary w-full">Confirmar dados</button>
+      <p class="text-xs text-base-content/50 text-center -mt-2">
+        Após confirmares, o administrador é notificado para aprovar a apólice.
+      </p>
+    </form>
+  </div>
+
+  {{# ─── Coluna 2: ficheiros (multi-file, preview, add/delete) ────────── #}}
+  <div>
+    <div class="flex items-center justify-between mb-2">
+      <h2 class="text-sm font-bold uppercase tracking-wider text-base-content/60">
+        Ficheiros ({{ String(attachments.length) }})
+      </h2>
+    </div>
+
+    <div class="space-y-2">
+      {{ if attachments.length === 0 }}
+        <div class="rounded-box border border-dashed border-base-300 p-8 text-center text-sm text-base-content/50 italic">
+          Sem ficheiros - usa o formulário abaixo para adicionar.
+        </div>
+      {{ /if }}
+      {{ for att of attachments }}
+        {{ set _attUrl = "/portal/c/" + currentCondominiumId + "/u/" + currentPortalUnitId + "/insurances/" + policy.id + "/attachments/" + att.id }}
+        {{ set _isImage = att.mimeType === "image/jpeg" || att.mimeType === "image/png" || att.mimeType === "image/webp" || att.mimeType === "image/heic" }}
+        <div class="flex items-center gap-3 p-2 rounded-box border border-base-200 bg-base-100 hover:bg-base-200/40">
+          {{ if _isImage }}
+            <div class="w-12 h-12 flex items-center justify-center rounded flex-shrink-0 bg-info/10 text-info text-[10px] font-bold">IMG</div>
+          {{ else if att.mimeType === "application/pdf" }}
+            <div class="w-12 h-12 flex items-center justify-center rounded flex-shrink-0 bg-error/10 text-error text-[10px] font-bold">PDF</div>
+          {{ else }}
+            <div class="w-12 h-12 flex items-center justify-center rounded flex-shrink-0 bg-base-200 text-base-content/40">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            </div>
+          {{ /if }}
+          <div class="flex-1 min-w-0">
+            <div class="text-xs font-medium truncate">{{ att.filename }}</div>
+            <div class="text-[10px] text-base-content/40">{{ att.mimeType }}</div>
+          </div>
+          <div class="flex items-center gap-3 flex-shrink-0">
+            <a href="{{ _attUrl }}" target="_blank" rel="noopener" class="link link-primary text-xs">
+              abrir ↗
+            </a>
+            {{# Remover ficheiro: só antes de confirmar (ADR 0040). Depois de
+               confirmada (aguarda aprovação) não se pode despir a evidência. #}}
+            {{ if !policy.confirmedAt }}
+              <form method="post" action="{{ _attUrl }}/delete" class="inline"
+                    data-confirm-title="Apagar ficheiro?"
+                    data-confirm-body="O ficheiro {{ att.filename }} vai ser removido desta apólice. Esta ação é irreversível."
+                    data-confirm-ok="Apagar"
+                    data-confirm-danger="true">
+                <button type="submit" class="link link-error text-xs">apagar</button>
+              </form>
+            {{ /if }}
+          </div>
+        </div>
+      {{ /for }}
+    </div>
+
+    {{# Multi-file: JS faz upload sequencial via fetch; sem JS, POST normal single-file. #}}
+    <form id="add-attachments-form" method="post"
+          action="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/insurances/{{ policy.id }}/attachments"
+          enctype="multipart/form-data"
+          class="mt-4 space-y-3">
+      {{ include "partials/file_dropzone.vto" {
+        name: "file",
+        multiple: true,
+        accept: "application/pdf,image/jpeg,image/png,image/webp,image/heic",
+        helpText: "PDF ou imagem - podes selecionar vários",
+      } }}
+      <button type="submit" class="btn btn-sm btn-primary w-full gap-1.5" data-upload-submit disabled>
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/>
+        </svg>
+        Adicionar
+      </button>
+    </form>
+
+    {{# Progress bar local (rose-500, ADR 0027) - única exceção viva à barra
+       global, porque comunica progresso real X/N no upload sequencial. #}}
+    <div id="upload-progress"
+         style="position:fixed; top:0; left:0; right:0; height:3px;
+                background:transparent; z-index:9999; display:none;">
+      <div id="upload-progress-bar"
+           style="height:3px; width:0; background:#f43f5e;
+                  box-shadow:0 0 8px rgba(244,63,94,0.6);
+                  transition:width 0.3s ease-out;"></div>
+    </div>
+    <div id="upload-progress-text"
+         style="position:fixed; top:10px; left:50%; transform:translateX(-50%);
+                background:#f43f5e; color:white; padding:6px 14px;
+                border-radius:9999px; font-size:12px; z-index:9999;
+                box-shadow:0 4px 12px rgba(0,0,0,0.15); display:none;"></div>
+    <script>
+      (function () {
+        var form = document.getElementById("add-attachments-form");
+        if (!form) return;
+        var bar = document.getElementById("upload-progress-bar");
+        var barWrap = document.getElementById("upload-progress");
+        var text = document.getElementById("upload-progress-text");
+        form.addEventListener("submit", function (e) {
+          var input = form.querySelector('input[type="file"]');
+          if (!input || !input.files || input.files.length === 0) return;
+          // Mostra progress UI sempre. Single-file deixa o browser fazer
+          // POST normal (animação fake até a navegação). Multi-file
+          // interceta para fazer sequencial com progresso real.
+          barWrap.style.display = "block";
+          text.style.display = "block";
+          if (input.files.length === 1) {
+            text.textContent = "A enviar ficheiro…";
+            requestAnimationFrame(function () { bar.style.width = "90%"; });
+            return;
+          }
+          e.preventDefault();
+          var files = Array.from(input.files);
+          var total = files.length;
+          var done = 0;
+          text.textContent = "A enviar " + total + " ficheiros…";
+          bar.style.width = "0";
+          function uploadNext() {
+            if (done >= total) {
+              bar.style.width = "100%";
+              text.textContent = "Concluído! A recarregar…";
+              setTimeout(function () { window.location.reload(); }, 400);
+              return;
+            }
+            var fd = new FormData();
+            fd.append("file", files[done]);
+            fetch(form.action, { method: "POST", body: fd, redirect: "manual" })
+              .then(function () {
+                done++;
+                bar.style.width = (done / total * 100) + "%";
+                text.textContent = "Enviado " + done + " / " + total + "…";
+                uploadNext();
+              })
+              .catch(function (err) {
+                text.style.background = "#dc2626";
+                text.textContent = "Erro: " + (err.message || "falha de rede");
+                setTimeout(function () { window.location.reload(); }, 2000);
+              });
+          }
+          uploadNext();
+        });
+      })();
+    </script>
+  </div>
+</div>
+

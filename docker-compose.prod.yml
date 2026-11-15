@@ -1,0 +1,147 @@
+# Compose de produção - api + panel + db + valkey + rustfs.
+#
+# Uso:
+#   cp .env.prod.example .env.prod       # editar e preencher
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod run --rm api deno task migrate
+#
+# TLS/routing ficam fora desta stack: um reverse proxy à tua escolha (ex.: Caddy)
+# publica 80/443 e encaminha por hostname via a rede Docker externa `edge`.
+# Aqui NADA publica portas no host - `api` e `panel` juntam-se à rede `edge`
+# (o proxy fala com eles por container name); db/valkey/rustfs ficam só na
+# rede interna. Pré-requisito: `docker network create edge`.
+
+name: mague
+
+services:
+  # Imagem partilhada por `api` e `panel`. Só o serviço `api` tem `build:`
+  # - o `panel` reusa a mesma imagem (distinguem-se pelo `command:`).
+  # Vantagens: um único build por deploy em vez de dois; menos espaço em
+  # disco; rebuilds só mexem numa imagem.
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    image: mague-app:prod
+    container_name: mague-api
+    command: deno task start:api
+    restart: unless-stopped
+    networks: [default, edge]
+    depends_on:
+      db:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      rustfs:
+        condition: service_healthy
+    env_file:
+      - .env.prod
+    environment:
+      APP_ENV: production
+      APP_PORT: "3000"
+      APP_URL: https://api.mague.pt
+      DATABASE_URL: postgres://mague:${POSTGRES_PASSWORD}@db:5432/mague
+      VALKEY_URL: redis://valkey:6379
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+  panel:
+    # Sem `build:` - reusa `mague-app:prod` construída pelo api.
+    image: mague-app:prod
+    container_name: mague-panel
+    command: deno task start:panel
+    restart: unless-stopped
+    networks: [default, edge]
+    depends_on:
+      api:
+        condition: service_healthy
+    env_file:
+      - .env.prod
+    environment:
+      APP_ENV: production
+      PANEL_PORT: "3400"
+      # Container name (não `api`): o panel está na rede edge partilhada -
+      # nome único evita resolução ambígua se outro stack registar `api` lá.
+      PANEL_API_URL: http://mague-api:3000
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3400/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+  db:
+    build:
+      context: ./test_sql
+      dockerfile: Dockerfile.db
+    image: mague-db:prod
+    container_name: mague-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mague
+      POSTGRES_USER: mague
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql # PG 18+: mount no parent, data vai para ./<major>/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mague -d mague"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: mague-valkey
+    restart: unless-stopped
+    command: ["valkey-server", "--save", "60", "1", "--appendonly", "yes"]
+    volumes:
+      - valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # RustFS - S3-compatible object storage para PDFs de recibos.
+  # Sem ports publicados - fica na rede interna; api fala via http://rustfs:9000.
+  # Console (porta 9001) só acessível via SSH tunnel (`ssh -L 9001:rustfs:9001 ...`)
+  # ou rota Caddy adicional com basic auth.
+  #
+  # Backup: o volume `rustfs_data` guarda os objetos. Incluir nas rotinas de
+  # backup (igual a `pgdata`) - perda do volume = perda dos PDFs.
+  rustfs:
+    image: rustfs/rustfs:latest
+    container_name: mague-rustfs
+    restart: unless-stopped
+    environment:
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_KEY}
+      RUSTFS_CONSOLE_ENABLE: "true"
+    volumes:
+      - rustfs_data:/data
+    healthcheck:
+      # RustFS responde 403 a `GET /` sem credenciais - basta responder
+      # algo (não usar `-f` que exige 2xx). Aceita qualquer HTTP code.
+      test: [
+        "CMD-SHELL",
+        "curl -s -o /dev/null -w '%{http_code}' http://localhost:9000/ | grep -qE '^[0-9]+$'",
+      ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# `default` = rede interna do stack (db/valkey/rustfs só existem aqui).
+# `edge` = rede partilhada com o Caddy do stack edge (criada à mão).
+networks:
+  default:
+  edge:
+    external: true
+
+volumes:
+  pgdata:
+  valkey_data:
+  rustfs_data:

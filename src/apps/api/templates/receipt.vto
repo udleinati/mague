@@ -1,0 +1,351 @@
+{{# PDF do recibo (Vento → HTML → Chromium → PDF). Variáveis snapshot de finance.receipt:
+     • receipt           → row inteira (number, amountCents, issuedAt, voidedAt, ...)
+     • condominium       → CondominiumSnapshot
+     • unit              → UnitSnapshot
+     • recipients        → RecipientSnapshot[]
+     • lines             → LineSnapshot[]
+     • bankTx            → BankTxSnapshot
+   Helpers globais: formatMoney, formatDate, num, etc.
+#}}
+
+<!doctype html>
+<html lang="pt">
+<head>
+  <meta charset="utf-8">
+  <title>Recibo {{ receipt.number }}</title>
+  <style>
+    /* Reset minimal + estilo de "documento contabilístico" */
+    * { box-sizing: border-box; }
+    @page { size: A4; margin: 0; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      font-family: "Helvetica Neue", Arial, sans-serif;
+      font-size: 11pt;
+      color: #1a1a1a;
+      line-height: 1.4;
+    }
+    .page {
+      padding: 1.5cm 1.8cm;
+      position: relative;
+      min-height: 100vh;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      border-bottom: 2px solid #0d9488;
+      padding-bottom: 12px;
+      margin-bottom: 18px;
+    }
+    .brand {
+      flex: 1;
+    }
+    .brand .name {
+      font-size: 16pt;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+      margin: 0 0 4px 0;
+    }
+    .brand .meta {
+      font-size: 9pt;
+      color: #555;
+      line-height: 1.5;
+    }
+    .doc-info {
+      text-align: right;
+      min-width: 180px;
+    }
+    .doc-info .number {
+      font-size: 14pt;
+      font-weight: 700;
+      color: #0d9488;
+      letter-spacing: 0.5px;
+    }
+    .doc-info .label {
+      font-size: 8pt;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-top: 8px;
+    }
+    .doc-info .date {
+      font-size: 10pt;
+      color: #1a1a1a;
+      font-weight: 600;
+    }
+
+    .section {
+      margin: 18px 0;
+    }
+    .section-title {
+      font-size: 8pt;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+    .recipients {
+      background: #fafafa;
+      border-left: 3px solid #0d9488;
+      padding: 10px 14px;
+    }
+    .recipients .name {
+      font-weight: 600;
+      font-size: 11pt;
+    }
+    .recipients .nif {
+      color: #555;
+      font-size: 10pt;
+    }
+    .recipients .row {
+      margin: 3px 0;
+    }
+    .recipients .no-nif {
+      color: #b45309;
+      font-size: 9pt;
+      font-style: italic;
+    }
+    .unit-info {
+      margin-top: 10px;
+      font-size: 10pt;
+      color: #444;
+    }
+
+    .lines {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 6px;
+    }
+    .lines th {
+      text-align: left;
+      font-size: 9pt;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid #ddd;
+      padding: 6px 4px;
+      font-weight: 600;
+    }
+    .lines td {
+      padding: 6px 4px;
+      border-bottom: 1px solid #f0f0f0;
+      font-size: 11pt;
+    }
+    .lines .amount {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      /* min-width garante folga p/ valores grandes (ex: "1.234.567,89 €")
+         mesmo quando a descrição é curta e a auto-layout puxa colunas. */
+      min-width: 110px;
+      padding-left: 16px;
+    }
+    .lines .fcr-note {
+      font-size: 9pt;
+      color: #888;
+      margin-top: 2px;
+    }
+    .total-row {
+      border-top: 2px solid #1a1a1a !important;
+      font-weight: 700;
+      font-size: 12pt;
+    }
+    .total-row td {
+      padding-top: 10px !important;
+    }
+
+    .extenso {
+      font-style: italic;
+      color: #444;
+      margin: 12px 0 18px;
+      font-size: 10pt;
+    }
+    .extenso .label {
+      font-style: normal;
+      font-weight: 600;
+      color: #1a1a1a;
+    }
+
+    .payment-info {
+      background: #f5f5f5;
+      padding: 10px 14px;
+      border-radius: 4px;
+      font-size: 10pt;
+      margin-top: 18px;
+    }
+    .payment-info .row {
+      display: flex;
+      gap: 14px;
+      margin: 2px 0;
+    }
+    .payment-info .label {
+      color: #666;
+      min-width: 130px;
+    }
+    .payment-info .value {
+      color: #1a1a1a;
+      font-weight: 500;
+    }
+
+    .footer {
+      position: absolute;
+      bottom: 1.5cm;
+      left: 1.8cm;
+      right: 1.8cm;
+      border-top: 1px solid #ddd;
+      padding-top: 12px;
+      font-size: 8pt;
+      color: #888;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+    }
+    .footer .issued {
+      flex: 1;
+    }
+
+    /* Watermark "ANULADO" - só aparece se voided_at existir */
+    .voided-watermark {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      /* -55deg ≈ diagonal de A4 portrait (atan(297/210)) - cobre da
+         margem superior direita à inferior esquerda. */
+      transform: translate(-50%, -50%) rotate(-55deg);
+      font-size: 130pt;
+      font-weight: 900;
+      color: rgba(220, 38, 38, 0.16);
+      letter-spacing: 14px;
+      white-space: nowrap;
+      pointer-events: none;
+      user-select: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    {{ if receipt.voidedAt }}
+      <div class="voided-watermark">ANULADO</div>
+    {{ /if }}
+
+    <div class="header">
+      <div class="brand">
+        <div class="name">{{ condominium.name }}</div>
+        <div class="meta">
+          {{ if condominium.fiscalNumber }}NIF {{ condominium.fiscalNumber }}<br>{{ /if }}
+          {{ if condominium.address }}{{ condominium.address }}<br>{{ /if }}
+          {{ if condominium.postalCode || condominium.city }}
+            {{ condominium.postalCode ?? "" }} {{ condominium.city ?? "" }}
+          {{ /if }}
+        </div>
+      </div>
+      <div class="doc-info">
+        <div class="label">Recibo Nº</div>
+        <div class="number">{{ receipt.number }}</div>
+        <div class="label">Data emissão</div>
+        <div class="date">{{ receipt.issuedAt |> formatDate }}</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Recebido de</div>
+      <div class="recipients">
+        {{ for r of recipients }}
+          <div class="row">
+            <span class="name">{{ r.name }}</span>
+            {{ if r.nif }}
+              <span class="nif"> - NIF {{ r.nif }}</span>
+            {{ else }}
+              <span class="no-nif"> - NIF não registado</span>
+            {{ /if }}
+          </div>
+        {{ /for }}
+        <div class="unit-info">
+          Fração {{ unit.designation }}{{ if unit.identifier }} · {{ unit.identifier }}{{ /if }}
+          {{ if unit.permillage }} · {{ unit.permillage }}‰{{ /if }}
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Discriminação</div>
+      <table class="lines">
+        <thead>
+          <tr>
+            <th>Descrição</th>
+            <th class="amount">Valor</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{ for line of lines }}
+            <tr>
+              <td>
+                {{ line.description }}
+                {{ if line.fcrAmount && line.fcrAmount > 0 }}
+                  <div class="fcr-note">(FCR incluído: {{ line.fcrAmount |> formatMoney }})</div>
+                {{ /if }}
+              </td>
+              <td class="amount">{{ line.amount |> formatMoney }}</td>
+            </tr>
+          {{ /for }}
+          <tr class="total-row">
+            <td>TOTAL RECEBIDO</td>
+            <td class="amount">{{ receipt.amountCents |> formatMoney }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="extenso">
+      <span class="label">Quantia por extenso:</span>
+      {{ amountInWords }}
+    </div>
+
+    <div class="payment-info">
+      <div class="row">
+        <span class="label">Forma de pagamento:</span>
+        <span class="value">
+          {{ if bankTx.accountKind === "cash" }}Numerário{{ else }}Transferência bancária{{ /if }}
+        </span>
+      </div>
+      <div class="row">
+        <span class="label">Conta de recebimento:</span>
+        <span class="value">{{ bankTx.accountName ?? bankTx.accountKind }}{{ if bankTx.ibanMasked }} · {{ bankTx.ibanMasked }}{{ /if }}</span>
+      </div>
+      <div class="row">
+        <span class="label">Data do pagamento:</span>
+        <span class="value">{{ bankTx.transactionDate |> formatDate }}</span>
+      </div>
+      {{ if bankTx.description }}
+        <div class="row">
+          <span class="label">Referência banco:</span>
+          <span class="value">{{ bankTx.description }}</span>
+        </div>
+      {{ /if }}
+    </div>
+
+    {{ if receipt.voidedAt }}
+      <div class="payment-info" style="background:#fee2e2; margin-top:14px;">
+        <div class="row">
+          <span class="label" style="color:#b91c1c;">Anulado em:</span>
+          <span class="value">{{ receipt.voidedAt |> formatDate }}</span>
+        </div>
+        {{ if receipt.voidedReason }}
+          <div class="row">
+            <span class="label" style="color:#b91c1c;">Motivo:</span>
+            <span class="value">{{ receipt.voidedReason }}</span>
+          </div>
+        {{ /if }}
+      </div>
+    {{ /if }}
+
+    <div class="footer">
+      <div class="issued">
+        Emitido em {{ receipt.issuedAt |> formatDate }} pela Administração
+      </div>
+    </div>
+  </div>
+</body>
+</html>

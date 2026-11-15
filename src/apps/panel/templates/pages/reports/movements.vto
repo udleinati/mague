@@ -1,0 +1,245 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{ set _base = "/admin/c/" + currentCondominiumId + "/reports/movements" }}
+
+{{ layout "partials/page_header.vto" {
+  title: "Movimentos do ano",
+  breadcrumbs: [
+    { label: "Painel", href: "/admin/c/" + currentCondominiumId + "/dashboard" },
+    { label: "Relatórios" },
+    { label: "Movimentos" },
+  ],
+  meta: [
+    { label: "Exercício", value: String(report.year) },
+    { value: String(report.events.length) + " movimentos", plain: true }
+  ]
+} }}
+  <form action="{{ _base }}" method="get" class="flex items-center gap-2">
+    <span class="text-xs uppercase tracking-wider font-bold text-base-content/60">Ano</span>
+    <select name="year" class="select select-sm select-bordered" onchange="this.form.submit()">
+      {{ for y of report.availableYears }}
+        <option value="{{ String(y) }}" {{ if report.year === y }}selected{{ /if }}>{{ String(y) }}</option>
+      {{ /for }}
+    </select>
+  </form>
+{{ /layout }}
+
+{{# ── KPIs do exercício ── #}}
+{{# Vento não aceita `|>` dentro dos params de um include - pré-formatar aqui. #}}
+{{ set _openTotal = report.opening.totalCents |> formatMoney }}
+{{ set _openOrd = report.opening.ordinaryCents |> formatMoney }}
+{{ set _openFcr = report.opening.fcrCents |> formatMoney }}
+{{ set _inTotal = report.totals.inCents |> formatMoney }}
+{{ set _outTotal = report.totals.outCents |> formatMoney }}
+{{ set _closeTotal = report.closing.totalCents |> formatMoney }}
+{{ set _closeOrd = report.closing.ordinaryCents |> formatMoney }}
+{{ set _closeFcr = report.closing.fcrCents |> formatMoney }}
+{{ set _openCaption = "ordinária " + _openOrd + " · FCR " + _openFcr }}
+{{ set _closeCaption = "ordinária " + _closeOrd + " · FCR " + _closeFcr }}
+
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+  {{ include "partials/kpi_card.vto" {
+    tone: "neutral", label: "Saldo em 1 de Janeiro", value: _openTotal, caption: _openCaption
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "success", label: "Entradas", value: _inTotal, caption: "tudo o que entrou nas duas bolsas", highlightValue: true
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "error", label: "Saídas", value: _outTotal, caption: "tudo o que saiu das duas bolsas", highlightValue: true
+  } }}
+  {{ include "partials/kpi_card.vto" {
+    tone: "primary", label: "Saldo em 31 de Dezembro", value: _closeTotal, caption: _closeCaption, highlightValue: true
+  } }}
+</div>
+
+{{# ── As duas bolsas lado a lado ──
+   Transferências entre bolsas aparecem nas duas colunas com sinais opostos:
+   o total do condomínio não muda, a repartição sim. #}}
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+  {{ set _bolsas = [
+    { key: "ordinary", label: "Bolsa ordinária", code: "121", accent: "info",
+      opening: report.opening.ordinaryCents, inC: report.totals.ordinaryInCents,
+      outC: report.totals.ordinaryOutCents, closing: report.closing.ordinaryCents },
+    { key: "fcr", label: "Bolsa FCR", code: "122", accent: "warning",
+      opening: report.opening.fcrCents, inC: report.totals.fcrInCents,
+      outC: report.totals.fcrOutCents, closing: report.closing.fcrCents }
+  ] }}
+  {{ for b of _bolsas }}
+    <div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-5">
+      <div class="flex items-center justify-between gap-2 mb-4">
+        <div class="text-sm font-semibold flex items-center gap-2">
+          {{ if b.accent === "info" }}
+            <span class="inline-block w-2 h-2 rounded-full bg-info"></span>
+          {{ else }}
+            <span class="inline-block w-2 h-2 rounded-full bg-warning"></span>
+          {{ /if }}
+          {{ b.label }}
+        </div>
+        <span class="font-mono text-xs text-base-content/40">conta {{ b.code }}</span>
+      </div>
+      <dl class="space-y-2 text-sm">
+        <div class="flex justify-between gap-4">
+          <dt class="text-base-content/60">Saldo inicial</dt>
+          <dd class="tabular-nums">{{ b.opening |> formatMoney }}</dd>
+        </div>
+        <div class="flex justify-between gap-4">
+          <dt class="text-base-content/60">Entradas</dt>
+          <dd class="tabular-nums text-success">+{{ b.inC |> formatMoney }}</dd>
+        </div>
+        <div class="flex justify-between gap-4">
+          <dt class="text-base-content/60">Saídas</dt>
+          <dd class="tabular-nums text-error">-{{ b.outC |> formatMoney }}</dd>
+        </div>
+        <div class="flex justify-between gap-4 pt-2 border-t border-base-200 font-semibold">
+          <dt>Saldo final</dt>
+          <dd class="tabular-nums">{{ b.closing |> formatMoney }}</dd>
+        </div>
+      </dl>
+    </div>
+  {{ /for }}
+</div>
+
+{{# ── Resumo mensal ── #}}
+{{ layout "partials/table_card.vto" {
+  title: "Resumo mensal",
+  subtitle: "Saldo de cada bolsa no fim de cada mês",
+  wrapperClass: "mb-6"
+} }}
+  <table class="table table-sm">
+    <thead>
+      <tr>
+        <th>Mês</th>
+        <th class="text-right">Entradas ord.</th>
+        <th class="text-right">Saídas ord.</th>
+        <th class="text-right">Saldo ord.</th>
+        <th class="text-right">Entradas FCR</th>
+        <th class="text-right">Saídas FCR</th>
+        <th class="text-right">Saldo FCR</th>
+        <th class="text-right">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ for m of months }}
+        <tr class="{{ if !m.hasMovements }}opacity-50{{ /if }}">
+          <td class="whitespace-nowrap">
+            <a href="{{ _base }}?year={{ String(report.year) }}&month={{ m.month }}" class="link link-hover">{{ m.label }}</a>
+          </td>
+          <td class="text-right tabular-nums{{ if m.ordinaryInCents > 0 }} text-success{{ /if }}">{{ if m.ordinaryInCents > 0 }}{{ m.ordinaryInCents |> formatMoney }}{{ else }}-{{ /if }}</td>
+          <td class="text-right tabular-nums{{ if m.ordinaryOutCents > 0 }} text-error{{ /if }}">{{ if m.ordinaryOutCents > 0 }}{{ m.ordinaryOutCents |> formatMoney }}{{ else }}-{{ /if }}</td>
+          <td class="text-right tabular-nums font-medium">{{ m.ordinaryClosingCents |> formatMoney }}</td>
+          <td class="text-right tabular-nums{{ if m.fcrInCents > 0 }} text-success{{ /if }}">{{ if m.fcrInCents > 0 }}{{ m.fcrInCents |> formatMoney }}{{ else }}-{{ /if }}</td>
+          <td class="text-right tabular-nums{{ if m.fcrOutCents > 0 }} text-error{{ /if }}">{{ if m.fcrOutCents > 0 }}{{ m.fcrOutCents |> formatMoney }}{{ else }}-{{ /if }}</td>
+          <td class="text-right tabular-nums font-medium">{{ m.fcrClosingCents |> formatMoney }}</td>
+          <td class="text-right tabular-nums font-semibold">{{ m.totalClosingCents |> formatMoney }}</td>
+        </tr>
+      {{ /for }}
+    </tbody>
+  </table>
+{{ /layout }}
+
+{{# ── Contrapartidas: de onde veio e para onde foi ── #}}
+{{ layout "partials/table_card.vto" {
+  title: "Por rubrica",
+  count: report.byAccount.length,
+  subtitle: "A conta do outro lado de cada movimento (o dinheiro veio de quê, foi para quê)",
+  wrapperClass: "mb-6"
+} }}
+  <table class="table table-sm">
+    <thead>
+      <tr>
+        <th>Código</th>
+        <th>Rubrica</th>
+        <th class="text-right">Entrou</th>
+        <th class="text-right">Saiu</th>
+        <th class="text-right">Movimentos</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ for a of report.byAccount }}
+        <tr>
+          <td class="font-mono text-xs text-base-content/60">{{ a.code }}</td>
+          <td>{{ a.name }}</td>
+          <td class="text-right tabular-nums{{ if a.inCents > 0 }} text-success{{ /if }}">{{ if a.inCents > 0 }}{{ a.inCents |> formatMoney }}{{ else }}-{{ /if }}</td>
+          <td class="text-right tabular-nums{{ if a.outCents > 0 }} text-error{{ /if }}">{{ if a.outCents > 0 }}{{ a.outCents |> formatMoney }}{{ else }}-{{ /if }}</td>
+          <td class="text-right tabular-nums text-base-content/60">{{ String(a.count) }}</td>
+        </tr>
+      {{ /for }}
+    </tbody>
+  </table>
+{{ /layout }}
+
+{{# ── Detalhe: uma linha por evento (as pernas 121+122 do mesmo lançamento
+   colapsam numa linha com duas colunas). ── #}}
+<div class="bg-base-100 rounded-xl border border-base-200 overflow-hidden shadow-sm" data-table-search-scope>
+  <div class="flex flex-wrap justify-between items-center gap-3 p-4 border-b border-base-200">
+    <div class="min-w-0">
+      <div class="text-sm font-semibold">
+        Movimentos <span class="text-base-content/50 font-normal">· {{ String(events.length) }}</span>
+      </div>
+      {{ if isFiltered }}
+        <div class="text-xs text-base-content/50 mt-0.5">
+          Entradas {{ filtered.inCents |> formatMoney }} · Saídas {{ filtered.outCents |> formatMoney }}
+          <a href="{{ _base }}?year={{ String(report.year) }}" class="link link-hover ml-2">limpar filtros</a>
+        </div>
+      {{ else }}
+        <div class="text-xs text-base-content/50 mt-0.5">Saldo corrente de cada bolsa, movimento a movimento</div>
+      {{ /if }}
+    </div>
+    <div class="flex items-center gap-2 flex-wrap shrink-0">
+      <form action="{{ _base }}" method="get" class="flex items-center gap-2">
+        <input type="hidden" name="year" value="{{ String(report.year) }}">
+        <select name="bolsa" class="select select-sm select-bordered" onchange="this.form.submit()">
+          <option value="all" {{ if filterBolsa === "all" }}selected{{ /if }}>Ambas as bolsas</option>
+          <option value="ordinary" {{ if filterBolsa === "ordinary" }}selected{{ /if }}>Só ordinária</option>
+          <option value="fcr" {{ if filterBolsa === "fcr" }}selected{{ /if }}>Só FCR</option>
+        </select>
+        <select name="month" class="select select-sm select-bordered" onchange="this.form.submit()">
+          <option value="" {{ if filterMonth === null }}selected{{ /if }}>Todos os meses</option>
+          {{ for m of months }}
+            <option value="{{ m.month }}" {{ if filterMonth === m.month }}selected{{ /if }}>{{ m.label }}</option>
+          {{ /for }}
+        </select>
+      </form>
+      <input type="search" data-table-search placeholder="Pesquisar…" class="input input-sm input-bordered">
+    </div>
+  </div>
+  <div class="table-scroll">
+    <table class="table table-sm">
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Tipo</th>
+          <th>Descrição</th>
+          <th>Rubrica</th>
+          <th class="text-right">Ordinária</th>
+          <th class="text-right">FCR</th>
+          <th class="text-right">Saldo ord.</th>
+          <th class="text-right">Saldo FCR</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ if events.length === 0 }}
+          <tr><td colspan="8" class="text-center text-base-content/50 py-8">Sem movimentos para este filtro.</td></tr>
+        {{ /if }}
+        {{ for e of events }}
+          <tr class="{{ if e.entryType === 'fcrTransfer' }}bg-warning/5{{ /if }}">
+            <td class="whitespace-nowrap tabular-nums">{{ e.date |> formatDate }}</td>
+            <td class="whitespace-nowrap text-xs text-base-content/70">{{ e.entryTypeLabel }}</td>
+            <td class="max-w-xs truncate" title="{{ e.description }}">{{ if e.description }}{{ e.description }}{{ else }}<span class="text-base-content/40">-</span>{{ /if }}</td>
+            <td class="text-xs text-base-content/60">{{ e.counterpartNames.join(", ") }}</td>
+            <td class="text-right tabular-nums {{ if e.ordinaryCents > 0 }}text-success{{ else if e.ordinaryCents < 0 }}text-error{{ /if }}">
+              {{ if e.ordinaryCents === 0 }}<span class="text-base-content/30">-</span>{{ else }}{{ e.ordinaryCents |> formatMoney }}{{ /if }}
+            </td>
+            <td class="text-right tabular-nums {{ if e.fcrCents > 0 }}text-success{{ else if e.fcrCents < 0 }}text-error{{ /if }}">
+              {{ if e.fcrCents === 0 }}<span class="text-base-content/30">-</span>{{ else }}{{ e.fcrCents |> formatMoney }}{{ /if }}
+            </td>
+            <td class="text-right tabular-nums text-base-content/60">{{ e.ordinaryBalanceCents |> formatMoney }}</td>
+            <td class="text-right tabular-nums text-base-content/60">{{ e.fcrBalanceCents |> formatMoney }}</td>
+          </tr>
+        {{ /for }}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{{ /layout }}

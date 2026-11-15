@@ -1,0 +1,174 @@
+{{ layout "layouts/portal.vto" { title, section, condominium, unit, currentUser, currentPortalUnitId, currentCondominiumId } }}
+
+{{# ─── Hero: estado de cobertura num relance ─────────────────────────── #}}
+<div class="mb-8">
+  <p class="text-sm sm:text-base text-base-content/60">Seguro de habitação · fração <strong class="text-base-content/90">{{ unit.designation }}</strong></p>
+  <h1 class="text-2xl sm:text-3xl md:text-4xl font-black mt-1 mb-3 leading-tight break-words">
+    {{# Copy e tom vêm de `libs/insurance_status.ts`, os mesmos do badge. A escada
+       que aqui estava dava `info` ao "por confirmar" que o presenter marca
+       `warning`, e reescrevia as 8 kinds à mão. Só o mapa tom -> classe fica no
+       template, porque o Tailwind JIT só vê literais (ADR 0036). #}}
+    {{ set _hero = insuranceHero(status ? status.status : null) }}
+    {{ if _hero.tone === "success" }}{{ set _heroFg = "text-success" }}
+    {{ else if _hero.tone === "warning" }}{{ set _heroFg = "text-warning" }}
+    {{ else if _hero.tone === "error" }}{{ set _heroFg = "text-error" }}
+    {{ else if _hero.tone === "info" }}{{ set _heroFg = "text-info" }}
+    {{ else }}{{ set _heroFg = "text-base-content/50" }}{{ /if }}
+    {{ _hero.prefix }}<span class="{{ _heroFg }}">{{ _hero.highlight }}</span>{{ _hero.suffix }}
+  </h1>
+  {{ if _hero.presumedPending }}
+    <p class="text-sm text-base-content/60">
+      Renovada e coberta até <strong>{{ status.status.policy.validTo |> formatDate }}</strong>. Falta enviar o comprovativo da renovação.
+    </p>
+  {{ else if status && status.status.kind === "active" }}
+    <p class="text-sm text-base-content/60">
+      Cobertura até <strong>{{ status.status.policy.validTo |> formatDate }}</strong> ({{ String(status.status.daysUntilExpiry) }} dias).
+    </p>
+  {{ else if status && status.status.kind === "expiring_soon" }}
+    <p class="text-sm text-base-content/60">
+      Cobertura até <strong>{{ status.status.policy.validTo |> formatDate }}</strong>. Submete a renovação antes de expirar.
+    </p>
+  {{ else if status && status.status.kind === "expired" }}
+    <p class="text-sm text-base-content/60">
+      Expirou em <strong>{{ status.status.policy.validTo |> formatDate }}</strong>. Submete a apólice nova quanto antes.
+    </p>
+  {{ else if status && status.status.kind === "rejected_only" && status.status.policy.rejectedReason }}
+    <p class="text-sm text-base-content/60">
+      Razão: <em>{{ status.status.policy.rejectedReason }}</em>. Submete uma nova apólice.
+    </p>
+  {{ else if status && status.status.kind === "awaiting_confirmation" }}
+    <p class="text-sm text-base-content/60">
+      <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/insurances/{{ status.status.policy.id }}/confirm" class="link link-primary">Confirma a data de validade</a> para encaminhar à administração.
+    </p>
+  {{ else if status && status.status.kind === "awaiting_approval" }}
+    <p class="text-sm text-base-content/60">
+      A administração vai validar os dados e ativar a cobertura. Recebes confirmação quando estiver aprovada.
+    </p>
+  {{ else if !status || status.status.kind === "never_submitted" }}
+    <p class="text-sm text-base-content/60">
+      Submete o PDF da apólice de seguro multirriscos da fração.
+    </p>
+  {{ /if }}
+</div>
+
+{{# CTA principal #}}
+<div class="mb-8">
+  {{# Alvo e legenda decididos em `insuranceHero`: na presumida o comprovativo
+     anexa-se à apólice que já existe, em vez de nascer uma nova por cima. #}}
+  {{ set _ctaBase = "/portal/c/" + currentCondominiumId + "/u/" + currentPortalUnitId + "/insurances" }}
+  {{ set _ctaHref = _hero.cta.target === "detail"
+      ? _ctaBase + "/" + status.status.policy.id
+      : _hero.cta.target === "renew"
+      ? _ctaBase + "/" + status.status.policy.id + "/renew"
+      : _ctaBase + "/upload" }}
+  <a href="{{ _ctaHref }}" class="btn btn-primary">{{ _hero.cta.label }}</a>
+</div>
+
+{{# ─── Histórico ────────────────────────────────────────────────────── #}}
+<section class="bg-base-100 rounded-xl border border-base-200 shadow-sm overflow-hidden">
+  <div class="px-5 py-3 border-b border-base-200">
+    <h2 class="text-sm font-bold">Histórico de submissões</h2>
+  </div>
+  {{ if !chains || chains.length === 0 }}
+    <div class="p-8 text-center text-sm text-base-content/50">
+      Ainda sem submissões.
+    </div>
+  {{ else }}
+    <ul class="divide-y divide-base-200">
+      {{# Uma entrada por cadeia de renovações (a vigência mais recente do ramo);
+         as anteriores ficam agrupadas por baixo, em vez de linhas soltas que
+         repetiam a mesma cobertura sem dizer que era a mesma (ADR 0040). #}}
+      {{ for entry of chains }}
+        {{ set p = entry.policy }}
+        {{ set _viewUrl = "/portal/c/" + currentCondominiumId + "/u/" + currentPortalUnitId + "/insurances/" + p.id }}
+        <li class="px-5 py-3">
+          <div class="flex items-start justify-between gap-3 flex-wrap">
+            <div class="min-w-0 flex-1">
+              <div class="text-sm font-medium flex items-center gap-2 flex-wrap">
+                {{ if p.validFrom && p.validTo }}
+                  {{ p.validFrom |> formatDate }} → <strong>{{ p.validTo |> formatDate }}</strong>
+                {{ else if p.validTo }}
+                  Até <strong>{{ p.validTo |> formatDate }}</strong>
+                {{ else }}
+                  Sem datas
+                {{ /if }}
+                {{ if p.insurer }}<span class="text-base-content/60">· {{ p.insurer }}</span>{{ /if }}
+
+                {{# Estado computado (`kind`), nunca o `status` cru: uma apólice
+                   vencida continua `active` na BD e aparecia aqui como "Ativa".
+                   Voz `portal`: a fração lê "Em revisão"/"Por confirmar", não a
+                   fila do admin - ver `libs/insurance_status.ts`. #}}
+                {{ include "partials/status_badge.vto" { ...insuranceStatusBadge(p.kind, "portal"), size: "xs", variant: "pill" } }}
+
+                {{# "presumida": renovação sem evidência ainda. Marca de linhagem,
+                   independente da vigência - só não faz sentido na substituída. #}}
+                {{ if p.presumedAt && p.kind !== "superseded" }}
+                  <span class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-warning/10 text-warning font-bold"
+                        title="Criada por renovação. Aguarda recibo anual para passar a documentada.">
+                    presumida
+                  </span>
+                {{ /if }}
+
+              </div>
+
+              <div class="text-xs text-base-content/50 mt-1 flex items-center gap-2 flex-wrap">
+                {{ if p.policyNumber }}
+                  <span>Nº <code class="bg-base-200 px-1 rounded">{{ p.policyNumber }}</code></span>
+                  <span class="text-base-content/30">·</span>
+                {{ /if }}
+                {{ if p.coverageAmountCents }}
+                  <span>Capital <strong class="text-base-content/80">{{ p.coverageAmountCents |> formatMoney }}</strong></span>
+                  <span class="text-base-content/30">·</span>
+                {{ /if }}
+                <span>Submetida {{ p.createdAt |> formatDate }}</span>
+              </div>
+
+              {{ if p.kind === "rejected_only" && p.rejectedReason }}
+                <div class="text-xs text-error/80 italic mt-1">Razão: {{ p.rejectedReason }}</div>
+              {{ /if }}
+            </div>
+
+            <div class="flex items-center gap-2 shrink-0">
+              {{ if p.can.edit }}
+                <a href="{{ _viewUrl }}/confirm" class="btn btn-xs btn-primary">
+                  {{ if p.confirmedAt }}Editar{{ else }}Confirmar{{ /if }}
+                </a>
+              {{ else }}
+                <a href="{{ _viewUrl }}" class="btn btn-xs btn-ghost">Ver</a>
+              {{ /if }}
+              {{# Apagar (condómino): gate `canDeletePolicy` - só a própria
+                 submissão por confirmar (ADR 0040). #}}
+              {{ if p.can.delete }}
+                <form method="post" action="{{ _viewUrl }}/delete" class="inline"
+                      data-confirm-title="Apagar apólice?"
+                      data-confirm-body="Apaga os ficheiros e a submissão. Esta ação é irreversível."
+                      data-confirm-ok="Apagar"
+                      data-confirm-danger="true">
+                  <button type="submit" class="btn btn-xs btn-ghost text-error">Apagar</button>
+                </form>
+              {{ /if }}
+            </div>
+          </div>
+
+          {{ if entry.previous.length > 0 }}
+            <details class="mt-2">
+              <summary class="text-xs text-base-content/50 cursor-pointer select-none">
+                {{ String(entry.previous.length) }} vigência{{ if entry.previous.length > 1 }}s{{ /if }} anterior{{ if entry.previous.length > 1 }}es{{ /if }} desta apólice
+              </summary>
+              <ul class="mt-2 pl-4 border-l-2 border-base-200 space-y-1">
+                {{ for prev of entry.previous }}
+                  <li class="text-xs text-base-content/60 flex items-center gap-2 flex-wrap">
+                    <span class="tabular-nums">{{ prev.validFrom |> formatDate }} → {{ prev.validTo |> formatDate }}</span>
+                    {{ if prev.policyNumber }}<span>· Nº {{ prev.policyNumber }}</span>{{ /if }}
+                    <a href="/portal/c/{{ currentCondominiumId }}/u/{{ currentPortalUnitId }}/insurances/{{ prev.id }}"
+                       class="link link-hover">Ver</a>
+                  </li>
+                {{ /for }}
+              </ul>
+            </details>
+          {{ /if }}
+        </li>
+      {{ /for }}
+    </ul>
+  {{ /if }}
+</section>

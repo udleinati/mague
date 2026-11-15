@@ -1,0 +1,47 @@
+{{# Table card canónico de tabela de dados (ADR 0038). Garante por construção o
+   ADR 0031: card overflow-hidden + tabela SEMPRE dentro de `.table-scroll`
+   (scroll horizontal + shadow em mobile).
+
+   Modo layout - o corpo é a <table> (e só ela):
+
+     {{ layout "partials/table_card.vto" { title: "Cobranças", count: charges.length, searchable: true } }}
+       <table class="table table-sm">...</table>
+     {{ /layout }}
+
+   Inputs:
+     • title        → obrigatório (header esquerdo, text-sm font-semibold).
+     • count?       → número mostrado "· N" a seguir ao título.
+     • subtitle?    → linha pequena sob o título.
+     • searchable?  → default false. true = input data-table-search no
+                      header + data-table-search-scope no card (pesquisa
+                      client-side global de admin.vto).
+     • headerRight? → texto simples no lado direito (ex: "3 movimentos").
+                      Ignorado quando searchable.
+     • wrapperClass?→ SÓ utilities de espaçamento/largura no card exterior
+                      (ex: "mb-6"). NÃO usar para cores/borders/sombras -
+                      essas decisões são deste módulo.
+
+   Headers com filtros custom (selects, tabs, botões) NÃO cabem aqui - ficam
+   hand-rolled. Empty states continuam no caller (linha no tbody ou card próprio).
+
+   GOTCHA Vento: última propriedade dos params sem trailing comma (ver ADR 0036).
+#}}
+<div class="bg-base-100 rounded-xl border border-base-200 overflow-hidden shadow-sm{{ if wrapperClass }} {{ wrapperClass }}{{ /if }}"{{ if searchable }} data-table-search-scope{{ /if }}>
+  <div class="flex justify-between items-center gap-3 p-4 border-b border-base-200">
+    <div class="min-w-0">
+      <div class="text-sm font-semibold">
+        {{- if title }}{{ title }}{{ else }}[table_card: falta title]{{ /if -}}
+        {{- if count !== undefined && count !== null }} <span class="text-base-content/50 font-normal">· {{ count }}</span>{{ /if -}}
+      </div>
+      {{ if subtitle }}<div class="text-xs text-base-content/50 mt-0.5">{{ subtitle }}</div>{{ /if }}
+    </div>
+    {{ if searchable }}
+      <div class="flex items-center gap-2 shrink-0">
+        <input type="search" data-table-search placeholder="Pesquisar…" class="input input-sm input-bordered">
+      </div>
+    {{ else if headerRight }}
+      <div class="text-xs text-base-content/50 shrink-0 text-right">{{ headerRight }}</div>
+    {{ /if }}
+  </div>
+  <div class="table-scroll">{{ content |> safe }}</div>
+</div>

@@ -1,0 +1,1064 @@
+{{# Layout principal - top nav com dropdowns + selector de condomínio + menu de user.
+    Variáveis esperadas: title, section, currentUser, currentCondominiumId, availableCondominiums. #}}
+
+{{# Menu (desktop + drawer) e command palette geram-se de `adminNav` (injetado
+   por render.ts a partir de nav.ts). O estado ativo já vem resolvido no modelo. #}}
+
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} - Mague</title>
+  {{# Favicon + ícone homescreen iOS/Android. Servidos por main.ts em paths absolutos (sem auth). #}}
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="alternate icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <meta name="theme-color" content="#0d9488">
+  <meta name="apple-mobile-web-app-title" content="Mague">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  {{# Aplica o tema ANTES de qualquer pintura (evita flash of light theme).
+     Prioridade: DB (`currentUser.theme`) > cookie local > 'light'. Cookie é
+     cache local, re-gravado a partir da DB no primeiro pageload. #}}
+  <script>
+  (function () {
+    try {
+      var server = {{ JSON.stringify(currentUser && currentUser.theme || null) |> safe }};
+      var m = document.cookie.match(/(?:^|; )theme=([^;]+)/);
+      var t = server || (m ? decodeURIComponent(m[1]) : 'light');
+      document.documentElement.setAttribute('data-theme', t === 'dark' ? 'dim' : 'light');
+      if (server) {
+        document.cookie = 'theme=' + encodeURIComponent(server) + '; path=/; max-age=31536000; SameSite=Lax';
+      }
+    } catch (e) { document.documentElement.setAttribute('data-theme', 'light'); }
+  })();
+  </script>
+  <link href="/app.css" rel="stylesheet">
+  {{# Light theme: `--erc` (error-content) tem contraste ~3:1 em `btn-error`.
+     Override do color só no light, com `!important` (CDN tem ordem de loading
+     instável e mesma specificidade). #}}
+  <style>
+    [data-theme="light"] .btn-error,
+    [data-theme="light"] .text-error-content,
+    [data-theme="light"] .badge-error {
+      color: #fff !important;
+    }
+    [data-theme="light"] .btn-warning,
+    [data-theme="light"] .text-warning-content,
+    [data-theme="light"] .badge-warning {
+      color: #422006 !important;
+    }
+    /* Suprime disclosure triangle nativo dos <details> que usam list-none
+       (Tailwind). Necessário para Safari < 17 e WebKit em geral. Usado
+       pela Zona perigosa (ADR 0025) e qualquer outro details que customize
+       o seu próprio chevron via <summary>. */
+    summary.list-none::-webkit-details-marker { display: none; }
+
+    /* Scroll horizontal para tabelas largas em ecrãs estreitos (mobile).
+       Envolve a tabela de dados com `div.table-scroll`. O wrapper permite
+       arrastar a tabela na horizontal; as sombras suaves nas extremidades
+       sinalizam que há mais colunas para o lado (técnica scroll-shadow de
+       Lea Verou - pura CSS, sem JS). As gradientes "cover" usam a cor
+       base-100 (hsl(var(--b1)), o fundo do card) para mascarar a sombra
+       quando se chega ao início/fim; daí adaptarem-se ao tema (light/dim).
+       background-attachment: local nas covers (movem com o conteúdo) e
+       scroll nas sombras (fixas às bordas do wrapper). */
+    .table-scroll {
+      overflow-x: auto;
+      overflow-y: hidden;
+      background:
+        linear-gradient(to right, hsl(var(--b1)) 30%, hsl(var(--b1) / 0)) 0 0 / 52px 100% no-repeat local,
+        linear-gradient(to left,  hsl(var(--b1)) 30%, hsl(var(--b1) / 0)) 100% 0 / 52px 100% no-repeat local,
+        radial-gradient(farthest-side at 0 50%, rgba(0,0,0,0.14), rgba(0,0,0,0)) 0 0 / 16px 100% no-repeat scroll,
+        radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,0.14), rgba(0,0,0,0)) 100% 0 / 16px 100% no-repeat scroll;
+    }
+    /* A scrollbar nativa horizontal é discreta mas presente - serve de
+       affordance adicional em desktop com trackpad. Em mobile some sozinha. */
+    .table-scroll { scrollbar-width: thin; }
+    .table-scroll::-webkit-scrollbar { height: 8px; }
+    .table-scroll::-webkit-scrollbar-thumb {
+      background: hsl(var(--bc) / 0.18); border-radius: 4px;
+    }
+
+    /* Tooltip daisyUI "rápido + compacto". O default mete transition-delay
+       0.1s + fade 0.2s (parece lento a abrir) e texto a 0.875rem. Esta
+       variante revela quase de imediato e com texto menor - para badges de
+       estado (e.g. cooldown) onde o hover deve dar a info logo. Especificidade
+       .tooltip.tooltip-quick (>= .tooltip do CDN) garante o override sem
+       depender da ordem de injecção do Tailwind CDN. Não toca nos restantes
+       tooltips. */
+    .tooltip.tooltip-quick:before,
+    .tooltip.tooltip-quick:after,
+    .tooltip.tooltip-quick:hover:before,
+    .tooltip.tooltip-quick:hover:after {
+      transition-delay: 0s;
+      transition-duration: 0.06s;
+    }
+    .tooltip.tooltip-quick:before {
+      font-size: 0.6875rem;   /* ~11px (default 14px) */
+      line-height: 1rem;
+      padding: 0.25rem 0.5rem;
+    }
+
+    /* daisyUI 4 aplica `line-height: 2` (leading-loose) ao textarea - o
+       espaçamento entre linhas fica exagerado ao escrever. Repõe normal. */
+    .textarea { line-height: 1.5; }
+  </style>
+  <script src="https://unpkg.com/htmx.org@2.0.3" defer></script>
+</head>
+<body class="bg-base-200/40 min-h-screen">
+
+  {{# ─── Barra de progresso HTMX ──────────────────────────────────────────
+     Padrão NProgress (sem dep): beforeRequest arranca a 30% e cresce a 90% em
+     4s; afterRequest salta a 100% e fade-out. Ver ADR 0027. #}}
+  <div id="htmx-progress-bar"
+       style="position:fixed; top:0; left:0; right:auto; bottom:auto;
+              height:3px; width:0; opacity:0; pointer-events:none;
+              background:#f43f5e; box-shadow:0 0 8px rgba(244,63,94,0.6);
+              z-index:9999; will-change:width,opacity;"></div>
+  <script>
+    (function () {
+      var bar = document.getElementById("htmx-progress-bar");
+      if (!bar) return;
+      var resetTimer = null;
+      function start() {
+        if (resetTimer) { clearTimeout(resetTimer); resetTimer = null; }
+        // Reset imediato sem transição.
+        bar.style.transition = "none";
+        bar.style.width = "0";
+        bar.style.opacity = "1";
+        void bar.offsetWidth; // força reflow
+        // Salto 1: 0 → 30% em 150ms. Visível em requests rápidos
+        // (mesmo se a resposta vier em 200ms o user já viu o sinal).
+        bar.style.transition = "width 0.15s ease-out";
+        bar.style.width = "30%";
+        // Salto 2: 30 → 90% em 4s. Devagarinho com easing - efeito de
+        // "ainda a trabalhar" sem chegar a 100% até a resposta vir.
+        setTimeout(function () {
+          bar.style.transition = "width 4s cubic-bezier(0.05, 0.7, 0.1, 1.0)";
+          bar.style.width = "90%";
+        }, 160);
+      }
+      function finish() {
+        bar.style.transition = "width 0.2s ease-out, opacity 0.4s 0.2s";
+        bar.style.width = "100%";
+        bar.style.opacity = "0";
+        resetTimer = setTimeout(function () {
+          bar.style.transition = "none";
+          bar.style.width = "0";
+        }, 700);
+      }
+      document.body.addEventListener("htmx:beforeRequest", start);
+      document.body.addEventListener("htmx:afterRequest", finish);
+      document.body.addEventListener("htmx:sendError", finish);
+      document.body.addEventListener("htmx:timeout", finish);
+      // API global para usos manuais (uploads via fetch JS sequencial,
+      // operações longas iniciadas por código - não-htmx). Garante que TODO
+      // request usa a mesma barra (ADR 0027), evita markup+JS duplicado por
+      // página. Exemplo:
+      //   form.addEventListener("submit", () => window.__progress.start());
+      //   await fetch(...);
+      //   window.__progress.finish();
+      window.__progress = { start: start, finish: finish };
+    })();
+  </script>
+
+  <nav class="bg-base-100 border-b border-base-200 sticky top-0 z-20">
+    <div class="max-w-7xl mx-auto px-4 md:px-8 py-3">
+      <div class="flex items-center justify-between gap-3">
+        <div class="flex items-center gap-3 md:gap-6">
+          {{# Hamburger (mobile). Toggle via JS no fim do body. #}}
+          <button type="button" id="mobile-nav-toggle" aria-controls="mobile-nav" aria-expanded="false"
+                  class="md:hidden p-2 -ml-2 rounded-lg hover:bg-base-200 transition-colors" aria-label="Abrir menu">
+            <svg id="mobile-nav-icon-open" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+            <svg id="mobile-nav-icon-close" class="w-6 h-6 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+
+          {{# Procura (mobile): abre o command palette. #}}
+          <button type="button" data-command-open
+                  class="md:hidden p-2 rounded-lg hover:bg-base-200 transition-colors" aria-label="Procurar">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/></svg>
+          </button>
+
+          <a href="/admin/c/{{ currentCondominiumId }}/dashboard" class="text-xl font-black text-teal-600 tracking-tighter">MAGUE</a>
+
+          {{# Nav horizontal (desktop). #}}
+          <div class="hidden md:flex items-center gap-1 text-sm">
+            {{ include "partials/nav_desktop.vto" { nav: adminNav.entries } }}
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2 md:gap-3">
+          {{# Procura (desktop): abre o command palette. #}}
+          <button type="button" data-command-open aria-label="Procurar"
+                  class="hidden md:inline-flex items-center gap-2 rounded-lg border border-base-200 bg-base-100 hover:bg-base-200 transition-colors px-2.5 py-1.5 text-sm text-base-content/50">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/></svg>
+            <kbd class="kbd kbd-sm whitespace-nowrap" data-cmdk-hint>⌘K</kbd>
+          </button>
+          {{ if availableCondominiums && availableCondominiums.length > 1 }}
+            {{# Selector de condomínio (desktop; mobile vai no drawer).
+               Com 1 só condomínio, texto em vez de dropdown. #}}
+            <div class="hidden md:flex items-center gap-2 bg-base-200/50 hover:bg-base-200 transition-colors rounded-full pl-3 pr-1 py-1">
+              <span class="text-xs uppercase font-bold text-base-content/50 tracking-wider">condo</span>
+              <select
+                onchange="location.href='/admin/c/'+this.value+'/dashboard'"
+                class="bg-transparent text-sm font-semibold focus:outline-none cursor-pointer max-w-[220px] truncate">
+                {{ for c of availableCondominiums }}
+                  <option value="{{ c.id }}" {{ if c.id === currentCondominiumId }}selected{{ /if }}>{{ c.name }}</option>
+                {{ /for }}
+              </select>
+            </div>
+          {{ else if availableCondominiums && availableCondominiums.length === 1 }}
+            <div class="hidden md:flex items-center gap-2 bg-base-200/50 rounded-full px-3 py-1">
+              <span class="text-xs uppercase font-bold text-base-content/50 tracking-wider">condo</span>
+              <span class="text-sm font-semibold max-w-[220px] truncate">{{ availableCondominiums[0].name }}</span>
+            </div>
+          {{ /if }}
+
+          {{ if currentUser }}
+            <div class="dropdown dropdown-end">
+              <label tabindex="0" class="flex items-center gap-2 cursor-pointer hover:bg-base-200/50 rounded-full pl-2 pr-2 md:pr-3 py-1 transition-colors">
+                <div class="avatar placeholder">
+                  <div class="bg-primary/10 text-primary rounded-full w-8 h-8">
+                    <span class="text-xs font-bold">{{ currentUser.name ? currentUser.name.split(" ").map((w) => w[0]).slice(0, 2).join("") : "?" }}</span>
+                  </div>
+                </div>
+                <div class="text-left hidden sm:block">
+                  <div class="text-xs font-semibold leading-tight">{{ currentUser.name }}</div>
+                  <div class="text-[10px] uppercase tracking-wider text-base-content/50">{{ currentUser.role }}</div>
+                </div>
+              </label>
+              <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box shadow-lg border border-base-200 w-56 p-1 mt-2 z-10">
+                <li class="menu-title pt-2 pb-1"><span class="text-xs">{{ currentUser.email }}</span></li>
+                {{# Atalho para o portal se o user também for occupant. #}}
+                {{ if currentUser.occupantUnits && currentUser.occupantUnits.length > 0 }}
+                  <li>
+                    <a href="/portal/c/{{ currentUser.occupantUnits[0].condominiumId }}/u/{{ currentUser.occupantUnits[0].unitId }}" class="w-full text-left">
+                      Portal da minha fração
+                    </a>
+                  </li>
+                {{ /if }}
+                <li>
+                  {{# Toggle do tema. Estado inicial do cookie aplicado no <head>; JS trata do click. #}}
+                  <button type="button" class="w-full text-left flex items-center justify-between gap-3" data-theme-toggle>
+                    <span data-theme-label>Modo escuro</span>
+                    <span data-theme-icon class="text-base-content/50">☾</span>
+                  </button>
+                </li>
+                <li>
+                  <button type="button" class="w-full text-left" onclick="document.getElementById('modal_change_password').showModal()">Alterar senha</button>
+                </li>
+                <li>
+                  {{# Link simples em vez de <form> - imune ao blur handler
+                      global a esconder o button antes do submit default. CSRF
+                      não é risco porque o cookie é SameSite=Lax. #}}
+                  <a href="/logout" class="w-full text-left">Sair</a>
+                </li>
+              </ul>
+            </div>
+
+          <dialog id="modal_change_password" class="modal">
+            <div class="modal-box max-w-md">
+              <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+              <h3 class="font-bold text-lg mb-1">Alterar senha</h3>
+              <p class="text-sm text-base-content/60 mb-4">Confirma a senha atual e escreve a nova duas vezes. Mínimo 8 caracteres.</p>
+              <form method="post" action="/change-password" class="space-y-3">
+                <div class="form-control">
+                  <label class="label" for="currentPassword"><span class="label-text font-medium">Senha atual</span></label>
+                  <input type="password" id="currentPassword" name="currentPassword" class="input input-bordered" required autocomplete="current-password">
+                </div>
+                <div class="form-control">
+                  <label class="label" for="newPassword"><span class="label-text font-medium">Nova senha</span></label>
+                  <input type="password" id="newPassword" name="newPassword" class="input input-bordered" required minlength="8" autocomplete="new-password">
+                </div>
+                <div class="form-control">
+                  <label class="label" for="confirm_password"><span class="label-text font-medium">Confirmar nova senha</span></label>
+                  <input type="password" id="confirm_password" name="confirm_password" class="input input-bordered" required minlength="8" autocomplete="new-password">
+                </div>
+                <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
+                  <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('modal_change_password').close()">Cancelar</button>
+                  <button type="submit" class="btn btn-sm btn-primary">Alterar senha</button>
+                </div>
+              </form>
+            </div>
+            <form method="dialog" class="modal-backdrop"><button>close</button></form>
+          </dialog>
+        {{ /if }}
+      </div>
+      </div>
+
+      {{# Drawer mobile. Hidden por default, JS toggle. #}}
+      <div id="mobile-nav" class="hidden md:hidden mt-3 pt-3 border-t border-base-200 space-y-1 text-sm">
+        {{ if availableCondominiums && availableCondominiums.length > 1 }}
+          <div class="mb-3">
+            <label class="block text-xs uppercase font-bold text-base-content/50 tracking-wider mb-1">Condomínio</label>
+            <select
+              onchange="location.href='/admin/c/'+this.value+'/dashboard'"
+              class="select select-sm select-bordered w-full font-semibold">
+              {{ for c of availableCondominiums }}
+                <option value="{{ c.id }}" {{ if c.id === currentCondominiumId }}selected{{ /if }}>{{ c.name }}</option>
+              {{ /for }}
+            </select>
+          </div>
+        {{ else if availableCondominiums && availableCondominiums.length === 1 }}
+          <div class="mb-3">
+            <div class="text-xs uppercase font-bold text-base-content/50 tracking-wider mb-1">Condomínio</div>
+            <div class="text-sm font-semibold">{{ availableCondominiums[0].name }}</div>
+          </div>
+        {{ /if }}
+
+        {{ include "partials/nav_drawer.vto" { nav: adminNav.entries } }}
+      </div>
+    </div>
+  </nav>
+
+  <main class="max-w-7xl mx-auto px-4 md:px-8 py-6 md:py-10">
+    {{# Flash injetado pelo ALS (render.ts + main.ts); layout-only. Ver ADR 0012. #}}
+    {{ if globalFlash }}
+      <div class="mb-6">
+        {{ include "partials/alert.vto" { type: globalFlash.type, message: globalFlash.message } }}
+      </div>
+    {{ /if }}
+    {{ content |> safe }}
+  </main>
+
+  {{# ═════════ MODAL de confirmação global ═════════
+     Substitui window.confirm(). Declarativo (`data-confirm-*` no form) ou
+     imperativo (`window.confirmAction`). Replicado em portal.vto. Ver ADR 0013. #}}
+  <dialog id="modal_confirm" class="modal">
+    <div class="modal-box max-w-md">
+      <div id="confirm_normal_state">
+        {{# Header: ícone circular (só em danger) + título + body. flex-start
+           para que body longo corra à direita do ícone sem empurrar o título. #}}
+        <div class="flex items-start gap-3 mb-4">
+          <div id="confirm_header_icon" class="hidden shrink-0 mt-0.5 w-9 h-9 rounded-full bg-error/10 ring-1 ring-error/25 inline-flex items-center justify-center">
+            <svg class="w-4 h-4 text-error" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+              <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/>
+            </svg>
+          </div>
+          <div class="flex-1 min-w-0">
+            <h3 class="font-bold text-base leading-tight" id="confirm_title">Confirmar</h3>
+            <p class="mt-1 text-sm text-base-content/70 whitespace-pre-line leading-relaxed" id="confirm_body">Tens a certeza?</p>
+          </div>
+        </div>
+        {{# Atribuição: acende em ações destrutivas (danger / typed-match).
+           Renderizada server-side; JS alterna visibilidade. Ver ADR 0025. #}}
+        {{ if currentUser && currentUser.email }}
+          <div id="confirm_attribution" class="hidden mb-3 flex items-center gap-2 px-3 py-2 rounded-md bg-base-200/60 text-[11px]">
+            <svg class="w-3.5 h-3.5 text-base-content/40 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>
+            </svg>
+            <span class="text-base-content/55">Executado por</span>
+            <span class="font-semibold font-mono text-base-content/85 truncate">{{ currentUser.email }}</span>
+          </div>
+        {{ /if }}
+        {{# Input do user: typed-match (input single-line, ADR 0025) ou razão
+           livre (textarea + chips). JS escolhe um via opts.typedMatch. #}}
+        <div id="confirm_prompt_wrap" class="hidden mb-4">
+          <label class="block text-[11px] uppercase tracking-[0.14em] font-semibold text-base-content/55 mb-1.5" id="confirm_prompt_label">Razão</label>
+          <div id="confirm_prompt_chips" class="flex flex-wrap gap-1.5 mb-2 hidden"></div>
+          <textarea id="confirm_prompt" class="hidden textarea textarea-bordered textarea-sm w-full" rows="3" placeholder=""></textarea>
+          <input id="confirm_typed" type="text" class="hidden input input-bordered input-sm w-full font-mono tracking-[0.08em]" autocomplete="off" autocapitalize="characters" spellcheck="false">
+          <p class="text-xs text-error mt-1.5 hidden" id="confirm_prompt_error">Por favor preenche este campo.</p>
+        </div>
+        <div class="flex justify-end gap-2">
+          <button type="button" class="btn btn-sm btn-ghost" id="confirm_cancel">Não</button>
+          <button type="button" class="btn btn-sm btn-primary" id="confirm_ok">Sim</button>
+        </div>
+      </div>
+      {{# Estado "a processar" - ligado quando o form/JS opta por busy mode.
+         O modal mantém-se aberto até a navegação do browser tomar conta. #}}
+      <div id="confirm_busy_state" class="hidden text-center py-2">
+        <span class="loading loading-spinner loading-lg text-primary"></span>
+        <p class="mt-3 text-sm font-medium" id="confirm_busy_message">A processar…</p>
+        <p class="mt-2 text-xs text-base-content/60">
+          Decorridos <span id="confirm_busy_counter" class="tabular-nums font-semibold">0:00</span>
+        </p>
+        <p class="mt-1 text-xs text-base-content/50" id="confirm_busy_tip">Não fechar a janela.</p>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+
+  <script>
+    (function () {
+      var modal = document.getElementById("modal_confirm");
+      var normalState = document.getElementById("confirm_normal_state");
+      var busyState = document.getElementById("confirm_busy_state");
+      var busyMsgEl = document.getElementById("confirm_busy_message");
+      var busyTipEl = document.getElementById("confirm_busy_tip");
+      var busyCounterEl = document.getElementById("confirm_busy_counter");
+      var titleEl = document.getElementById("confirm_title");
+      var bodyEl = document.getElementById("confirm_body");
+      var okBtn = document.getElementById("confirm_ok");
+      var cancelBtn = document.getElementById("confirm_cancel");
+      var promptWrap = document.getElementById("confirm_prompt_wrap");
+      var promptEl = document.getElementById("confirm_prompt");
+      var typedEl = document.getElementById("confirm_typed");
+      var promptLabel = document.getElementById("confirm_prompt_label");
+      var promptError = document.getElementById("confirm_prompt_error");
+      var promptChips = document.getElementById("confirm_prompt_chips");
+      // Elemento de atribuição é renderizado server-side; pode não existir
+      // se `currentUser` for null. Toggle visibility baseado em danger flag.
+      var attributionEl = document.getElementById("confirm_attribution");
+      // Ícone circular vermelho no header (só em danger / typed-match).
+      var headerIconEl = document.getElementById("confirm_header_icon");
+
+      // Helper: devolve o elemento ativo (textarea ou input) - o que NÃO
+      // estiver com `hidden`. Usado em todos os reads/writes de "valor do user".
+      function activeInputEl() {
+        return typedEl.classList.contains("hidden") ? promptEl : typedEl;
+      }
+      var resolver = null;
+      var currentPrompt = null; // { name, label, placeholder } se modal foi aberto com prompt
+      var busyOpts = null;      // { message, tip } se este open é busy mode
+      var busyTimer = null;
+      var busyCancelHandler = null;
+
+      function pad2(n) { return n < 10 ? "0" + n : "" + n; }
+      function fmtElapsed(seconds) {
+        var h = Math.floor(seconds / 3600);
+        var m = Math.floor((seconds % 3600) / 60);
+        var s = seconds % 60;
+        return h > 0 ? (h + ":" + pad2(m) + ":" + pad2(s)) : (m + ":" + pad2(s));
+      }
+
+      function enterBusyMode() {
+        normalState.classList.add("hidden");
+        busyState.classList.remove("hidden");
+        busyMsgEl.textContent = (busyOpts && busyOpts.message) || "A processar…";
+        busyTipEl.textContent = (busyOpts && busyOpts.tip) || "Não fechar a janela.";
+        var startedAt = Date.now();
+        busyCounterEl.textContent = "0:00";
+        busyTimer = setInterval(function () {
+          var elapsed = Math.floor((Date.now() - startedAt) / 1000);
+          busyCounterEl.textContent = fmtElapsed(elapsed);
+        }, 1000);
+        // Bloqueia close por Esc / backdrop click enquanto está busy.
+        busyCancelHandler = function (ev) { ev.preventDefault(); };
+        modal.addEventListener("cancel", busyCancelHandler);
+      }
+
+      function exitBusyMode() {
+        if (busyTimer) { clearInterval(busyTimer); busyTimer = null; }
+        if (busyCancelHandler) {
+          modal.removeEventListener("cancel", busyCancelHandler);
+          busyCancelHandler = null;
+        }
+        busyState.classList.add("hidden");
+        normalState.classList.remove("hidden");
+        busyOpts = null;
+      }
+
+      function finish(result) {
+        // Em busy mode, NÃO fecha o modal nem dispara o resolver com null.
+        // O resolver foi resolvido a `true` ao entrar em busy. Aqui só ignoramos
+        // o close porque a navegação do browser vai tomar conta do modal.
+        if (busyOpts) return;
+        if (resolver) { var r = resolver; resolver = null; r(result); }
+        currentPrompt = null;
+        if (modal.open) modal.close();
+      }
+
+      okBtn.addEventListener("click", function () {
+        if (currentPrompt) {
+          var inputEl = activeInputEl();
+          var errorClass = inputEl === typedEl ? "input-error" : "textarea-error";
+          var v = (inputEl.value || "").trim();
+          // Modo "typed match": user tem de digitar EXACTAMENTE o valor de
+          // `typedMatch` (case-sensitive). Usado para confirmações destrutivas
+          // (e.g. "Digita ELIMINAR para confirmar"). Vence o check "não vazio".
+          if (currentPrompt.typedMatch) {
+            if (v !== currentPrompt.typedMatch) {
+              inputEl.classList.add(errorClass);
+              promptError.textContent = 'Tens de escrever exatamente "' + currentPrompt.typedMatch + '".';
+              promptError.classList.remove("hidden");
+              inputEl.focus();
+              return;
+            }
+          } else if (!v) {
+            inputEl.classList.add(errorClass);
+            promptError.textContent = "Por favor preenche este campo.";
+            promptError.classList.remove("hidden");
+            inputEl.focus();
+            return; // não fecha - força user a preencher
+          }
+          var pr = { ok: true, value: v };
+          // Resolve PRIMEIRO (caller pode submeter o form), depois entra em busy.
+          if (resolver) { var r = resolver; resolver = null; r(pr); }
+          currentPrompt = null;
+          if (busyOpts) { enterBusyMode(); return; }
+          if (modal.open) modal.close();
+        } else {
+          if (busyOpts) {
+            // Busy mode: resolve true, mantém modal aberto, entra em busy.
+            if (resolver) { var rB = resolver; resolver = null; rB(true); }
+            enterBusyMode();
+            return;
+          }
+          finish(true);
+        }
+      });
+      cancelBtn.addEventListener("click", function () {
+        if (busyOpts) return; // safety: cancel desligado em busy
+        finish(currentPrompt ? { ok: false } : false);
+      });
+      modal.addEventListener("cancel", function () {
+        if (busyOpts) return;
+        finish(currentPrompt ? { ok: false } : false);
+      });
+
+      window.confirmAction = function (opts) {
+        var o = (typeof opts === "string") ? { body: opts } : (opts || {});
+        // Reset estado (caso o modal tenha sido reaberto após um busy anterior)
+        exitBusyMode();
+        // Ativa busy mode se pedido. A transição em si só acontece ao clicar OK.
+        busyOpts = o.busy ? {
+          message: o.busy.message || "A processar…",
+          tip: o.busy.tip || "Não fechar a janela.",
+        } : null;
+        titleEl.textContent = o.title || "Confirmar";
+        bodyEl.textContent = o.body || "Tens a certeza?";
+        // Defaults afinados para danger: copy mais clara que "Sim/Não".
+        // Caller pode sempre sobrepor com okText / cancelText.
+        var isDanger = !!o.danger || !!o.typedMatch;
+        okBtn.textContent = o.okText || (isDanger ? "Eliminar" : "Sim");
+        cancelBtn.textContent = o.cancelText || (isDanger ? "Cancelar" : "Não");
+        okBtn.classList.toggle("btn-error", isDanger);
+        okBtn.classList.toggle("btn-primary", !isDanger);
+        // Ícone circular vermelho no header e atribuição: ambos visíveis
+        // apenas em ações destrutivas (ADR 0025). `typedMatch` já implica
+        // danger; `danger=true` sozinho também ativa.
+        if (headerIconEl) headerIconEl.classList.toggle("hidden", !isDanger);
+        if (attributionEl) attributionEl.classList.toggle("hidden", !isDanger);
+        // Reset prompt state (ambos os elementos).
+        promptEl.value = "";
+        typedEl.value = "";
+        promptEl.classList.remove("textarea-error");
+        typedEl.classList.remove("input-error");
+        promptError.classList.add("hidden");
+        if (o.promptName || o.typedMatch) {
+          currentPrompt = {
+            name: o.promptName,
+            label: o.promptLabel,
+            placeholder: o.promptPlaceholder,
+            typedMatch: o.typedMatch || null,
+          };
+          promptLabel.textContent = o.promptLabel || (o.typedMatch ? ("Para confirmar, escreve " + o.typedMatch) : "Razão");
+          promptWrap.classList.remove("hidden");
+
+          // Escolhe o input certo: typed-match → input single-line.
+          // Razão livre → textarea + chips opcionais.
+          if (o.typedMatch) {
+            typedEl.placeholder = o.promptPlaceholder || o.typedMatch;
+            typedEl.classList.remove("hidden");
+            promptEl.classList.add("hidden");
+            promptChips.classList.add("hidden");
+          } else {
+            promptEl.placeholder = o.promptPlaceholder || "";
+            promptEl.classList.remove("hidden");
+            typedEl.classList.add("hidden");
+            // Render chips de pré-preenchimento (opcional). Cada chip enche
+            // a textarea ao ser clicado - o user continua a poder editar.
+            promptChips.innerHTML = "";
+            var opts = (o.promptOptions || "").split("|").map(function (s) { return s.trim(); }).filter(Boolean);
+            if (opts.length > 0) {
+              opts.forEach(function (opt) {
+                var btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = "btn btn-xs btn-outline";
+                btn.textContent = opt;
+                btn.addEventListener("click", function () {
+                  promptEl.value = opt;
+                  promptEl.classList.remove("textarea-error");
+                  promptError.classList.add("hidden");
+                  promptEl.focus();
+                });
+                promptChips.appendChild(btn);
+              });
+              promptChips.classList.remove("hidden");
+            } else {
+              promptChips.classList.add("hidden");
+            }
+          }
+        } else {
+          currentPrompt = null;
+          promptWrap.classList.add("hidden");
+          promptEl.classList.add("hidden");
+          typedEl.classList.add("hidden");
+        }
+        return new Promise(function (resolve) {
+          resolver = resolve;
+          modal.showModal();
+          if (o.promptName || o.typedMatch) {
+            setTimeout(function () { activeInputEl().focus(); }, 50);
+          }
+        });
+      };
+
+      // Intercepta submits declarativos (forms com data-confirm-title / data-confirm-body).
+      // Em fase de capture, para correr antes de qualquer outro listener.
+      document.addEventListener("submit", function (e) {
+        var form = e.target;
+        if (!(form instanceof HTMLFormElement)) return;
+        var title = form.getAttribute("data-confirm-title");
+        var body = form.getAttribute("data-confirm-body");
+        if (!title && !body) return;
+        if (form.dataset.__confirmed === "true") {
+          delete form.dataset.__confirmed;
+          return; // submit legítimo após confirmação - deixa passar
+        }
+        e.preventDefault();
+        var promptName = form.getAttribute("data-confirm-prompt");
+        var busyFlag = form.getAttribute("data-confirm-busy") === "true";
+        var busyOpts2 = busyFlag ? {
+          message: form.getAttribute("data-confirm-busy-message") || undefined,
+          tip: form.getAttribute("data-confirm-busy-tip") || undefined,
+        } : null;
+        window.confirmAction({
+          title: title || undefined,
+          body: body || undefined,
+          danger: form.getAttribute("data-confirm-danger") === "true",
+          okText: form.getAttribute("data-confirm-ok") || undefined,
+          cancelText: form.getAttribute("data-confirm-cancel") || undefined,
+          promptName: promptName || undefined,
+          promptLabel: form.getAttribute("data-confirm-prompt-label") || undefined,
+          promptPlaceholder: form.getAttribute("data-confirm-prompt-placeholder") || undefined,
+          promptOptions: form.getAttribute("data-confirm-prompt-options") || undefined,
+          typedMatch: form.getAttribute("data-confirm-typed-match") || undefined,
+          busy: busyOpts2,
+        }).then(function (result) {
+          // Sem prompt: result é boolean. Com prompt: {ok, value} ou {ok:false}.
+          var ok = (result && typeof result === "object") ? result.ok : !!result;
+          if (!ok) return;
+          if (promptName && result && result.value) {
+            // Injecta hidden input com o valor preenchido pelo user.
+            var existing = form.querySelector('input[name="' + promptName + '"][data-confirm-injected]');
+            if (existing) existing.remove();
+            var hidden = document.createElement("input");
+            hidden.type = "hidden";
+            hidden.name = promptName;
+            hidden.value = result.value;
+            hidden.setAttribute("data-confirm-injected", "true");
+            form.appendChild(hidden);
+          }
+          form.dataset.__confirmed = "true";
+          if (typeof form.requestSubmit === "function") form.requestSubmit();
+          else form.submit();
+        });
+      }, true);
+
+      // HTMX hook: interceta antes de qualquer request HTMX para usar o
+      // modal declarativo em vez de `window.confirm()`. Funciona em DUAS vias:
+      //   1. `hx-confirm="..."` no elemento - htmx popula `evt.detail.question`.
+      //   2. `data-confirm-title`/`data-confirm-body` no form (sem `hx-confirm`)
+      //      - htmx dispara `htmx:confirm` em TODAS as requests mas com
+      //        `question` vazio. Aqui detetamos via attr.
+      //
+      // Forms com `hx-post` saltam o evento `submit` nativo (HTMX interceta
+      // o click diretamente), pelo que este é o único hook que tem chance
+      // de correr antes do request.
+      document.body.addEventListener("htmx:confirm", function (evt) {
+        var question = evt.detail.question;
+        var el = evt.detail.elt || {};
+
+        // Procura atributos `data-confirm-*` no próprio elemento E no form
+        // que o contém (se for submit button num form). Forms é onde
+        // declaramos title/body/prompt; HTMX dispara isto no botão.
+        function attr(name) {
+          if (el.getAttribute && el.getAttribute(name)) return el.getAttribute(name);
+          var f = el.closest && el.closest("form");
+          if (f && f.getAttribute(name)) return f.getAttribute(name);
+          return null;
+        }
+        // Trigger modal se: hx-confirm presente OU data-confirm-title/body
+        // presente no form. Sem nenhum dos dois, deixa a request passar.
+        var declarativeTitle = attr("data-confirm-title");
+        var declarativeBody = attr("data-confirm-body");
+        if (!question && !declarativeTitle && !declarativeBody) return;
+
+        var promptName = attr("data-confirm-prompt");
+        var typedMatch = attr("data-confirm-typed-match");
+        var bodyText = declarativeBody || question;
+
+        evt.preventDefault();
+        window.confirmAction({
+          title: attr("data-confirm-title") || "Confirmar",
+          body: bodyText,
+          danger: attr("data-confirm-danger") === "true",
+          okText: attr("data-confirm-ok") || undefined,
+          cancelText: attr("data-confirm-cancel") || undefined,
+          promptName: promptName || undefined,
+          promptLabel: attr("data-confirm-prompt-label") || undefined,
+          promptPlaceholder: attr("data-confirm-prompt-placeholder") || undefined,
+          promptOptions: attr("data-confirm-prompt-options") || undefined,
+          typedMatch: typedMatch || undefined,
+        }).then(function (result) {
+          var ok = (result && typeof result === "object") ? result.ok : !!result;
+          if (!ok) return;
+          // Se tem prompt com nome, injecta hidden input no form ANTES de
+          // re-issue do request (HTMX re-recolhe form data ao re-issuar).
+          if (promptName && result && result.value) {
+            var f = el.closest && el.closest("form");
+            if (f) {
+              var existing = f.querySelector(
+                'input[name="' + promptName + '"][data-confirm-injected]',
+              );
+              if (existing) existing.remove();
+              var hidden = document.createElement("input");
+              hidden.type = "hidden";
+              hidden.name = promptName;
+              hidden.value = result.value;
+              hidden.setAttribute("data-confirm-injected", "true");
+              f.appendChild(hidden);
+            }
+          }
+          evt.detail.issueRequest(true);
+        });
+      });
+
+      // ── Dropdowns hover-only (sem click-to-pin) ─────────────────────────
+      // daisyUI `dropdown-hover` abre no hover, mas se o user clicar no
+      // label, o tabindex faz com que `:focus-within` mantenha o menu
+      // aberto até clicar fora - comportamento "pin". Forçamos blur ao
+      // mouseleave para que o dropdown sempre feche ao sair com o rato,
+      // independente de ter sido aberto por hover ou click.
+      document.querySelectorAll(".dropdown-hover").forEach(function (d) {
+        d.addEventListener("mouseleave", function () {
+          if (document.activeElement && d.contains(document.activeElement)) {
+            document.activeElement.blur();
+          }
+        });
+      });
+    })();
+  </script>
+
+  {{# Toast a partir de ?flash=&flashType= na URL. Skip se já há alert
+      server-side (evita duplicação); limpa os params para não reaparecer em refresh. #}}
+  <script>
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var msg = params.get("flash");
+      if (!msg) return;
+      var type = params.get("flashType") === "danger" ? "danger" : "success";
+      // Limpa da URL sem recarregar.
+      params.delete("flash");
+      params.delete("flashType");
+      var cleaned = window.location.pathname + (params.toString() ? "?" + params.toString() : "") + window.location.hash;
+      window.history.replaceState({}, "", cleaned);
+      // Não duplicar se já houver alert inline renderizado na página.
+      if (document.querySelector("[data-server-flash]")) return;
+
+      var palette = type === "danger"
+        ? { bg: "#fef2f2", border: "#fecaca", icon: "#dc2626", text: "#b91c1c", glyph: "⚠" }
+        : { bg: "#f0fdf4", border: "#bbf7d0", icon: "#16a34a", text: "#15803d", glyph: "✓" };
+      var el = document.createElement("div");
+      el.style.cssText =
+        "position:fixed;top:16px;right:16px;z-index:9999;max-width:420px;" +
+        "display:flex;align-items:flex-start;gap:12px;" +
+        "background:" + palette.bg + ";border:1px solid " + palette.border + ";" +
+        "border-radius:10px;padding:12px 16px;" +
+        "box-shadow:0 10px 25px rgba(0,0,0,0.08),0 4px 10px rgba(0,0,0,0.05);" +
+        "font-size:14px;font-weight:500;color:" + palette.text + ";";
+      el.innerHTML =
+        '<span style="color:' + palette.icon + ';font-size:18px;line-height:1;">' + palette.glyph + "</span>" +
+        '<span style="flex:1;">' + msg.replace(/[<>&"']/g, function (c) {
+          return ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&#39;" })[c];
+        }) + "</span>";
+      document.body.appendChild(el);
+      setTimeout(function () {
+        el.style.transition = "opacity .3s";
+        el.style.opacity = "0";
+        setTimeout(function () { el.remove(); }, 300);
+      }, 5000);
+    })();
+  </script>
+
+  <div id="toast-container" class="toast toast-top toast-end z-[100]"></div>
+
+  {{# Auto-dismiss de toasts `data-auto-dismiss="ms"`: barra de progresso,
+      fade-out, pausa no hover, close manual. `data-dismiss-started` torna
+      idempotente (afterSwap+oobAfterSwap disparam ambos). #}}
+  <script>
+  (function () {
+    function scheduleToastDismiss() {
+      document.querySelectorAll('[data-auto-dismiss]:not([data-dismiss-started])').forEach(function (toast) {
+        toast.dataset.dismissStarted = '1';
+        var ms = Number(toast.dataset.autoDismiss) || 4000;
+        var bar = toast.querySelector('[data-toast-progress]');
+        if (bar) {
+          requestAnimationFrame(function () {
+            requestAnimationFrame(function () {
+              bar.style.transition = 'width ' + ms + 'ms linear';
+              bar.style.width = '100%';
+            });
+          });
+        }
+        var timer = setTimeout(function () {
+          toast.style.transition = 'opacity 300ms';
+          toast.style.opacity = '0';
+          setTimeout(function () { toast.remove(); }, 300);
+        }, ms);
+        toast.addEventListener('mouseenter', function () {
+          if (bar) {
+            var w = getComputedStyle(bar).width;
+            bar.style.transition = 'none';
+            bar.style.width = w;
+          }
+          clearTimeout(timer);
+        });
+        toast.addEventListener('mouseleave', function () {
+          if (bar) {
+            var already = bar.getBoundingClientRect().width;
+            var parentW = toast.getBoundingClientRect().width;
+            var remainingMs = Math.max(300, ms * (1 - already / parentW));
+            requestAnimationFrame(function () {
+              bar.style.transition = 'width ' + remainingMs + 'ms linear';
+              bar.style.width = '100%';
+            });
+            timer = setTimeout(function () {
+              toast.style.transition = 'opacity 300ms';
+              toast.style.opacity = '0';
+              setTimeout(function () { toast.remove(); }, 300);
+            }, remainingMs);
+          }
+        });
+        var closeBtn = toast.querySelector('[data-toast-close]');
+        if (closeBtn) {
+          closeBtn.addEventListener('click', function () {
+            clearTimeout(timer);
+            toast.style.transition = 'opacity 150ms';
+            toast.style.opacity = '0';
+            setTimeout(function () { toast.remove(); }, 150);
+          });
+        }
+      });
+    }
+    document.body.addEventListener('htmx:afterSwap',    scheduleToastDismiss);
+    document.body.addEventListener('htmx:oobAfterSwap', scheduleToastDismiss);
+    // Safety net: fires após CADA request, mesmo quando `hx-swap=none` e
+    // resposta é só OOB (caso em que oobAfterSwap pode não disparar de
+    // forma fiável para todos os targets). Idempotente via data-dismiss-started.
+    document.body.addEventListener('htmx:afterRequest', scheduleToastDismiss);
+
+    // Re-setup de comboboxes pesquisáveis em qualquer DOM novo injectado
+    // por htmx (swap normal ou OOB). O `setupCombobox` é idempotente -
+    // o flag `data-combobox-ready` evita duplo binding. Sem isto, modais
+    // re-emitidos via OOB ficavam com inputs/listas mortos (não abriam
+    // o dropdown, não filtravam). `window.setupComboboxes` definida no
+    // bloco mais abaixo - usar try/catch defensivo se o load order falhar.
+    function rebindComboboxes() {
+      if (typeof window.setupComboboxes === 'function') {
+        try { window.setupComboboxes(); } catch (_e) { /* defensive */ }
+      }
+    }
+    document.body.addEventListener('htmx:afterSwap',    rebindComboboxes);
+    document.body.addEventListener('htmx:oobAfterSwap', rebindComboboxes);
+    document.addEventListener('DOMContentLoaded',       scheduleToastDismiss);
+    scheduleToastDismiss();
+  })();
+  </script>
+
+  {{# Theme toggle - flip data-theme + grava cookie 1 ano. Sincroniza
+     ícone/label com o tema atual ao carregar a página. #}}
+  <script>
+  (function () {
+    // Cookie semântica: 'dark' | 'light'. daisyUI: 'dim' (soft dark) | 'light'.
+    function isDarkApplied() {
+      var t = document.documentElement.getAttribute('data-theme');
+      return t === 'dim' || t === 'dark';
+    }
+    function syncLabel() {
+      var label = document.querySelector('[data-theme-label]');
+      var icon  = document.querySelector('[data-theme-icon]');
+      var dark = isDarkApplied();
+      if (label) label.textContent = dark ? 'Modo claro' : 'Modo escuro';
+      if (icon)  icon.textContent  = dark ? '☼' : '☾';
+    }
+    syncLabel();
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-theme-toggle]');
+      if (!btn) return;
+      var nextCookie = isDarkApplied() ? 'light' : 'dark';
+      var nextTheme  = nextCookie === 'dark' ? 'dim' : 'light';
+      // Optimistic: aplica imediatamente + grava cookie (UI responsive).
+      document.documentElement.setAttribute('data-theme', nextTheme);
+      document.cookie = 'theme=' + encodeURIComponent(nextCookie) + '; path=/; max-age=31536000; SameSite=Lax';
+      syncLabel();
+      // Persiste em DB via /set-theme (fire-and-forget; falha → cookie só).
+      fetch('/set-theme', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ theme: nextCookie }),
+        credentials: 'same-origin'
+      }).catch(function () {});
+    });
+  })();
+  </script>
+
+  <script>
+    // Normaliza string para busca: lower-case + remove diacríticos (acentos).
+    // Permite que "Joao" encontre "João", "acao" encontre "ação", etc.
+    // Exposto globalmente para os comboboxes e outros listeners reutilizarem.
+    window.normalizeSearch = function (s) {
+      // U+0300 a U+036F = "Combining Diacritical Marks". Decompor em NFD
+      // separa cada letra acentuada (ex.: "á" → "a" + U+0301), depois
+      // strippamos as marcas. Resultado: "João" e "Joao" comparam iguais.
+      return (s ?? "").toString().normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+    };
+
+    // Client-side table search: filtra as linhas do <tbody> mais próximo
+    // conforme o utilizador escreve no input[data-table-search].
+    // Se houver células com `data-search` dentro da linha, pesquisa só
+    // nesses campos; caso contrário usa o textContent da linha inteira.
+    document.addEventListener("input", (e) => {
+      const input = e.target.closest("input[data-table-search]");
+      if (!input) return;
+      const scope = input.closest("[data-table-search-scope]") ?? document;
+      const table = scope.querySelector("table");
+      if (!table) return;
+      const q = window.normalizeSearch(input.value.trim());
+      for (const tr of table.tBodies[0]?.rows ?? []) {
+        const marked = tr.querySelectorAll("[data-search]");
+        const raw = marked.length
+          ? Array.from(marked).map((el) => el.textContent).join(" ")
+          : tr.textContent;
+        const haystack = window.normalizeSearch(raw);
+        tr.style.display = !q || haystack.includes(q) ? "" : "none";
+      }
+    });
+
+    // Mobile nav - toggle do drawer. Hamburger ↔ X + aria-expanded.
+    (function () {
+      const btn = document.getElementById("mobile-nav-toggle");
+      const drawer = document.getElementById("mobile-nav");
+      const iconOpen = document.getElementById("mobile-nav-icon-open");
+      const iconClose = document.getElementById("mobile-nav-icon-close");
+      if (!btn || !drawer) return;
+      btn.addEventListener("click", () => {
+        const willOpen = drawer.classList.contains("hidden");
+        drawer.classList.toggle("hidden", !willOpen);
+        btn.setAttribute("aria-expanded", String(willOpen));
+        iconOpen?.classList.toggle("hidden", willOpen);
+        iconClose?.classList.toggle("hidden", !willOpen);
+      });
+    })();
+
+    // Combobox: input com busca + lista filtrada + hidden com o id real.
+    // Markup esperado em qualquer form que precise disto:
+    //   <div data-combobox>
+    //     <input data-combobox-search type="text" autocomplete="off">
+    //     <input data-combobox-value type="hidden" name="...">
+    //     <ul data-combobox-list class="hidden">
+    //       <li data-combobox-option data-id="..." data-label="..." data-haystack="...">…</li>
+    //       <li data-combobox-empty class="hidden">Sem resultados.</li>
+    //     </ul>
+    //   </div>
+    // Exposto globalmente para que elementos injectados via HTMX (ex: modal
+    // lazy-loaded de conciliação) possam iniciar comboboxes próprios após
+    // o swap. O `data-combobox-ready` evita duplo setup em re-chamadas.
+    window.setupComboboxes = function (root) {
+      root = root || document;
+      root.querySelectorAll("[data-combobox]").forEach(setupCombobox);
+    };
+
+    function setupCombobox(box) {
+      if (box.dataset.comboboxReady === "true") return;
+      box.dataset.comboboxReady = "true";
+      const search = box.querySelector("[data-combobox-search]");
+      const list = box.querySelector("[data-combobox-list]");
+      const hidden = box.querySelector("[data-combobox-value]");
+      const empty = box.querySelector("[data-combobox-empty]");
+      const options = box.querySelectorAll("[data-combobox-option]");
+      if (!search || !list || !hidden) return;
+
+      const open = () => list.classList.remove("hidden");
+      const close = () => list.classList.add("hidden");
+
+      // `change` no hidden é disparado manualmente (hidden inputs não geram
+      // change nativo ao mudar `value` via JS). Permite que outros listeners
+      // reagam à seleção (e.g. filtrar charges por fração, mostrar ocupantes).
+      const emitChange = () => hidden.dispatchEvent(new Event("change", { bubbles: true }));
+
+      search.addEventListener("focus", open);
+      search.addEventListener("input", () => {
+        const q = window.normalizeSearch(search.value.trim());
+        // Se o user apaga o texto, limpa o id escolhido (obriga re-selecionar).
+        if (!q && hidden.value) {
+          hidden.value = "";
+          emitChange();
+        }
+        let matchCount = 0;
+        options.forEach((opt) => {
+          const hay = window.normalizeSearch(opt.dataset.haystack ?? opt.dataset.label);
+          const show = !q || hay.includes(q);
+          opt.classList.toggle("hidden", !show);
+          if (show) matchCount++;
+        });
+        if (empty) empty.classList.toggle("hidden", matchCount > 0);
+        open();
+      });
+
+      // `mousedown` dispara antes do `blur` do input - permite o click chegar.
+      list.addEventListener("mousedown", (e) => {
+        const opt = e.target.closest("[data-combobox-option]");
+        if (!opt) return;
+        search.value = opt.dataset.label;
+        hidden.value = opt.dataset.id;
+        close();
+        emitChange();
+      });
+
+      search.addEventListener("blur", () => setTimeout(close, 150));
+
+      // Esc fecha sem alterar o valor.
+      search.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") { close(); search.blur(); }
+      });
+
+      // Required: o browser não valida <input type="hidden">, por isso
+      // espelhamos a validade no search (visível). Bloqueia o submit (nativo
+      // ou HTMX) enquanto não houver uma opção escolhida da lista.
+      if (hidden.hasAttribute("required")) {
+        const syncValidity = () =>
+          search.setCustomValidity(hidden.value ? "" : "Escolhe uma opção da lista.");
+        hidden.addEventListener("change", syncValidity);
+        search.addEventListener("input", syncValidity);
+        syncValidity();
+      }
+    }
+
+    // Setup inicial: apanha os comboboxes que já estão no DOM no load.
+    window.setupComboboxes();
+
+    // Dropdown hover + click: daisyUI mantém o dropdown aberto enquanto o
+    // label tabindex=0 tem focus. Se o utilizador clica num item ou clica
+    // fora, fazemos blur em todos os labels para garantir que fecham.
+    //
+    // IMPORTANTE: o blur tem de ser feito no próximo tick. Se for síncrono,
+    // o CSS :focus-within aplica display:none ao <ul.dropdown-content> no
+    // mesmo event cycle - e um <button type="submit"> dentro da dropdown
+    // deixa de ter o default action executado pelo browser (Chrome cancela
+    // o submit quando o button fica display:none antes do default action).
+    // Manifestação: clicar em "Sair" não fazia nada.
+    document.addEventListener("click", (e) => {
+      const link = e.target.closest(".dropdown-content a, .dropdown-content button");
+      const inDropdownLabel = e.target.closest(".dropdown > [tabindex]");
+      if (link || !inDropdownLabel) {
+        setTimeout(() => {
+          document.querySelectorAll('.dropdown > [tabindex="0"]').forEach((el) => el.blur());
+        }, 0);
+      }
+    });
+  </script>
+
+  {{# ═════════ File Dropzone: drag-drop + preview + count ═════════ #}}
+  {{# JS canónico para `[data-file-dropzone]` (partials/file_dropzone.vto).
+     Centralizado num partial para eliminar duplicação entre admin+portal. #}}
+  {{ include "partials/_dropzone_script.vto" }}
+
+  {{# Command palette (Cmd/Ctrl-K) - navegação por nome a partir de adminNav. #}}
+  {{ include "partials/command_palette.vto" }}
+</body>
+</html>

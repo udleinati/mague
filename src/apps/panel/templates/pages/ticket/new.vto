@@ -1,0 +1,90 @@
+{{ layout "layouts/admin.vto" { title, section, condominium, availableCondominiums, currentCondominiumId, currentUser } }}
+
+{{ set _ticketsHref = '/tickets' |> condoPath }}
+{{ include "partials/page_header.vto" {
+  title: "Nova ocorrência",
+  scale: "detail",
+  breadcrumbs: [
+    { label: "Ocorrências", href: _ticketsHref },
+    { label: "Nova ocorrência" },
+  ]
+} }}
+
+<div class="bg-base-100 rounded-xl border border-base-200 shadow-sm p-6 max-w-3xl">
+  <form method="post" action="{{ '/tickets' |> condoPath }}" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div class="form-control md:col-span-2">
+      <label class="label py-1" for="title"><span class="label-text text-xs">Título *</span></label>
+      <input type="text" id="title" name="title" required maxlength="200"
+             class="input input-sm input-bordered" placeholder="Ex: Elevador parado no piso 2">
+    </div>
+
+    <div class="form-control">
+      <label class="label py-1" for="category"><span class="label-text text-xs">Categoria *</span></label>
+      <select id="category" name="category" required class="select select-sm select-bordered">
+        <option value="">- escolher -</option>
+        {{ for key, label of categoryLabels }}
+          <option value="{{ key }}">{{ label }}</option>
+        {{ /for }}
+      </select>
+    </div>
+
+    <div class="form-control">
+      <label class="label py-1" for="priority"><span class="label-text text-xs">Prioridade</span></label>
+      <select id="priority" name="priority" class="select select-sm select-bordered">
+        {{ for key, label of priorityLabels }}
+          <option value="{{ key }}" {{ if key === 'normal' }}selected{{ /if }}>{{ label }}</option>
+        {{ /for }}
+      </select>
+    </div>
+
+    <div class="form-control">
+      <label class="label py-1" for="unitId"><span class="label-text text-xs">Fração</span></label>
+      <select id="unitId" name="unitId" class="select select-sm select-bordered">
+        <option value="">- Zona comum -</option>
+        {{ for u of units }}
+          <option value="{{ u.id }}">{{ u.designation }}{{ if u.identifier }} ({{ u.identifier }}){{ /if }}</option>
+        {{ /for }}
+      </select>
+      <span class="label-text-alt text-base-content/50 mt-1 text-xs">Deixa vazio se for zona comum.</span>
+    </div>
+
+    <div class="form-control">
+      <label class="label py-1" for="location"><span class="label-text text-xs">Localização</span></label>
+      <input type="text" id="location" name="location" maxlength="200"
+             class="input input-sm input-bordered"
+             placeholder="Ex: Hall do 2º piso, Cave -1">
+    </div>
+
+    <div class="form-control md:col-span-2">
+      <label class="label py-1" for="description"><span class="label-text text-xs">Descrição</span></label>
+      <textarea id="description" name="description" rows="4" maxlength="5000"
+                class="textarea textarea-sm textarea-bordered"
+                placeholder="Detalhes da ocorrência: o que aconteceu, quando, quem reportou, etc."></textarea>
+    </div>
+
+    {{# Visibilidade. `admin_unit` exige `unitId` - o JS
+       abaixo desabilita-a quando o select de fração está vazio. #}}
+    <div class="form-control md:col-span-2 bg-base-200/40 rounded-lg px-3 py-2">
+      <label class="label py-1" for="visibility">
+        <span class="label-text font-medium">Visibilidade</span>
+      </label>
+      <select id="visibility" name="visibility" class="select select-sm select-bordered" data-visibility-select>
+        <option value="admin_only" selected>Só administração</option>
+        <option value="admin_unit" data-requires-unit>Administração + fração</option>
+        <option value="public">Visível a todos os condóminos</option>
+      </select>
+      <span class="text-xs text-base-content/60 mt-1">
+        <strong>Só administração:</strong> default, ocorrência interna.
+        <strong>Administração + fração:</strong> os ocupantes da fração vêem no portal.
+        <strong>Visível a todos:</strong> todos os condóminos vêem (e.g. zona comum).
+      </span>
+    </div>
+
+    <div class="md:col-span-2 flex justify-end gap-2 pt-3 border-t border-base-200">
+      <a href="{{ '/tickets' |> condoPath }}" class="btn btn-sm btn-ghost">Cancelar</a>
+      <button type="submit" class="btn btn-sm btn-primary">Criar ocorrência</button>
+    </div>
+  </form>
+</div>
+
+{{ /layout }}

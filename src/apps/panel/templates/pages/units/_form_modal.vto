@@ -1,0 +1,85 @@
+{{# Modal `+ Nova fração` para o list.vto. Espera: currentCondominiumId, totalPm, remaining.
+   Edit vive em `edit.vto` (página de gestão: keywords + ocupantes + audit), exceção ao ADR 0019. #}}
+
+<dialog id="modal_unit" class="modal">
+  <div class="modal-box max-w-2xl">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-lg mb-1">Nova fração</h3>
+    <p class="text-xs text-base-content/60 mb-3">Cria uma fração nova com permilagem e localização. A associação a ocupantes é feita depois, na página da fração.</p>
+
+    <div class="rounded-lg bg-base-200/40 border border-base-200 px-3 py-2 mb-4 flex items-center gap-3 text-xs">
+      <span class="text-base-content/70">Total atual:</span>
+      <span class="font-bold tabular-nums">{{ totalPm |> formatPermillage }}‰</span>
+      {{ if remaining > 0 }}
+        <span class="text-base-content/30">·</span>
+        <span class="text-base-content/70">faltam</span>
+        <span class="font-bold tabular-nums text-warning">{{ remaining |> formatPermillage }}‰</span>
+        <span class="text-base-content/60">para 1000‰</span>
+      {{ else }}
+        <span class="text-base-content/30">·</span>
+        <span class="font-medium text-success">condomínio completo (1000‰)</span>
+      {{ /if }}
+    </div>
+
+    <form method="post" action="/admin/c/{{ currentCondominiumId }}/units/new" class="space-y-4">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Designação *</span></label>
+          <input type="text" name="designation" required maxlength="50"
+                 placeholder="ex: 1A, Loja 2"
+                 class="input input-sm input-bordered">
+        </div>
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Tipo *</span></label>
+          <select name="unitType" required class="select select-sm select-bordered">
+            <option value="residential" selected>Residencial</option>
+            <option value="commercial">Comercial</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text text-xs">Permilagem *</span></label>
+        <div class="join">
+          <input type="text" name="permillage" inputmode="decimal" required
+                 placeholder="ex: 45,321"
+                 class="input input-sm input-bordered join-item w-full">
+          <span class="btn btn-sm btn-disabled join-item pointer-events-none">‰</span>
+        </div>
+        <span class="text-[11px] text-base-content/50 mt-1">Até 3 decimais. Separador: vírgula ou ponto.</span>
+      </div>
+
+      <div class="grid grid-cols-3 gap-3">
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Bloco</span></label>
+          <input type="text" name="block" maxlength="50" class="input input-sm input-bordered">
+        </div>
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Piso</span></label>
+          <input type="text" name="floor" maxlength="20"
+                 placeholder="ex: 1, -1, R/C"
+                 class="input input-sm input-bordered">
+        </div>
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Porta</span></label>
+          <input type="text" name="door" maxlength="20"
+                 placeholder="ex: A, Esq, Dto"
+                 class="input input-sm input-bordered">
+        </div>
+      </div>
+
+      <div class="form-control">
+        <label class="label py-1"><span class="label-text text-xs">Notas</span></label>
+        <textarea name="description" rows="2" maxlength="500"
+                  placeholder="Observações opcionais"
+                  class="textarea textarea-sm textarea-bordered"></textarea>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-3 border-t border-base-200">
+        <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('modal_unit').close()">Cancelar</button>
+        <button type="submit" class="btn btn-sm btn-primary">Criar fração</button>
+      </div>
+    </form>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>

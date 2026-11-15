@@ -1,0 +1,11 @@
+{{# OOB swap: substitui a cell de ação da linha de pendentes por uma label
+   "✓ Emitido · NNNN" com link para o detalhe do recibo. O id tem de bater
+   com o `<td>` original em pending.vto. #}}
+<td id="pending-action-{{ bankTransactionId }}-{{ unitId }}"
+    hx-swap-oob="outerHTML"
+    class="pr-4 text-right whitespace-nowrap">
+  <a href="/admin/c/{{ currentCondominiumId }}/receipts/{{ receiptId }}"
+     class="inline-flex items-center gap-1 text-success text-xs font-medium hover:underline">
+    ✓ Emitido <span class="text-base-content/50 font-normal">· {{ receiptNumber }}</span>
+  </a>
+</td>

@@ -1,0 +1,473 @@
+{{# PDF da ata da assembleia (minutes_pdf.ts → Chromium headless → A4). CSS inline,
+   sem dependências externas; tipografia igual aos recibos.
+
+   Dados esperados:
+     • condominium     - { name, fiscalNumber?, address? }
+     • assembly        - { title, scheduledAt, secondConvocationAt?, location,
+                          convocationRound, minutesNumber?, minutesSignedAt?,
+                          introduction?, conclusion? }
+     • decisions       - array [{ sequence, subject?, question, decision,
+                          votesInFavor, votesAgainst, votesAbstain, votes,
+                          voteNote?, annexNumber?, dissentAgainst?,
+                          dissentAbstain? }]
+                          (voteNote: nota livre da votação, junto ao resultado;
+                          annexNumber: ponto ligado a orçamento; dissent*:
+                          frações [{ designation, identifier }] da minoria)
+     • attendees       - array [{ occupantName, unitDesignation,
+                          unitIdentifier?, permillageAtMeeting,
+                          proxyHolderName? }]  (proxyHolderName: portador da
+                          procuração, mostrado por baixo do titular)
+     • presidentName?  - string OU null
+     • secretaryName?  - string OU null
+     • annexes?        - array [{ label, budget, quotaMap, grandTotal,
+                          installmentValue }]  (corpo do orçamento por anexo)
+     • generatedAt     - string ISO (timestamp da geração - rodapé)
+#}}
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<title>Ata {{ assembly.minutesNumber ?? assembly.title }} - {{ condominium.name }}</title>
+{{# Mesma fonte dos recibos (coerência); fonte do sistema, fallback sans-serif
+    cobre Chromium sem Helvetica Neue/Arial. #}}
+<style>
+  @page {
+    size: A4;
+    margin: 25mm 20mm 22mm 25mm;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 11.5pt;
+    line-height: 1.55;
+    color: #1a1a1a;
+    margin: 0;
+    padding: 0;
+    font-feature-settings: "kern" 1, "liga" 1;
+  }
+  .doc-meta {
+    text-align: center;
+    color: #555;
+    font-size: 9pt;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 24pt;
+  }
+  h1 {
+    font-size: 18pt;
+    font-weight: bold;
+    text-align: center;
+    margin: 0 0 6pt 0;
+    letter-spacing: 0.02em;
+  }
+  h1 .num { color: #444; font-weight: normal; }
+  h2 {
+    font-size: 12pt;
+    font-weight: bold;
+    margin: 22pt 0 8pt 0;
+    border-bottom: 0.5pt solid #888;
+    padding-bottom: 3pt;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .header-block {
+    margin-bottom: 18pt;
+    padding-bottom: 12pt;
+    border-bottom: 0.5pt solid #ccc;
+  }
+  .header-block .condo {
+    font-size: 13pt;
+    font-weight: bold;
+    margin-bottom: 2pt;
+  }
+  .header-block .condo-meta {
+    font-size: 9pt;
+    color: #666;
+  }
+  .session-info {
+    display: table;
+    width: 100%;
+    margin: 14pt 0;
+    border-collapse: collapse;
+  }
+  .session-info .row { display: table-row; }
+  .session-info .label {
+    display: table-cell;
+    width: 130pt;
+    color: #555;
+    font-size: 9.5pt;
+    padding: 4pt 8pt 4pt 0;
+    vertical-align: top;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .session-info .value {
+    display: table-cell;
+    padding: 4pt 0;
+    vertical-align: top;
+    font-weight: 500;
+  }
+  .narrative {
+    white-space: pre-wrap;
+    text-align: justify;
+    margin: 10pt 0;
+  }
+  .narrative.empty {
+    color: #999;
+    font-style: italic;
+  }
+  table.attendees {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 6pt;
+    font-size: 10pt;
+    page-break-inside: auto;
+  }
+  table.attendees thead { display: table-header-group; }
+  table.attendees th, table.attendees td {
+    border: 0.5pt solid #ccc;
+    padding: 4pt 6pt;
+    text-align: left;
+    vertical-align: top;
+  }
+  table.attendees th {
+    background: #f0f0f0;
+    font-size: 9pt;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  table.attendees td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  /* Fração: designação (slot fixo de 1em por carácter -> identificações alinhadas)
+     + identificação (Bloco/Piso/Porta), que é como se reconhece a fração. */
+  table.attendees .frac-desig {
+    display: inline-block;
+    font-weight: bold;
+    margin-right: 6pt;
+    white-space: nowrap;
+  }
+  table.attendees .frac-id { color: #555; white-space: nowrap; }
+  /* Procuração: nome do portador por baixo do titular, em letra menor. */
+  table.attendees .proxy-note { font-size: 8.5pt; color: #555; margin-top: 1pt; }
+  table.attendees tr.totals td {
+    background: #f5f5f5;
+    font-weight: bold;
+    border-top: 1pt solid #888;
+  }
+  .decision {
+    margin: 12pt 0;
+    padding: 10pt 12pt;
+    border-left: 2pt solid #888;
+    background: #fafafa;
+    /* Sem `page-break-inside: avoid`: deliberações com texto longo fluem entre
+       páginas (enchem o espaço) em vez de saltarem inteiras e deixarem buracos.
+       Cabeçalho colado ao corpo e bloco de votos juntos (regras abaixo). */
+  }
+  .decision .num {
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #555;
+    font-size: 10pt;
+    page-break-after: avoid;
+  }
+  .decision .subject {
+    font-weight: bold;
+    margin-top: 2pt;
+    font-size: 11pt;
+    page-break-after: avoid;
+  }
+  .decision .question {
+    margin-top: 4pt;
+    font-style: italic;
+    color: #444;
+  }
+  .decision .body {
+    margin-top: 6pt;
+    white-space: pre-wrap;
+    text-align: justify;
+  }
+  .decision .votes {
+    margin-top: 8pt;
+    font-size: 9pt;
+    color: #444;
+    border-top: 0.5pt dashed #aaa;
+    padding-top: 5pt;
+    /* Resultado + contagem nunca órfãos no fundo de uma página. */
+    page-break-inside: avoid;
+  }
+  .decision .votes .pill {
+    display: inline-block;
+    padding: 1pt 7pt;
+    border-radius: 8pt;
+    margin-right: 4pt;
+    font-variant-numeric: tabular-nums;
+  }
+  /* Valor em permilagem (parênteses): secundário à percentagem em destaque. */
+  .decision .votes .pill .pm { opacity: 0.7; font-size: 8pt; }
+  /* Nota livre da votação, por baixo dos pills do resultado. */
+  .decision .votes .vote-note { margin-top: 5pt; font-size: 9pt; color: #444; font-style: italic; white-space: pre-wrap; }
+  .pill.favor { background: #dcefdc; color: #1a5e1a; }
+  .pill.against { background: #f5d6d6; color: #7a1a1a; }
+  .pill.abstain { background: #ececec; color: #555; }
+  .pill.info { background: #e0eaf5; color: #1e3a8a; font-style: italic; }
+  /* Minoria nomeada (frações contra/abstenção) de uma deliberação aprovada. */
+  .decision .dissent {
+    margin-top: 6pt;
+    font-size: 9pt;
+    color: #444;
+    page-break-inside: avoid;
+  }
+  .decision .dissent .line { margin-top: 2pt; }
+  .decision .dissent .label { font-weight: bold; }
+  .signatures {
+    margin-top: 28pt;
+    page-break-inside: avoid;
+  }
+  .signatures .row {
+    display: table;
+    width: 100%;
+    margin-top: 12pt;
+  }
+  .signatures .col {
+    display: table-cell;
+    width: 50%;
+    padding: 0 12pt;
+    text-align: center;
+    font-size: 10pt;
+  }
+  .signatures .line {
+    /* Espaço vazio acima (zona de assinatura) + border-bottom = linha onde se assina. */
+    border-bottom: 0.5pt solid #1a1a1a;
+    margin-top: 72pt;
+    margin-bottom: 4pt;
+    height: 0;
+  }
+  .signatures .role {
+    font-size: 8.5pt;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .signatures .name { font-weight: bold; margin-top: 2pt; }
+  .signatures .date {
+    text-align: center;
+    margin-top: 18pt;
+    font-size: 10pt;
+    color: #333;
+  }
+  .footer-note {
+    margin-top: 28pt;
+    padding-top: 8pt;
+    border-top: 0.5pt solid #ccc;
+    font-size: 8pt;
+    color: #888;
+    text-align: center;
+  }
+  /* Cada anexo (folha de presenças, corpo do orçamento) começa em página nova. */
+  .annex { page-break-before: always; }
+  /* Título do anexo da folha de presenças - mesmo registo do h1 do orçamento. */
+  .annex-title { font-size: 17pt; font-weight: bold; text-align: center; margin: 0 0 10pt 0; }
+</style>
+{{# Estilos do corpo do orçamento (anexos), escopados em .orc-doc, partilhados
+   com o PDF do orçamento. #}}
+{{ include "partials/budget_body_styles.vto" }}
+</head>
+<body>
+
+<div class="doc-meta">
+  Ata da Assembleia {{ if assembly.type === "ordinary" }}Ordinária{{ else }}Extraordinária{{ /if }} de Condóminos
+</div>
+
+<div class="header-block">
+  <div class="condo">{{ condominium.name }}</div>
+  {{ if condominium.fiscalNumber }}
+    <div class="condo-meta">NIF {{ condominium.fiscalNumber }}{{ if condominium.address }} · {{ condominium.address }}{{ /if }}</div>
+  {{ else if condominium.address }}
+    <div class="condo-meta">{{ condominium.address }}</div>
+  {{ /if }}
+</div>
+
+<h1>
+  {{ if assembly.minutesNumber }}Ata <span class="num">N.º</span> {{ assembly.minutesNumber }}{{ else }}{{ assembly.title }}{{ /if }}
+</h1>
+
+<div class="session-info">
+  {{ if assembly.minutesNumber && assembly.title }}
+    <div class="row"><div class="label">Assunto</div><div class="value">{{ assembly.title }}</div></div>
+  {{ /if }}
+  <div class="row">
+    <div class="label">Realizada em</div>
+    <div class="value">
+      {{ if assembly.convocationRound === "second" && assembly.secondConvocationAt }}
+        {{ assembly.secondConvocationAt |> formatDateTime }} (2.ª convocatória)
+      {{ else }}
+        {{ assembly.scheduledAt |> formatDateTime }}{{ if assembly.convocationRound === "first" }} (1.ª convocatória){{ /if }}
+      {{ /if }}
+    </div>
+  </div>
+  {{ if assembly.location }}
+    <div class="row"><div class="label">Local</div><div class="value">{{ assembly.location }}</div></div>
+  {{ /if }}
+  {{ if presidentName }}
+    <div class="row"><div class="label">Presidente</div><div class="value">{{ presidentName }}</div></div>
+  {{ /if }}
+  {{ if secretaryName }}
+    <div class="row"><div class="label">Secretário</div><div class="value">{{ secretaryName }}</div></div>
+  {{ /if }}
+</div>
+
+{{ if assembly.introduction }}
+  <h2>Abertura</h2>
+  <div class="narrative">{{ assembly.introduction }}</div>
+{{ /if }}
+
+{{# Ordem do dia - um bloco por ponto. `decisions` vêm de core.assembly_agenda_item
+   (subject, description, notes, itemType, votes*, approved). Pontos `info` não votam. #}}
+<h2>Ordem do dia</h2>
+{{ if decisions.length > 0 }}
+  {{# Número do ponto por extenso (PT-PT); fallback ao dígito acima de 20. #}}
+  {{ set _cardinals = ["", "um", "dois", "três", "quatro", "cinco", "seis", "sete", "oito", "nove", "dez", "onze", "doze", "treze", "catorze", "quinze", "dezasseis", "dezassete", "dezoito", "dezanove", "vinte"] }}
+  {{# Base das percentagens: permilagem presente (presentes = 100%). Fallback a 1
+     evita divisão por zero quando não há presenças (votos são 0 -> 0%). #}}
+  {{ set _voteBase = Number(presentPermillage ?? 0) > 0 ? Number(presentPermillage) : 1 }}
+  {{ for i, d of decisions }}
+    {{ set _seq = d.sequence ?? (i + 1) }}
+    {{ set _isInfo = d.itemType === "info" }}
+    {{ set _pointWord = _cardinals[_seq] ?? String(_seq) }}
+    <div class="decision">
+      <div class="num">Ponto {{ _pointWord }}</div>
+      <div class="subject">{{ d.subject }}</div>
+      {{ if d.description }}
+        <div class="body">{{ d.description }}</div>
+      {{ /if }}
+      {{ if d.notes }}
+        <div class="body" style="margin-top:6pt; font-size:9.5pt; color:#555;">{{ d.notes }}</div>
+      {{ /if }}
+      {{ if d.annexNumber }}
+        <div class="body" style="margin-top:6pt; font-size:9.5pt; color:#444;">Orçamento e mapa de quotas: ver Anexo {{ String(d.annexNumber) }}.</div>
+      {{ /if }}
+      <div class="votes">
+        {{ if _isInfo }}
+          {{# Pill explícito (não esconder o bloco) - reforça que não foi omissão. #}}
+          <span class="pill info">Ponto informativo (sem votação)</span>
+        {{ else }}
+          {{ if d.approved === true }}
+            <span class="pill favor">Aprovada</span>
+          {{ else if d.approved === false }}
+            <span class="pill against">Rejeitada</span>
+          {{ /if }}
+          {{# Percentagem relativa à permilagem presente (presentes = 100%) em
+             destaque + permilagem exata entre parênteses (valor legal da maioria,
+             1000‰ = edifício). #}}
+          <span class="pill favor">A favor {{ String(Number((Number(d.votesInFavor ?? 0) / _voteBase * 100).toFixed(1))) }}% <span class="pm">({{ String(d.votesInFavor ?? 0) }}‰)</span></span>
+          <span class="pill against">Contra {{ String(Number((Number(d.votesAgainst ?? 0) / _voteBase * 100).toFixed(1))) }}% <span class="pm">({{ String(d.votesAgainst ?? 0) }}‰)</span></span>
+          <span class="pill abstain">Abstenções {{ String(Number((Number(d.votesAbstain ?? 0) / _voteBase * 100).toFixed(1))) }}% <span class="pm">({{ String(d.votesAbstain ?? 0) }}‰)</span></span>
+        {{ /if }}
+        {{# Nota livre da votação (registada pelo admin) - junto ao resultado. #}}
+        {{ if d.voteNote }}
+          <div class="vote-note">{{ d.voteNote }}</div>
+        {{ /if }}
+      </div>
+      {{# Minoria nomeada: frações que votaram contra/abstenção numa deliberação
+         aprovada (Art. 1433.º CC). Só aparece se houver discordantes. #}}
+      {{ if (d.dissentAgainst && d.dissentAgainst.length) || (d.dissentAbstain && d.dissentAbstain.length) }}
+        <div class="dissent">
+          {{ if d.dissentAgainst && d.dissentAgainst.length }}
+            <div class="line"><span class="label">Votaram contra:</span> {{ for j, e of d.dissentAgainst }}{{ if j > 0 }}, {{ /if }}{{ e.designation }}{{ if e.identifier }} - {{ e.identifier }}{{ /if }}{{ /for }}</div>
+          {{ /if }}
+          {{ if d.dissentAbstain && d.dissentAbstain.length }}
+            <div class="line"><span class="label">Abstiveram-se:</span> {{ for j, e of d.dissentAbstain }}{{ if j > 0 }}, {{ /if }}{{ e.designation }}{{ if e.identifier }} - {{ e.identifier }}{{ /if }}{{ /for }}</div>
+          {{ /if }}
+        </div>
+      {{ /if }}
+    </div>
+  {{ /for }}
+{{ else }}
+  <div class="narrative empty">Sem pontos registados.</div>
+{{ /if }}
+
+{{ if assembly.conclusion }}
+  <h2>Encerramento</h2>
+  <div class="narrative">{{ assembly.conclusion }}</div>
+{{ /if }}
+
+{{# Assinaturas - área formal final (Art. 1434.º CC). #}}
+<div class="signatures">
+  {{ if assembly.minutesSignedAt }}
+    <div class="date">Assinada em {{ assembly.minutesSignedAt |> formatDate }}.</div>
+  {{ /if }}
+  <div class="row">
+    <div class="col">
+      <div class="line"></div>
+      <div class="role">Presidente</div>
+      <div class="name">{{ presidentName ?? "(por designar)" }}</div>
+    </div>
+    <div class="col">
+      <div class="line"></div>
+      <div class="role">Secretário</div>
+      <div class="name">{{ secretaryName ?? "(por designar)" }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="footer-note">
+  Documento gerado em {{ generatedAt |> formatDate }} · {{ condominium.name }}
+</div>
+
+{{# Anexo 1 - folha de presenças (sempre presente). Os anexos de orçamento seguem
+   a partir do Anexo 2 (numeração em minutes_pdf.ts). #}}
+<div class="annex">
+  <div class="annex-title">Anexo 1 - Folha de Presenças</div>
+  {{ if attendees.length > 0 }}
+    {{ set _totalPerm = 0 }}
+    <table class="attendees">
+      <thead>
+        <tr>
+          <th style="width: 130pt;">Fração</th>
+          <th>Condómino</th>
+          <th style="width: 60pt; text-align: right;">Perm.</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ for a of attendees }}
+          {{ set _totalPerm = _totalPerm + Number(a.permillageAtMeeting ?? 0) }}
+          <tr>
+            <td>
+              <span class="frac-desig" style="min-width: {{ (a.unitDesignation ?? '-').length }}em">{{ a.unitDesignation ?? "-" }}</span>{{ if a.unitIdentifier }}<span class="frac-id">{{ a.unitIdentifier }}</span>{{ /if }}
+            </td>
+            <td>
+              {{ a.occupantName ?? "-" }}
+              {{ if a.proxyHolderName }}<div class="proxy-note">Representado por {{ a.proxyHolderName }}</div>{{ /if }}
+            </td>
+            <td class="num">{{ String(Number(a.permillageAtMeeting ?? 0).toFixed(2)) }}‰</td>
+          </tr>
+        {{ /for }}
+        <tr class="totals">
+          <td colspan="2">Total ({{ String(attendees.length) }} {{ if attendees.length === 1 }}presença{{ else }}presenças{{ /if }})</td>
+          <td class="num">{{ String(_totalPerm.toFixed(2)) }}‰</td>
+        </tr>
+      </tbody>
+    </table>
+  {{ else }}
+    <div class="narrative empty">Sem presenças registadas.</div>
+  {{ /if }}
+</div>
+
+{{# Anexos - corpo do(s) orçamento(s) deliberado(s), cada um em página nova.
+   Mesmos valores que a página/PDF do orçamento (partilham budget_body.vto). #}}
+{{ if annexes }}
+  {{ for ax of annexes }}
+    <div class="annex">
+      {{ include "partials/budget_body.vto" {
+        budget: ax.budget,
+        quotaMap: ax.quotaMap,
+        grandTotal: ax.grandTotal,
+        installmentValue: ax.installmentValue,
+        annexLabel: ax.label,
+      } }}
+    </div>
+  {{ /for }}
+{{ /if }}
+
+</body>
+</html>
