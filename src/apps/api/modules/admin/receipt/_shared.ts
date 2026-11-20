@@ -34,4 +34,6 @@ export interface SnapshotsBundle {
   recipientsLive: RecipientLive[];
   lines: LineSnapshot[];
   bankTx: BankTxSnapshot;
+  /** Settlements que as `lines` cobrem (gravados em `receipt.settlement_ids`). */
+  settlementIds: string[];
 }

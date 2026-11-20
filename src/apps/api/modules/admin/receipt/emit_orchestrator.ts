@@ -71,7 +71,8 @@ export async function emitReceipt(
     recipient: input.recipient,
   });
 
-  const amountCents = Number(eligibility.recipient_amount);
+  // Valor = soma das linhas que o recibo cobre (as mesmas de settlement_ids).
+  const amountCents = snapshots.lines.reduce((sum, l) => sum + l.amount, 0);
   const year = new Date(String(eligibility.payment_date)).getUTCFullYear();
 
   // 3. Transação: lock + sequence + render PDF + S3 + INSERT.
@@ -184,6 +185,22 @@ export async function runReceiptTransaction(
         )
       `);
 
+      // Sob o lock: outra emissão concorrente pode já ter coberto estas conciliações.
+      const covered = await tx.execute<{ settlement_id: string }>(sql`
+        SELECT settlement_id FROM finance.vw_receipted_settlements
+         WHERE settlement_id IN (${
+        sql.join(snapshots.settlementIds.map((sid) => sql`${sid}`), sql`, `)
+      })
+         LIMIT 1
+      `);
+      if (covered.length > 0) {
+        throw new AppError({
+          message: "Estas conciliações já têm recibo emitido",
+          statusCode: STATUS_CODE.UnprocessableEntity,
+          code: "INVALID_STATE",
+        });
+      }
+
       const seqRes = await tx.execute<{ next_seq: number }>(sql`
         SELECT COALESCE(MAX(sequence), 0) + 1 AS next_seq
           FROM finance.receipt
@@ -214,6 +231,7 @@ export async function runReceiptTransaction(
         sequence,
         number,
         amountCents,
+        settlementIds: snapshots.settlementIds,
         issuedAt,
         issuedBy: actor,
         voidedAt: null,
@@ -252,6 +270,7 @@ export async function runReceiptTransaction(
           year,
           sequence,
           amountCents,
+          settlementIds: snapshots.settlementIds,
           issuedAt,
           issuedBy: actor,
           condominiumSnapshot: snapshots.condominium,
@@ -380,9 +399,10 @@ export async function buildSnapshots(
     ibanMasked: maskIban(btRow.iban),
   };
 
-  // Lines - settlements desta unit nesta bank_tx, com a charge associada
+  // Lines - settlements desta unit nesta bank_tx ainda sem recibo, com a charge associada
   const lineRows = await postgres.query((db) =>
     db.execute<{
+      settlement_id: string;
       amount: number;
       charge_type: string;
       charge_description: string;
@@ -390,7 +410,8 @@ export async function buildSnapshots(
       fcr_amount: number | null;
     }>(
       sql`
-        SELECT s.amount,
+        SELECT s.id AS settlement_id,
+               s.amount,
                c.charge_type,
                c.description AS charge_description,
                c.competence_period,
@@ -401,6 +422,9 @@ export async function buildSnapshots(
            AND COALESCE(s.unit_id, c.unit_id) = ${args.unitId}
            AND s.status = 'active'
            AND s.settlement_type IN ('bank_reconciliation', 'bank_deposit_credit')
+           AND NOT EXISTS (
+             SELECT 1 FROM finance.vw_receipted_settlements rs WHERE rs.settlement_id = s.id
+           )
          ORDER BY c.competence_period NULLS LAST, c.created_at
       `,
     )
@@ -417,5 +441,14 @@ export async function buildSnapshots(
     fcrAmount: r.fcr_amount ?? null,
   }));
 
-  return { condominium, unit, recipients, recipientsLive, lines, bankTx };
+  if (lineRows.length === 0) {
+    throw new AppError({
+      message: "Sem conciliações por emitir neste movimento para esta fração",
+      statusCode: STATUS_CODE.UnprocessableEntity,
+      code: "INVALID_STATE",
+    });
+  }
+  const settlementIds = lineRows.map((r: typeof lineRows[0]) => String(r.settlement_id));
+
+  return { condominium, unit, recipients, recipientsLive, lines, bankTx, settlementIds };
 }

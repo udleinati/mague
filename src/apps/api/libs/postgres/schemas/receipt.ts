@@ -6,8 +6,8 @@ const schema = pgSchema("finance");
 
 /**
  * Recibo emitido para um pagamento bancário recebido por uma fração.
- * Modelo concetual: 1 recibo = (bank_transaction, unit). Imutável após
- * emissão exceto para anulação (campos `voided_*`) e re-envio de email.
+ * Modelo concetual: 1 recibo = conciliações (settlement_ids) de um par (bank_transaction, unit)
+ * ainda sem recibo. Imutável após emissão exceto para anulação (campos `voided_*`) e re-envio.
  *
  * Ver `components/016_vw_receipt_pending.sql` para a view `vw_pending_receipts`.
  * Ver `docs/flows/01-fluxo-quotas.md § Recibo` para o desenho.
@@ -26,6 +26,8 @@ export const receipt = schema.table("receipt", {
   number: text("number").generatedAlwaysAs(sql`year::text || '/' || lpad(sequence::text, 5, '0')`),
 
   amountCents: integer("amount_cents").notNull(),
+  // Settlements cobertos. Vazio = recibo anterior à regra (ver vw_receipted_settlements).
+  settlementIds: text("settlement_ids").array().notNull().default(sql`'{}'`),
 
   // Lifecycle
   issuedAt: timestamp("issued_at", { withTimezone: true }).defaultNow().notNull(),
