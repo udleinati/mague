@@ -135,7 +135,7 @@ As restantes estão em [`006_views_balance.sql`](../../src/db/components/006_vie
 | Evento                                         | Emissor                                       | `entry_type`             |
 | ---------------------------------------------- | --------------------------------------------- | ------------------------ |
 | INSERT de charge com `nature='debit'`          | trigger `fn_charge_ai`                        | `charge_created`         |
-| Charge passa a `cancelled`                     | trigger `fn_charge_au`                        | `charge_cancelled`       |
+| Charge `nature='debit'` passa a `cancelled`    | trigger `fn_charge_au`                        | `charge_cancelled`       |
 | UPDATE de `original_amount` (payable a débito) | trigger `fn_charge_amount_adjust_ledger`      | `charge_amount_adjusted` |
 | INSERT de settlement `bank_reconciliation`     | trigger `fn_settlement_ai`                    | `bank_reconciliation`    |
 | INSERT de settlement `bank_deposit_credit`     | trigger `fn_settlement_ai`                    | `bank_deposit_credit`    |
@@ -272,8 +272,9 @@ Outras regras transversais:
    charge e o movimento com o estado por atualizar.
 4. O valor de um settlement nunca excede o que falta alocar do movimento nem, em
    `bank_reconciliation` e `charge_offset`, o `open_amount` das charges envolvidas.
-5. Uma charge com settlements ativos não pode ser anulada (`fn_charge_bu`); `charge/cancel.ts` só
-   aceita `open` ou `overdue` com `settled_amount = 0`.
+5. Uma charge com settlements ativos não pode ser anulada (`fn_charge_bu`). `charge/cancel.ts` exige
+   justificação, reverte primeiro os offsets da charge e recusa se houver um settlement com
+   movimento bancário.
 6. O valor de uma charge só é editável em payables a débito, sem refaturação e sem valor liquidado
    (`charge/update.ts`).
 7. Uma refaturação aponta para uma charge payable do mesmo condomínio e com a mesma rubrica
@@ -290,9 +291,6 @@ Outras regras transversais:
 - **Pagamento de despesas.** O settlement debita a conta principal da charge. Numa despesa com
   rubrica, é a conta de gasto que volta a ser debitada (linha 6 da tabela) e a `2211` creditada na
   criação fica por saldar.
-- **Anulação de charges a crédito.** `fn_charge_au` emite `charge_cancelled` (débito em `7888`,
-  crédito na conta principal) também para charges com `nature='credit'`, que não emitiram nada na
-  criação. Acontece no estorno de um movimento que tinha gerado `credit_balance`.
 - **Juros de mora.** Não há geração automática. O tipo `interest` só é reconhecido na ordem de
   prioridade da imputação e do auto-offset.
 - **Incobráveis.** Não há lançamento de perda. Anular a charge reverte o lançamento original.

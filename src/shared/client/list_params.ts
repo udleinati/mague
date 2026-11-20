@@ -55,6 +55,7 @@ export interface ReceiptListParams extends ListPageParams {
 export interface SettlementListParams {
   bankTransactionId?: string;
   unitId?: string;
+  chargeId?: string;
   dateFrom?: string;
   dateTo?: string;
   limit?: string;

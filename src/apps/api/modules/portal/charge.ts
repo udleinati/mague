@@ -118,8 +118,10 @@ export const portalListCharges = async (ctx: Context, postgres: Postgres) => {
       .filter((s): s is NonNullable<ReturnType<typeof shapeSettlementForPortal>> => s !== null)
       // Ordena por data (settlements sem data ficam no fim).
       .sort((a, b) => (a.date ?? "9999").localeCompare(b.date ?? "9999"));
-    // `note` é interno do admin - removido antes de devolver ao portal.
-    const { note: _note, ...publicCharge } = formatChargeForResponse(row);
+    // `note` e `cancellationReason` são internos do admin - removidos antes do portal.
+    const { note: _note, cancellationReason: _reason, ...publicCharge } = formatChargeForResponse(
+      row,
+    );
     return { ...publicCharge, settlements };
   });
   return ctx.json({ data });

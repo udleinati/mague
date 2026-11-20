@@ -80,6 +80,10 @@ No fim do template da página (antes do `{{ /layout }}` do layout):
   `"trash"`.
 - `currentUser` - todos os chamadores o passam, mas o partial não o lê: a linha de atribuição vem do
   `currentUser` que o `render()` injeta no layout.
+- `dialogId` - opcional, para a ação que pede justificação. O modal global tem um só campo (a
+  palavra ou a razão), por isso o botão abre um `<dialog>` próprio com a justificação, a lista do
+  que se desfaz, a linha "Executado por" e o typed-match, como o de reverter uma conciliação
+  (`reconciliation/_reverse_modal.vto`). Uso: cancelar cobrança (`charges/_cancel_modal.vto`).
 
 Em páginas cujo corpo é trocado por HTMX, o include fica no template exterior, fora do alvo do swap
 (ex.: `ticket/show.vto`, não `ticket/_ticket_body.vto`).

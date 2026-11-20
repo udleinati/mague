@@ -244,7 +244,8 @@ DECLARE
     v_acc_debit  varchar;
     v_acc_credit varchar;
 BEGIN
-    IF NEW.status = 'cancelled' AND OLD.status <> 'cancelled' THEN
+    -- Só as charges a débito lançaram no ledger ao nascer (fn_charge_ai).
+    IF NEW.status = 'cancelled' AND OLD.status <> 'cancelled' AND OLD.nature = 'debit' THEN
         v_acc_debit  := finance.fn_charge_account(OLD.kind, OLD.nature, OLD.charge_type, OLD.account_id);
         v_acc_credit := finance.fn_counterparty_account(OLD.kind, OLD.charge_type);
 

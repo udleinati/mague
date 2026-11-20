@@ -1,103 +1,131 @@
-// POST /charges/:chargeId/cancel - transição de status para 'cancelled'.
-// Triggers fn_charge_bu/au (004_trg_financial.sql) zeram os montantes e emitem
-// o ledger inverso. Só cancela 'open'/'overdue' com settled_amount=0; guards
-// repetidos no WHERE para que um estado mudado mid-flight afete 0 linhas → 409.
+// POST /charges/:chargeId/cancel { reason } - cancela uma charge com justificação.
+// Numa transação: reverte os offsets (charge_offset) com outras charges da fração,
+// passa a charge a 'cancelled' (fn_charge_bu zera os montantes, fn_charge_au anula o
+// lançamento) e volta a aplicar o auto-offset às charges que ficaram livres.
+// Pagamentos conciliados bloqueiam: revertem-se na conciliação (estorno).
 
 import type { Context } from "hono";
 import { STATUS_CODE } from "@std/http";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, or } from "drizzle-orm";
+import { z } from "zod";
 import { Postgres } from "$api/libs/postgres/postgres.ts";
 import { schema } from "$api/libs/postgres/schemas/mod.ts";
+import { dtoValidator } from "$api/libs/shared/dto_validator.ts";
 import { requireParam } from "$api/libs/shared/require_param.ts";
 import { requireCondominiumId } from "$api/libs/shared/require_condominium.ts";
-import { findEntityOrFail } from "$api/libs/shared/find_entity.ts";
 import { AppError } from "$api/libs/error/app_error.ts";
+import { reverseSettlement, type SettlementForEffects } from "$api/modules/admin/settlement/mod.ts";
 import { formatChargeForResponse } from "./_projection.ts";
+import { applyAutoOffset } from "./auto_offset.ts";
 import { requireActor } from "$api/middleware/api_auth.ts";
 
-const CANCELLABLE_STATUSES = new Set(["open", "overdue"]);
+const bodySchema = z.object({
+  reason: z.string().trim().min(10, "A justificação tem de ter pelo menos 10 caracteres").max(500),
+});
+
+// 'disputed' fica de fora: não é um estado a que a charge chegue por offset.
+const CANCELLABLE_STATUSES = new Set(["open", "partial", "paid", "overdue"]);
 
 export const cancelCharge = async (ctx: Context, postgres: Postgres) => {
   const condominiumId = requireCondominiumId(ctx);
   const chargeId = requireParam(ctx, "chargeId");
-
-  const existing = await postgres.query((db) =>
-    db.query.charge.findFirst({
-      where: (e, ops) =>
-        ops.and(
-          ops.eq(e.id, chargeId),
-          ops.eq(e.condominiumId, condominiumId),
-        ),
-    })
-  );
-  const current = findEntityOrFail(existing, "Charge");
-
-  if (current.status === "cancelled") {
-    throw new AppError({
-      message: "Charge já está cancelada.",
-      statusCode: STATUS_CODE.Conflict,
-      code: "CHARGE_ALREADY_CANCELLED",
-    });
-  }
-
-  // Guard: só open/overdue sem settlements. O trigger BEFORE bloquearia
-  // settlements ativos de qualquer forma, mas damos um 409 limpo e acionável.
-  if (
-    !CANCELLABLE_STATUSES.has(String(current.status)) ||
-    Number(current.settledAmount ?? 0) > 0
-  ) {
-    throw new AppError({
-      message:
-        `Charge em estado '${current.status}' não pode ser cancelada diretamente. Reverte os settlements primeiro.`,
-      statusCode: STATUS_CODE.Conflict,
-      code: "CHARGE_NOT_CANCELLABLE",
-    });
-  }
-
+  const { reason } = await dtoValidator(bodySchema, await ctx.req.json().catch(() => ({})));
   const actor = requireActor(ctx);
+  const today = new Date();
 
-  // UPDATE atómico com guards repetidos no WHERE. Os triggers fn_charge_bu /
-  // fn_charge_au tratam de zerar os montantes e emitir o ledger inverso.
-  const updatedRows = await postgres.query((db) =>
-    db.update(schema.charge)
-      .set({ status: "cancelled", updatedAt: new Date(), updatedBy: actor })
+  const updated = await postgres.transaction(async (tx) => {
+    // FOR UPDATE serializa com createSettlementInTx, que tranca as mesmas charges.
+    const [current] = await tx.select().from(schema.charge)
       .where(and(
         eq(schema.charge.id, chargeId),
         eq(schema.charge.condominiumId, condominiumId),
-        inArray(schema.charge.status, ["open", "overdue"]),
-        eq(schema.charge.settledAmount, 0),
       ))
-      .returning()
-  );
-
-  const updated = updatedRows[0];
-  if (!updated) {
-    // 0 linhas → ou a charge desapareceu (404), ou o estado mudou mid-flight
-    // (race condition: 409). Distinguimos com um SELECT de follow-up.
-    const stillExists = await postgres.query((db) =>
-      db.query.charge.findFirst({
-        where: (e, ops) =>
-          ops.and(
-            ops.eq(e.id, chargeId),
-            ops.eq(e.condominiumId, condominiumId),
-          ),
-        columns: { id: true },
-      })
-    );
-    if (stillExists) {
+      .for("update");
+    if (!current) {
       throw new AppError({
-        message:
-          "Estado da charge mudou durante o cancelamento (settlement concorrente?). Recarrega e tenta de novo.",
-        statusCode: STATUS_CODE.Conflict,
-        code: "CHARGE_STATE_CHANGED",
+        message: "Charge não encontrada",
+        statusCode: STATUS_CODE.NotFound,
+        code: "NOT_FOUND",
       });
     }
-    throw new AppError({
-      message: "Charge não encontrada",
-      statusCode: STATUS_CODE.NotFound,
-      code: "NOT_FOUND",
-    });
-  }
+    if (current.status === "cancelled") {
+      throw new AppError({
+        message: "Charge já está cancelada.",
+        statusCode: STATUS_CODE.Conflict,
+        code: "CHARGE_ALREADY_CANCELLED",
+      });
+    }
+    if (!CANCELLABLE_STATUSES.has(current.status)) {
+      throw new AppError({
+        message: `Charge em estado '${current.status}' não pode ser cancelada.`,
+        statusCode: STATUS_CODE.Conflict,
+        code: "CHARGE_NOT_CANCELLABLE",
+      });
+    }
+
+    const active = await tx.select({
+      id: schema.settlement.id,
+      settlementType: schema.settlement.settlementType,
+      amount: schema.settlement.amount,
+      debitChargeId: schema.settlement.debitChargeId,
+      creditChargeId: schema.settlement.creditChargeId,
+      bankTransactionId: schema.settlement.bankTransactionId,
+    }).from(schema.settlement)
+      .where(and(
+        eq(schema.settlement.status, "active"),
+        or(
+          eq(schema.settlement.debitChargeId, chargeId),
+          eq(schema.settlement.creditChargeId, chargeId),
+        ),
+      ))
+      .orderBy(asc(schema.settlement.createdAt));
+
+    if (active.some((s) => s.settlementType !== "charge_offset")) {
+      throw new AppError({
+        message:
+          "A cobrança tem pagamentos conciliados com o banco. Reverte primeiro a conciliação do movimento.",
+        statusCode: STATUS_CODE.Conflict,
+        code: "CHARGE_HAS_BANK_SETTLEMENTS",
+      });
+    }
+
+    const freedChargeIds: string[] = [];
+    for (const s of active) {
+      await reverseSettlement(tx, s as SettlementForEffects, reason, today);
+      const otherId = s.debitChargeId === chargeId ? s.creditChargeId : s.debitChargeId;
+      if (otherId && !freedChargeIds.includes(otherId)) freedChargeIds.push(otherId);
+    }
+
+    const [row] = await tx.update(schema.charge)
+      .set({
+        status: "cancelled",
+        cancellationReason: reason,
+        updatedAt: new Date(),
+        updatedBy: actor,
+      })
+      .where(eq(schema.charge.id, chargeId))
+      .returning();
+
+    // O que a charge cancelada consumia volta ao auto-offset com o que está em aberto na fração.
+    for (const otherId of freedChargeIds) {
+      const [other] = await tx.select().from(schema.charge).where(eq(schema.charge.id, otherId));
+      if (!other?.unitId) continue;
+      await applyAutoOffset(tx, {
+        chargeId: other.id,
+        condominiumId,
+        unitId: other.unitId,
+        nature: other.nature as "debit" | "credit",
+        openAmount: other.openAmount,
+        status: other.status,
+        kind: other.kind as "receivable" | "payable",
+        // Data do novo offset: hoje, como a reversão (fn_settlement_au usa CURRENT_DATE).
+        issueDate: today.toISOString().slice(0, 10),
+        actor,
+      }, today);
+    }
+
+    return row;
+  });
 
   return ctx.json({ data: formatChargeForResponse(updated) }, STATUS_CODE.OK);
 };

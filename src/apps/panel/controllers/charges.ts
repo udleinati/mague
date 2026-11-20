@@ -226,7 +226,14 @@ export async function showCharge(
 ) {
   // listUnits só para o modal de Refaturação (lista completa de frações).
   // Labels do header vêm do nested da charge; refaturações filtradas por sourceId.
-  const [chargeResult, refactsResult, unitsResult, ledgerResult, attachmentsResult] = await Promise
+  const [
+    chargeResult,
+    refactsResult,
+    unitsResult,
+    ledgerResult,
+    attachmentsResult,
+    settlementsResult,
+  ] = await Promise
     .all([
       client.admin.getCharge(id),
       client.admin.listCharges({ sourceId: id }),
@@ -237,6 +244,7 @@ export async function showCharge(
       client.admin.listChargeAttachments(id).catch(() => ({
         data: [] as Array<Record<string, unknown>>,
       })),
+      client.admin.listSettlements({ chargeId: id }),
     ]);
 
   const charge = chargeResult.data;
@@ -294,6 +302,22 @@ export async function showCharge(
     charge.status !== "cancelled";
   const refacturable = Number(charge.originalAmount ?? 0) - refacturedTotal;
 
+  // Cancelar desfaz os offsets (charge_offset) no mesmo ato; um pagamento
+  // conciliado com o banco bloqueia. Mesmo guard da API (charge/cancel.ts).
+  const activeSettlements = settlementsResult.data.filter((s) => s.status === "active");
+  const canCancel = ["open", "partial", "paid", "overdue"].includes(charge.status) &&
+    activeSettlements.every((s) => s.settlementType === "charge_offset");
+  const offsetsToUndo = activeSettlements.map((s) => {
+    const other = s.debitChargeId === id ? s.creditCharge : s.debitCharge;
+    return {
+      id: s.id,
+      amount: s.amount,
+      code: other?.code ?? null,
+      description: other?.description ?? "",
+      competencePeriod: other?.competencePeriod ?? null,
+    };
+  });
+
   // Ledger entries da charge (diretas + via settlements), createdAt asc.
   // Totais Dr/Cr para o user verificar dupla-partida de relance.
   const ledgerEntries = (ledgerResult.data ?? []) as Array<{
@@ -338,6 +362,8 @@ export async function showCharge(
     refacturedTotal,
     refacturable,
     canRefacture,
+    canCancel,
+    offsetsToUndo,
     units,
     supplierLabel,
     unitLabel,
@@ -453,10 +479,12 @@ export async function updateCharge(chargeId: string, form: Record<string, string
   return result.data;
 }
 
-/** Cancela uma charge. Os triggers financeiros revertem o ledger; aqui só
- *  chamamos o endpoint. Guards (estado/settlements) vivem na API. */
-export async function cancelCharge(chargeId: string) {
-  const result = await client.admin.cancelCharge(chargeId);
+/** Cancela uma charge com justificação. A API desfaz os offsets e os
+ *  triggers anulam o lançamento; guards (estado/settlements) vivem na API. */
+export async function cancelCharge(chargeId: string, form: Record<string, string | File>) {
+  const result = await client.admin.cancelCharge(chargeId, {
+    reason: parseFormString(form, "reason"),
+  });
   return result.data;
 }
 

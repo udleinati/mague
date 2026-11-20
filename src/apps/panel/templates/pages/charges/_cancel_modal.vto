@@ -1,0 +1,92 @@
+{{# Modal de cancelamento com justificação, aberto pela Zona perigosa (dialogId).
+   Mesmo desenho do modal de reversão da conciliação: lista do que se desfaz,
+   justificação com atalhos e typed-match "CANCELAR" para ativar o botão.
+   Espera: charge, offsetsToUndo, entityName, currentCondominiumId, currentUser. #}}
+<dialog id="cancel_charge_modal" class="modal">
+  <div class="modal-box max-w-lg">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-lg mb-1">Cancelar {{ entityName }}{{ if charge.code }} {{ charge.code }}{{ /if }}</h3>
+    <p class="text-sm text-base-content/60 mb-4">
+      {{ if charge.nature === "credit" }}O crédito{{ else }}A cobrança{{ /if }} passa a cancelada e o lançamento contabilístico é anulado. Não é reversível.
+      {{ if offsetsToUndo.length > 0 }}
+        As compensações abaixo são desfeitas e o que ficar livre volta a compensar com o que estiver em aberto na fração.
+      {{ /if }}
+    </p>
+
+    <div class="bg-base-200/50 rounded-lg p-3 mb-4 flex items-baseline justify-between gap-3">
+      <div class="min-w-0 text-sm break-words">{{ charge.description }}</div>
+      <div class="tabular-nums font-bold whitespace-nowrap">{{ charge.originalAmount |> formatMoney }}</div>
+    </div>
+
+    {{ if offsetsToUndo.length > 0 }}
+      <div class="text-xs uppercase tracking-wider text-base-content/50 font-bold mb-1">Compensações a desfazer ({{ String(offsetsToUndo.length) }})</div>
+      <ul class="bg-base-100 rounded-lg border border-base-200 divide-y divide-base-200 mb-4 max-h-48 overflow-y-auto">
+        {{ for o of offsetsToUndo }}
+          <li class="px-3 py-2 flex items-center justify-between gap-3">
+            <div class="min-w-0 flex-1 text-sm">
+              {{ if o.code }}<span class="font-mono text-xs text-base-content/60 mr-1">{{ o.code }}</span>{{ /if }}{{ o.description }}
+              {{ if o.competencePeriod }}<span class="text-xs text-base-content/50 ml-1">· {{ o.competencePeriod |> formatMonth }}</span>{{ /if }}
+            </div>
+            <div class="text-right tabular-nums font-semibold whitespace-nowrap text-sm">{{ o.amount |> formatMoney }}</div>
+          </li>
+        {{ /for }}
+      </ul>
+    {{ /if }}
+
+    <form method="post" action="/admin/c/{{ currentCondominiumId }}/charges/{{ charge.id }}/cancel"
+          class="space-y-3" data-cancel-charge-form>
+      <div class="form-control">
+        <label class="label py-1" for="cancel_reason"><span class="label-text">Justificação (mínimo 10 caracteres)</span></label>
+        <div class="flex flex-wrap gap-1.5 mb-2">
+          <button type="button" class="text-xs px-2 py-0.5 rounded-md bg-base-200 hover:bg-base-300 text-base-content/70 hover:text-base-content"
+                  data-cancel-preset="Lançada por engano">Lançada por engano</button>
+          <button type="button" class="text-xs px-2 py-0.5 rounded-md bg-base-200 hover:bg-base-300 text-base-content/70 hover:text-base-content"
+                  data-cancel-preset="Lançada na fração errada">Fração errada</button>
+          <button type="button" class="text-xs px-2 py-0.5 rounded-md bg-base-200 hover:bg-base-300 text-base-content/70 hover:text-base-content"
+                  data-cancel-preset="Valor incorreto, a lançar de novo">Valor incorreto</button>
+          <button type="button" class="text-xs px-2 py-0.5 rounded-md bg-base-200 hover:bg-base-300 text-base-content/70 hover:text-base-content"
+                  data-cancel-preset="Lançamento duplicado">Duplicada</button>
+        </div>
+        <textarea id="cancel_reason" name="reason" required minlength="10" maxlength="500" rows="2"
+                  class="textarea textarea-bordered w-full"
+                  placeholder="Escreve aqui ou escolhe uma opção acima…"
+                  data-cancel-reason></textarea>
+      </div>
+      <div class="form-control">
+        <label class="label py-1" for="cancel_confirm"><span class="label-text">Para confirmar, escreve <strong>CANCELAR</strong></span></label>
+        <input id="cancel_confirm" type="text" autocomplete="off" required pattern="CANCELAR"
+               class="input input-bordered input-sm font-mono" placeholder="CANCELAR"
+               data-cancel-confirm>
+      </div>
+      {{# Atribuição (ADR 0025): a ação fica registada em nome de quem a faz. #}}
+      {{ if currentUser && currentUser.email }}
+        <div class="text-[11px] text-base-content/55">Executado por <span class="font-semibold font-mono text-base-content/85">{{ currentUser.email }}</span></div>
+      {{ /if }}
+      <div class="flex justify-end gap-2 pt-2">
+        <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('cancel_charge_modal').close()">Fechar</button>
+        <button type="submit" class="btn btn-sm btn-error" data-cancel-submit disabled>Cancelar {{ entityName }}</button>
+      </div>
+    </form>
+
+    {{# Botão só ativa com "CANCELAR" literal (case-sensitive); atalhos preenchem a justificação. #}}
+    <script>
+      (function () {
+        var form = document.querySelector("[data-cancel-charge-form]");
+        if (!form) return;
+        var confirmInput = form.querySelector("[data-cancel-confirm]");
+        var btn = form.querySelector("[data-cancel-submit]");
+        var reason = form.querySelector("[data-cancel-reason]");
+        confirmInput.addEventListener("input", function () {
+          btn.disabled = confirmInput.value !== "CANCELAR";
+        });
+        form.querySelectorAll("[data-cancel-preset]").forEach(function (chip) {
+          chip.addEventListener("click", function () {
+            reason.value = chip.getAttribute("data-cancel-preset");
+            reason.focus();
+          });
+        });
+      })();
+    </script>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>

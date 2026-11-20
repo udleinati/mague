@@ -477,6 +477,8 @@ export interface Charge {
   sourceId: string | null;
   /** Orçamento a que a despesa foi etiquetada à mão (relatório por Ata). */
   budgetId: string | null;
+  /** Justificação do cancelamento (interna). Null nas charges não canceladas. */
+  cancellationReason: string | null;
   createdAt: string;
   updatedAt: string;
   /** Null quando o call site da API não pediu nested (create/update). */
@@ -485,8 +487,8 @@ export interface Charge {
   account: ChargeAccountRef | null;
 }
 
-/** Variante do portal: igual ao admin menos `note` (interna). */
-export type PortalCharge = Omit<Charge, "note">;
+/** Variante do portal: igual ao admin menos os campos internos. */
+export type PortalCharge = Omit<Charge, "note" | "cancellationReason">;
 
 // Linhas de `/charges/top_open_by_group` - subset projetado em SQL, não a
 // Charge inteira. Espelha `top_open_by_group.ts`.
@@ -525,6 +527,7 @@ export type SettlementStatus = "active" | "reversed";
 
 export interface SettlementChargeRef {
   id: string;
+  code: string | null;
   description: string;
   chargeType: string;
   unitId: string | null;

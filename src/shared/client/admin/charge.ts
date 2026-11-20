@@ -43,6 +43,7 @@ declare module "../admin.ts" {
     ): AsyncResult<Charge>;
     cancelCharge(
       chargeId: string,
+      body: { reason: string },
       requestInit?: RequestInit,
     ): AsyncResult<Charge>;
     setChargeBudget(
@@ -183,11 +184,10 @@ export function registerChargeMethods(): void {
     return this.request<Charge>("PATCH", `/charges/${chargeId}`, requestInit, body);
   };
 
-  /** POST /charges/:chargeId/cancel - transição de status para 'cancelled'.
-   *  Os triggers financeiros revertem o ledger. Body vazio `{}` + content-type
-   *  JSON para satisfazer o middleware parseJson (415 sem content-type). */
-  ManagerResource.prototype.cancelCharge = function (chargeId, requestInit) {
-    return this.request<Charge>("POST", `/charges/${chargeId}/cancel`, requestInit, {});
+  /** POST /charges/:chargeId/cancel - cancela com justificação; reverte antes as
+   *  offsets (charge_offset) e o ledger fica com o lançamento inverso. */
+  ManagerResource.prototype.cancelCharge = function (chargeId, body, requestInit) {
+    return this.request<Charge>("POST", `/charges/${chargeId}/cancel`, requestInit, body);
   };
 
   /** PATCH /charges/:chargeId/budget - etiqueta a despesa com o orçamento da

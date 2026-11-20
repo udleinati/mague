@@ -142,7 +142,7 @@ Verificação:
 
 ## D07 - Fatura cancelada antes do pagamento
 
-Fatura de 10000 em `open`, sem settlements. `POST /charges/:chargeId/cancel`.
+Fatura de 10000 em `open`, sem settlements. `POST /charges/:chargeId/cancel` com a justificação.
 
 | `status` da charge | `original_amount` | `amount` | `settled_amount` | `open_amount` |
 | ------------------ | ----------------: | -------: | ---------------: | ------------: |
