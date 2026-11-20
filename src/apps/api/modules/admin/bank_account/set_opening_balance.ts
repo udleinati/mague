@@ -51,26 +51,6 @@ export const setOpeningBalance = async (ctx: Context, postgres: Postgres) => {
   const { ordinary_cents, fcr_cents, date } = await dtoValidator(bodySchema, await ctx.req.json());
   const total = ordinary_cents + fcr_cents;
 
-  // Já tem saldo inicial? (qualquer charge openingBalance ligada a esta conta)
-  const existing = await postgres.query((db) =>
-    db.query.charge.findFirst({
-      where: (e, ops) =>
-        ops.and(
-          ops.eq(e.condominiumId, condominiumId),
-          ops.eq(e.chargeType, "openingBalance"),
-          ops.eq(e.sourceType, "bank_account"),
-          ops.eq(e.sourceId, bankAccountId),
-        ),
-    })
-  );
-  if (existing) {
-    throw new AppError({
-      message: "Esta conta já tem saldo inicial definido. Anula o anterior antes de redefinir.",
-      statusCode: STATUS_CODE.Conflict,
-      code: "OPENING_BALANCE_ALREADY_SET",
-    });
-  }
-
   const actor = requireActor(ctx);
 
   // Competência = primeiro dia do mês (date já validado YYYY-MM-DD, slice seguro).
@@ -78,6 +58,28 @@ export const setOpeningBalance = async (ctx: Context, postgres: Postgres) => {
 
   const result = await postgres.query((db) =>
     db.transaction(async (tx) => {
+      // Lock da conta: serializa pedidos concorrentes antes do "já tem saldo inicial?".
+      await tx.select({ id: schema.bankAccount.id }).from(schema.bankAccount)
+        .where(eq(schema.bankAccount.id, bankAccountId)).for("update");
+
+      // Já tem saldo inicial? (qualquer charge openingBalance ligada a esta conta)
+      const existing = await tx.query.charge.findFirst({
+        where: (e, ops) =>
+          ops.and(
+            ops.eq(e.condominiumId, condominiumId),
+            ops.eq(e.chargeType, "openingBalance"),
+            ops.eq(e.sourceType, "bank_account"),
+            ops.eq(e.sourceId, bankAccountId),
+          ),
+      });
+      if (existing) {
+        throw new AppError({
+          message: "Esta conta já tem saldo inicial definido. Anula o anterior antes de redefinir.",
+          statusCode: STATUS_CODE.Conflict,
+          code: "OPENING_BALANCE_ALREADY_SET",
+        });
+      }
+
       // 1. Update bank_account (cache para KPIs).
       await tx.update(schema.bankAccount)
         .set({

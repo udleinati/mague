@@ -7,7 +7,13 @@ import { and, eq, sql } from "drizzle-orm";
 import type { Postgres, TxClient } from "$api/libs/postgres/postgres.ts";
 import { schema } from "$api/libs/postgres/schemas/mod.ts";
 import type { ActorSnapshot } from "$api/libs/postgres/schemas/_audit.ts";
-import { type SettlementInput, type SettlementType, validateSettlement } from "./validate.ts";
+import {
+  type ChargeSide,
+  type SettlementInput,
+  type SettlementType,
+  validateSettlement,
+  validateSettlementSides,
+} from "./validate.ts";
 import {
   type AppliedSettlementResult,
   applyReverseEffects,
@@ -137,25 +143,37 @@ async function validateInTx(
     bankTxAbs: null,
     bankTxAlreadyAllocated: 0,
   };
+  let debitCharge: ChargeSide | null = null;
+  let creditCharge: ChargeSide | null = null;
+  let bankTxAmount: number | null = null;
+
+  const chargeColumns = {
+    openAmount: schema.charge.openAmount,
+    nature: schema.charge.nature,
+    kind: schema.charge.kind,
+    unitId: schema.charge.unitId,
+  };
 
   // Cross-tenant guard: charge/bank_tx têm de ser do mesmo condominium (FKs só
   // validam existência). `.for("update")` = race guard: dois settlements
   // paralelos contra a mesma charge não a deixam overpaid (openAmount negativo).
   if (input.debitChargeId !== null) {
-    const [c] = await tx.select({ openAmount: schema.charge.openAmount })
+    const [c] = await tx.select(chargeColumns)
       .from(schema.charge).where(and(
         eq(schema.charge.id, input.debitChargeId),
         eq(schema.charge.condominiumId, input.condominiumId),
       )).for("update");
     ctx.debitChargeOpen = c?.openAmount ?? null;
+    debitCharge = c ?? null;
   }
   if (input.creditChargeId !== null) {
-    const [c] = await tx.select({ openAmount: schema.charge.openAmount })
+    const [c] = await tx.select(chargeColumns)
       .from(schema.charge).where(and(
         eq(schema.charge.id, input.creditChargeId),
         eq(schema.charge.condominiumId, input.condominiumId),
       )).for("update");
     ctx.creditChargeOpen = c?.openAmount ?? null;
+    creditCharge = c ?? null;
   }
   if (input.bankTransactionId !== null) {
     const [bt] = await tx.select({ amount: schema.bankTransaction.amount })
@@ -164,6 +182,7 @@ async function validateInTx(
         eq(schema.bankTransaction.condominiumId, input.condominiumId),
       )).for("update");
     ctx.bankTxAbs = bt ? Math.abs(bt.amount) : null;
+    bankTxAmount = bt?.amount ?? null;
 
     // Total já alocado a esta bank_tx (só settlements ativos).
     const [agg] = await tx.select({
@@ -176,4 +195,5 @@ async function validateInTx(
   }
 
   validateSettlement(input as SettlementInput, ctx);
+  validateSettlementSides(input as SettlementInput, { debitCharge, creditCharge, bankTxAmount });
 }

@@ -5,6 +5,7 @@
 
 import type { Context } from "hono";
 import { STATUS_CODE } from "@std/http";
+import { and, eq } from "drizzle-orm";
 import { Postgres } from "$api/libs/postgres/postgres.ts";
 import { schema } from "$api/libs/postgres/schemas/mod.ts";
 import { dtoValidator } from "$api/libs/shared/dto_validator.ts";
@@ -42,33 +43,7 @@ export const createRefacturations = async (ctx: Context, postgres: Postgres) => 
   }
 
   const body = await dtoValidator(refacturationBatchSchema, await ctx.req.json());
-
-  // Refaturável = originalAmount - já refaturado antes.
-  const prevRefact = await postgres.query((db) =>
-    db.query.charge.findMany({
-      columns: { originalAmount: true },
-      where: (e, ops) =>
-        ops.and(
-          ops.eq(e.condominiumId, condominiumId),
-          ops.eq(e.chargeType, "refacturation"),
-          ops.eq(e.sourceType, "refacturation"),
-          ops.eq(e.sourceId, chargeId),
-        ),
-    })
-  );
-
-  const alreadyRefactured = prevRefact.reduce((s, c) => s + c.originalAmount, 0);
-  const availableToRefact = orig.originalAmount - alreadyRefactured;
   const batchTotal = body.allocations.reduce((s, a) => s + a.amountCents, 0);
-
-  if (batchTotal > availableToRefact) {
-    throw new AppError({
-      message:
-        `Soma (${batchTotal}¢) excede disponível (${availableToRefact}¢). Já refaturado: ${alreadyRefactured}¢.`,
-      statusCode: STATUS_CODE.BadRequest,
-      code: "REFACTURATION_EXCEEDS_TOTAL",
-    });
-  }
 
   const uniqueUnitIds = [...new Set(body.allocations.map((a) => a.unitId))];
   await assertUnitsBelongBatch(postgres, uniqueUnitIds, condominiumId);
@@ -76,8 +51,40 @@ export const createRefacturations = async (ctx: Context, postgres: Postgres) => 
   const issueDate = body.issueDate ?? new Date().toISOString().slice(0, 10);
   const actor = requireActor(ctx);
 
-  const rows = await postgres.query((db) =>
+  const { rows, availableToRefact } = await postgres.query((db) =>
     db.transaction(async (tx) => {
+      // Lock da original: lotes concorrentes não refaturam acima do valor dela.
+      const [row] = await tx.select({ originalAmount: schema.charge.originalAmount })
+        .from(schema.charge).where(and(
+          eq(schema.charge.id, chargeId),
+          eq(schema.charge.condominiumId, condominiumId),
+        )).for("update");
+      const locked = findEntityOrFail(row, "Cobrança");
+
+      // Refaturável = originalAmount - já refaturado antes.
+      const prevRefact = await tx.query.charge.findMany({
+        columns: { originalAmount: true },
+        where: (e, ops) =>
+          ops.and(
+            ops.eq(e.condominiumId, condominiumId),
+            ops.eq(e.chargeType, "refacturation"),
+            ops.eq(e.sourceType, "refacturation"),
+            ops.eq(e.sourceId, chargeId),
+          ),
+      });
+
+      const alreadyRefactured = prevRefact.reduce((s, c) => s + c.originalAmount, 0);
+      const availableToRefact = locked.originalAmount - alreadyRefactured;
+
+      if (batchTotal > availableToRefact) {
+        throw new AppError({
+          message:
+            `Soma (${batchTotal}¢) excede disponível (${availableToRefact}¢). Já refaturado: ${alreadyRefactured}¢.`,
+          statusCode: STATUS_CODE.BadRequest,
+          code: "REFACTURATION_EXCEEDS_TOTAL",
+        });
+      }
+
       const inserted = [];
       // Competência herda da fatura original (mesmo mês da despesa redistribuída);
       // fallback defensivo para o issueDate se a source vier sem competência.
@@ -106,7 +113,7 @@ export const createRefacturations = async (ctx: Context, postgres: Postgres) => 
         }).returning();
         inserted.push(c);
       }
-      return inserted;
+      return { rows: inserted, availableToRefact };
     })
   );
 

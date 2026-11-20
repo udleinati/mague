@@ -219,8 +219,8 @@
         </div>
       {{ /if }}
 
-      {{# Entradas mostram só receivables/débitos; saídas só payables. #}}
-      {{ set _manualCharges = openCharges.filter((c) => t.amount > 0 ? (c.kind === "receivable" && c.nature === "debit") : (c.kind === "payable")) }}
+      {{# Entradas mostram só receivables a débito; saídas só payables a débito (a API recusa o sinal contrário). #}}
+      {{ set _manualCharges = openCharges.filter((c) => c.nature === "debit" && (t.amount > 0 ? c.kind === "receivable" : c.kind === "payable")) }}
       <div class="form-control">
         <label class="label"><span class="label-text-alt">Charges a conciliar</span></label>
         <div class="max-h-56 overflow-y-auto rounded-lg border border-base-300 divide-y divide-base-200"

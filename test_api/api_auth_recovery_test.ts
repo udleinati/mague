@@ -144,9 +144,9 @@ describe("auth recovery - forgot/reset/accept-invite/change-password", () => {
     const userId = "usr_recov_invite";
     const email = `${userId}@test.pt`;
 
-    it("setup: user inactivo + invite token", async () => {
+    it("setup: user + invite token", async () => {
       await deleteTestUser(userId).catch(() => {});
-      await seedTestUser({ id: userId, email, active: false });
+      await seedTestUser({ id: userId, email });
     });
 
     it("preview de token inválido devolve 410", async () => {
@@ -168,7 +168,7 @@ describe("auth recovery - forgot/reset/accept-invite/change-password", () => {
       assertEquals(new Date(data.expiresAt).getTime() > Date.now(), true);
     });
 
-    it("accept-invite happy path: define password, ativa user, devolve sessão", async () => {
+    it("accept-invite happy path: define password, devolve sessão", async () => {
       const token = "invite-tok-" + crypto.randomUUID();
       await seedInviteToken({ token, userId, purpose: "invite", ttlSeconds: 86400 });
 
@@ -176,9 +176,63 @@ describe("auth recovery - forgot/reset/accept-invite/change-password", () => {
       assertEquals(status, 200);
       assertEquals(data.user.email, email);
 
-      // User ficou ativo
       const isActive = await sqlExec(`SELECT is_active FROM core."user" WHERE id='${userId}'`);
       assertEquals(isActive, "t");
+    });
+
+    // Token de reset não leva email_log/BCC nem âmbito: só abre em /reset-password.
+    it("accept-invite com token de reset devolve 410", async () => {
+      const token = "reset-as-invite-" + crypto.randomUUID();
+      await seedInviteToken({ token, userId, purpose: "reset" });
+      const e = await assertRejects(
+        () => client.auth.acceptInvite(token, "outra-pass-123"),
+        ApiError,
+      );
+      assertEquals(e.statusCode, 410);
+    });
+
+    // `is_active` é do Super (ADR 0020): um convite por abrir não reativa a conta.
+    it("accept-invite em conta inativa devolve 409 e a conta continua inativa", async () => {
+      const inactiveId = "usr_recov_invite_inactive";
+      await deleteTestUser(inactiveId).catch(() => {});
+      await seedTestUser({ id: inactiveId, email: `${inactiveId}@test.pt`, active: false });
+      const token = "invite-inactive-" + crypto.randomUUID();
+      await seedInviteToken({ token, userId: inactiveId, purpose: "invite" });
+
+      const e = await assertRejects(
+        () => client.auth.acceptInvite(token, "nova-pass-123"),
+        ApiError,
+      );
+      assertEquals(e.statusCode, 409);
+      const isActive = await sqlExec(`SELECT is_active FROM core."user" WHERE id='${inactiveId}'`);
+      assertEquals(isActive, "f");
+      await deleteTestUser(inactiveId);
+    });
+
+    // O link do convite fica no email_log/BCC do condomínio: se a conta passou a
+    // abrir algo fora do âmbito de quem convidou, o admin não pode tomá-la.
+    it("accept-invite recusa (403) conta que já excede o âmbito de quem convidou", async () => {
+      const superId = "usr_recov_invite_scope";
+      await deleteTestUser(superId).catch(() => {});
+      await seedTestUser({ id: superId, email: `${superId}@test.pt`, role: "super" });
+      const token = "invite-scope-" + crypto.randomUUID();
+      await seedInviteToken({
+        token,
+        userId: superId,
+        purpose: "invite",
+        scopeCondominiumIds: ["condo-de-quem-convidou"],
+      });
+
+      const e = await assertRejects(
+        () => client.auth.acceptInvite(token, "tomada-pass-123"),
+        ApiError,
+      );
+      assertEquals(e.statusCode, 403);
+      const used = await sqlExec(
+        `SELECT used_at IS NULL FROM core.invite_token WHERE token='${token}'`,
+      );
+      assertEquals(used, "t");
+      await deleteTestUser(superId);
     });
 
     it("accept-invite com mesmo token (já usado) devolve 410", async () => {

@@ -11,7 +11,11 @@ import type { OccupantSelect } from "$api/libs/postgres/schemas/occupant.ts";
 import type { ActorSnapshot } from "$api/libs/postgres/schemas/_audit.ts";
 import { inviteEmailHtml, sendEmail } from "$api/libs/email/send.ts";
 import { AppError } from "$api/libs/error/app_error.ts";
-import { accountReachableOutside, loadUserMembership } from "$api/libs/membership/mod.ts";
+import {
+  accountReachableOutside,
+  loadUserMembership,
+  type UserMembership,
+} from "$api/libs/membership/mod.ts";
 import { TOKEN_TTL_LABEL } from "./_token.ts";
 import {
   buildAcceptInviteUrl,
@@ -20,17 +24,14 @@ import {
   findExistingUserIdForOccupant,
 } from "./_invite_helpers.ts";
 
-// A conta que o convite usaria é super ou abre condomínios fora de `managed`?
-async function accountBeyondInviter(
+// Conta que o convite usaria, se já existir (inativas incluídas).
+async function existingAccount(
   postgres: Postgres,
   occupant: Pick<OccupantSelect, "userId" | "email">,
-  managed: readonly string[],
-): Promise<boolean> {
+): Promise<UserMembership | null> {
   const userId = await findExistingUserIdForOccupant(postgres, occupant);
-  if (!userId) return false;
-  const membership = await loadUserMembership(postgres, userId, { includeInactive: true });
-  if (!membership) return false;
-  return membership.isSuper || accountReachableOutside(membership, managed);
+  if (!userId) return null;
+  return await loadUserMembership(postgres, userId, { includeInactive: true });
 }
 
 export interface InviteOccupantInput {
@@ -70,7 +71,8 @@ export interface InviteOccupantResult {
     | "send-failed"
     | "ensure-user-failed"
     | "token-failed"
-    | "account-elsewhere";
+    | "account-elsewhere"
+    | "account-inactive";
   /** Erro original em best-effort (debugging). */
   error?: Error;
 }
@@ -97,11 +99,32 @@ export async function inviteOccupant(
     throw new Error("inviteOccupant: occupant sem email");
   }
 
+  const account = await existingAccount(postgres, occupant);
+
+  // `is_active` é do Super (ADR 0020): o convite não pode reativar a conta.
+  if (account && !account.user.isActive) {
+    if (failSoft) {
+      return {
+        userId: occupant.userId ?? null,
+        token: null,
+        expiresAt: null,
+        acceptUrl: null,
+        sent: false,
+        skipped: "account-inactive",
+      };
+    }
+    throw new AppError({
+      message: "Utilizador inativo: só um super pode reativar a conta.",
+      statusCode: STATUS_CODE.Conflict,
+      code: "USER_INACTIVE",
+    });
+  }
+
   // Aceitar o convite define a password da conta, e o link fica no registo de emails e
   // no BCC do condomínio. Mesma regra do reset assistido (admin/user/reset_password.ts).
   if (
-    input.managedCondominiumIds !== null &&
-    await accountBeyondInviter(postgres, occupant, input.managedCondominiumIds)
+    input.managedCondominiumIds !== null && account &&
+    (account.isSuper || accountReachableOutside(account, input.managedCondominiumIds))
   ) {
     if (failSoft) {
       return {
@@ -142,7 +165,7 @@ export async function inviteOccupant(
   let token: string;
   let expiresAt: Date;
   try {
-    const r = await createInviteToken(postgres, userId, actor ?? {});
+    const r = await createInviteToken(postgres, userId, actor ?? {}, input.managedCondominiumIds);
     token = r.token;
     expiresAt = r.expiresAt;
   } catch (e) {

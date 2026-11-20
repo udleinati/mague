@@ -12,7 +12,7 @@ import {
 } from "./context.ts";
 import { loadPortalUnitContext } from "./portal/portal_context.ts";
 import { loadCurrentCondominium } from "./condominium.ts";
-import { type OwnerWindow } from "./portal/owner_window.ts";
+import { type OwnerWindow } from "$shared/portal/owner_window.ts";
 import { condoUrl } from "./urls.ts";
 import { formatDate, formatMoney, formatPermillage } from "$shared/format/mod.ts";
 import { formatRemaining } from "$shared/time/remaining.ts";

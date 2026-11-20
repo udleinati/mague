@@ -155,10 +155,78 @@ export function validateSettlement(
         "VALIDATION_ERROR",
       );
     }
+    if (ctx.creditChargeOpen === null) {
+      throwErr(
+        `Charge de crédito ${input.creditChargeId} não encontrada`,
+        "NOT_FOUND",
+        STATUS_CODE.NotFound,
+      );
+    }
     return;
   }
 
   throwErr(`settlement_type desconhecido: ${input.settlementType}`, "VALIDATION_ERROR");
+}
+
+export interface ChargeSide {
+  nature: string;
+  kind: string;
+  unitId: string | null;
+}
+
+export interface SidesContext {
+  /** NULL se o settlement não tem debit_charge_id */
+  debitCharge: ChargeSide | null;
+  /** NULL se o settlement não tem credit_charge_id */
+  creditCharge: ChargeSide | null;
+  /** amount com sinal da bank_tx (> 0 entrada, < 0 saída); NULL sem movimento */
+  bankTxAmount: number | null;
+}
+
+/** Coerência das pontas. Pré-condição: `validateSettlement` passou (as pontas existem). */
+export function validateSettlementSides(input: SettlementInput, sides: SidesContext): void {
+  const { debitCharge, creditCharge } = sides;
+  if (debitCharge !== null && debitCharge.nature !== "debit") {
+    throwErr(
+      `Charge de débito ${input.debitChargeId} tem de ter nature='debit' (atual: ${debitCharge.nature})`,
+      "VALIDATION_ERROR",
+    );
+  }
+  if (creditCharge !== null && creditCharge.nature !== "credit") {
+    throwErr(
+      `Charge de crédito ${input.creditChargeId} tem de ter nature='credit' (atual: ${creditCharge.nature})`,
+      "VALIDATION_ERROR",
+    );
+  }
+
+  // Compensação só entre dívidas recíprocas: mesmo kind e, nas receivables, a mesma fração.
+  if (input.settlementType === "charge_offset" && debitCharge !== null && creditCharge !== null) {
+    if (debitCharge.kind !== creditCharge.kind) {
+      throwErr(
+        `charge_offset exige charges do mesmo kind (débito: ${debitCharge.kind}, crédito: ${creditCharge.kind})`,
+        "VALIDATION_ERROR",
+      );
+    }
+    if (debitCharge.kind === "receivable" && debitCharge.unitId !== creditCharge.unitId) {
+      throwErr("charge_offset entre receivables exige a mesma fração", "VALIDATION_ERROR");
+    }
+  }
+
+  // O sinal decide a perna bancária do ledger (fn_settlement_ai): tem de saldar a charge.
+  if (input.settlementType === "bank_reconciliation" && sides.bankTxAmount !== null) {
+    const charge = debitCharge ?? creditCharge;
+    if (charge !== null) {
+      const expectsIncoming = (charge.kind === "receivable") === (charge.nature === "debit");
+      if (expectsIncoming !== sides.bankTxAmount > 0) {
+        throwErr(
+          `Charge ${charge.kind}/${charge.nature} exige movimento de ${
+            expectsIncoming ? "entrada" : "saída"
+          }.`,
+          "WRONG_SIGN",
+        );
+      }
+    }
+  }
 }
 
 function throwErr(

@@ -84,7 +84,7 @@ describe("auth - user-level first/last login tracking", () => {
     const inviteEmail = `auth-invite-track-${runStamp}@test.pt`;
     const created = await sql<{ id: string }[]>`
       INSERT INTO core.user (name, email, role, is_active, password_hash)
-      VALUES ('Invite User', ${inviteEmail}, NULL, false, NULL)
+      VALUES ('Invite User', ${inviteEmail}, NULL, true, NULL)
       RETURNING id
     `;
     const inviteUserId = created[0].id;

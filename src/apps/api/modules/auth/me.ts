@@ -73,8 +73,12 @@ export const getAuthMe = async (ctx: Context, postgres: Postgres) => {
     );
     occupantUnits = occupants.flatMap((o) =>
       (o.unitOccupants ?? [])
-        // Ligação a fração de outro condomínio que não o do occupant não conta.
-        .filter((uo) => uo.unit.condominiumId === o.condominiumId)
+        // Mesma regra dos gates do portal (membership): condo do occupant = da
+        // fração, condo não apagado e ligação já iniciada.
+        .filter((uo) =>
+          uo.unit.condominiumId === o.condominiumId &&
+          membership.inCondo(o.condominiumId).linkedUnitIds.includes(uo.unit.id)
+        )
         .map((uo) => ({
           unitId: uo.unit.id,
           condominiumId: uo.unit.condominiumId,

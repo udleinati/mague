@@ -1,7 +1,6 @@
-// Janela temporal "como owner" do user numa unit. Filtra tudo o que o portal
-// mostra para o owner só ver o seu período. Regra de domínio do portal (não da
-// API): depende do user logged + occupants dele; endpoint dedicado seria
-// over-engineering até haver 2º consumidor.
+// Janela temporal "como owner" do user numa unit: o condómino só vê a vida
+// financeira da fração no seu período. A API aplica-a (`$api/libs/portal/
+// owner_window.ts`, autoritativo); o panel usa-a para mostrar o período.
 
 export interface OwnerWindow {
   startDate: string; // YYYY-MM-DD inclusive

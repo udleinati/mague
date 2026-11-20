@@ -6,7 +6,7 @@ import { requireCondominiumId } from "$api/libs/shared/require_condominium.ts";
 import { requireParam } from "$api/libs/shared/require_param.ts";
 import { findEntityOrFail } from "$api/libs/shared/find_entity.ts";
 import { calculateAssemblyQuorum } from "$api/libs/assembly/quorum_majority.ts";
-import { ASSEMBLY_PROJECTION, formatAssemblyForResponse } from "./_projection.ts";
+import { ASSEMBLY_PROJECTION, formatAssemblyForScope } from "./_projection.ts";
 import { type AssemblyScope, buildAssemblyDetailWhere } from "./_query.ts";
 import { loadLastConvocation } from "./convocation_history.ts";
 
@@ -29,6 +29,8 @@ export const getAssembly = async (
       ...ASSEMBLY_PROJECTION,
       with: {
         agendaItems: {
+          // ADR 0011: ActorSnapshots nunca saem na resposta (o portal também a lê).
+          columns: { createdBy: false, updatedBy: false, deletedBy: false },
           where: (e, ops) => ops.isNull(e.deletedAt),
           orderBy: (e, { asc }) => [asc(e.sequence), asc(e.createdAt)],
           with: {
@@ -45,7 +47,7 @@ export const getAssembly = async (
   );
   const assembly = findEntityOrFail(result, "Assembleia");
 
-  const serialized = formatAssemblyForResponse(assembly);
+  const serialized = formatAssemblyForScope(assembly, scope);
   const agendaItems = "agendaItems" in assembly
     ? (assembly as { agendaItems: unknown[] }).agendaItems
     : [];

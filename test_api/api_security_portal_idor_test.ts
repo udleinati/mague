@@ -104,11 +104,12 @@ describe("portal IDOR (deep) - query-string + cross-condo + body override", () =
       INSERT INTO core.occupant (user_id,name,email,condominium_id)
       VALUES ('${bobUid}','Bob','${bobEmail}','${condoB.id}')
       RETURNING id`)).split("\n")[0].trim();
+    // Donos desde antes das cobranças de teste: a janela do condómino esconde o resto.
     await sqlExec(`
       INSERT INTO core.unit_occupant (unit_id,occupant_id,relationship_type,start_date)
-      VALUES ('${unitA1.id}','${aliceOcc}','owner',CURRENT_DATE);
+      VALUES ('${unitA1.id}','${aliceOcc}','owner','2020-01-01');
       INSERT INTO core.unit_occupant (unit_id,occupant_id,relationship_type,start_date)
-      VALUES ('${unitB1.id}','${bobOcc}','owner',CURRENT_DATE);
+      VALUES ('${unitB1.id}','${bobOcc}','owner','2020-01-01');
     `);
     aliceHeaders = await loginAs(aliceEmail, "test12345");
     bobHeaders = await loginAs(bobEmail, "test12345");

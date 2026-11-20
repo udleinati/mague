@@ -1,7 +1,7 @@
 // ensurePortalAccess - garante que o destinatário pode aceder ao Portal antes
 // de receber comunicação. Devolve o `linkUrl` para o email: `directUrl` se já
 // tem user; caso contrário convida (token + email) e devolve a accept-invite URL
-// com `next=directUrl`. Best-effort: se falhar, devolve `directUrl` (`inviteSent=false`).
+// com `next=<path de directUrl>`. Best-effort: se falhar, devolve `directUrl` (`inviteSent=false`).
 
 import { Postgres } from "$api/libs/postgres/postgres.ts";
 import type { OccupantSelect } from "$api/libs/postgres/schemas/occupant.ts";
@@ -52,7 +52,8 @@ export async function ensurePortalAccess(
     panelBaseUrl,
     condominium,
     actor,
-    next: directUrl,
+    // Só o path: o panel recusa `next` absoluto (anti open-redirect).
+    next: new URL(directUrl).pathname,
     mode: "best-effort",
     // Convite automático do sistema: só contas que não abrem outro condomínio.
     managedCondominiumIds: [condominium.id],

@@ -3,7 +3,7 @@
 // Comportamento testado:
 //   1. Owner SEM `core.user` → receipt emit dispara 2 emails (invite +
 //      receipt) + cria user + linka ao occupant + invite_token para
-//      `/accept-invite?token=…&next=portalUrl`.
+//      `/accept-invite?token=…&next=<path do recibo>`.
 //   2. Owner COM `core.user` → receipt emit dispara 1 email (só receipt)
 //      + sem novo invite_token.
 //   3. 2.ª emissão ao mesmo owner (já com user pós-1) → 1 email só.
@@ -12,13 +12,14 @@
 // recibo + via para criar conta e aceder. Sem auto-invite, o link "Consultar
 // no portal" caía no login e o user não tinha forma de entrar.
 
-import { assertEquals, assertGreater, assertNotEquals } from "@std/assert";
+import { assertEquals, assertGreater, assertNotEquals, assertStringIncludes } from "@std/assert";
 import { describe, it } from "@std/testing/bdd";
 import postgresjs from "postgresjs";
 import { Client, type Condominium, type Unit } from "$shared/client/mod.ts";
 import { loginAsSuper } from "./_helpers/auth.ts";
 
 const BASE_URL = "http://localhost:3000";
+const PANEL_URL = "http://localhost:3400";
 const DATABASE_URL = Deno.env.get("DATABASE_URL") ??
   "postgres://mague:mague@localhost:5432/mague";
 const AUTH = await loginAsSuper();
@@ -190,6 +191,24 @@ describe("admin receipts - auto-invite na emissão", () => {
     assertGreater(after[0].activeTokens, 0);
     assertEquals(after[0].inviteEmails, 1);
     assertEquals(after[0].receiptEmails, 1);
+  });
+
+  it("link do convite abre no panel com `next` para o recibo (não cai no default)", async () => {
+    const [mail] = await sql<{ html: string }[]>`
+      SELECT body_html AS html FROM audit.email_log
+      WHERE recipient = ${emailNoUser} AND category = 'invite'
+    `;
+    const href = mail.html.match(/href="([^"]*\/accept-invite\?[^"]*)"/)?.[1];
+    assertNotEquals(href, undefined);
+    const acceptUrl = new URL(href!.replaceAll("&amp;", "&"));
+    const receiptPath = `/portal/c/${condo.id}/u/${unitNoUser.id}/receipts/`;
+    assertEquals(acceptUrl.searchParams.get("next")?.startsWith(receiptPath), true);
+
+    // O panel só honra `next` relativo: tem de chegar ao form como hidden.
+    const res = await fetch(`${PANEL_URL}${acceptUrl.pathname}${acceptUrl.search}`);
+    const page = await res.text();
+    assertEquals(res.status, 200);
+    assertStringIncludes(page, `name="next" value="${receiptPath}`);
   });
 
   it("emit recibo para owner COM user pré-existente → 1 email só (sem invite)", async () => {

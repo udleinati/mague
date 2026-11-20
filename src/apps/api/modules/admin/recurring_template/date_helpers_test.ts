@@ -2,7 +2,7 @@
 // Correr:  deno test --allow-env src/apps/api/modules/admin/recurring_template/date_helpers_test.ts
 
 import { assertEquals, assertThrows } from "@std/assert";
-import { advanceByInterval, monthStart } from "./date_helpers.ts";
+import { advanceByInterval, monthStart, pendingRunDates } from "./date_helpers.ts";
 
 // ── monthStart ────────────────────────────────────────────────────────
 
@@ -80,4 +80,37 @@ Deno.test("advanceByInterval: passar por ano bissexto sem perder dia", () => {
   // 2024 é bissexto. Mantém o dia tal como veio (não normaliza Fev 29).
   assertEquals(advanceByInterval("2023-12-29", "monthly"), "2024-01-29");
   assertEquals(advanceByInterval("2024-01-29", "monthly"), "2024-02-29");
+});
+
+// ── pendingRunDates ───────────────────────────────────────────────────
+
+Deno.test("pendingRunDates: mensal inclui throughDate e devolve as datas por ordem", () => {
+  assertEquals(
+    pendingRunDates("2026-01-05", "2026-03-05", null, "monthly", 240),
+    ["2026-01-05", "2026-02-05", "2026-03-05"],
+  );
+});
+
+Deno.test("pendingRunDates: endDate corta antes de throughDate", () => {
+  assertEquals(
+    pendingRunDates("2026-01-05", "2026-12-31", "2026-02-28", "monthly", 240),
+    ["2026-01-05", "2026-02-05"],
+  );
+});
+
+Deno.test("pendingRunDates: nextRunDate depois de throughDate → nada a gerar", () => {
+  assertEquals(pendingRunDates("2026-05-01", "2026-04-30", null, "monthly", 240), []);
+});
+
+// Um template com next_run_date em 1900 e throughDate em 9999 gerava ~100k charges
+// numa só transação. O helper pára em max + 1 para o generator recusar sem iterar tudo.
+Deno.test("pendingRunDates: excesso pára em max + 1 datas", () => {
+  const dates = pendingRunDates("1900-01-01", "9999-12-31", null, "monthly", 240);
+  assertEquals(dates.length, 241);
+  assertEquals(dates[0], "1900-01-01");
+});
+
+Deno.test("pendingRunDates: exatamente max períodos não excede", () => {
+  // 2026-01 .. 2045-12 = 240 meses.
+  assertEquals(pendingRunDates("2026-01-01", "2045-12-31", null, "monthly", 240).length, 240);
 });

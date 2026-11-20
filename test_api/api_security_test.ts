@@ -143,11 +143,12 @@ describe("security pentesting - cross-tenant + cross-role + header tampering", (
       VALUES ('${bobUserId}','Bob','bob-pentest@example.pt','${condoB.id}')
       RETURNING id
     `)).split("\n")[0].trim();
+    // Donos desde antes das cobranças de teste: a janela do condómino esconde o resto.
     await sqlExec(`
       INSERT INTO core.unit_occupant (unit_id,occupant_id,relationship_type,start_date)
-      VALUES ('${unitA1.id}','${aliceOcc}','owner',CURRENT_DATE);
+      VALUES ('${unitA1.id}','${aliceOcc}','owner','2020-01-01');
       INSERT INTO core.unit_occupant (unit_id,occupant_id,relationship_type,start_date)
-      VALUES ('${unitB1.id}','${bobOcc}','owner',CURRENT_DATE);
+      VALUES ('${unitB1.id}','${bobOcc}','owner','2020-01-01');
       INSERT INTO core.manager (condominium_id,user_id,is_active)
       VALUES ('${condoA.id}','${maryUserId}',true);
     `);

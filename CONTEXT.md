@@ -733,8 +733,11 @@ changelog, event log, activity log, `core.audit_log` (não existe).
 inspections, pathologies. Permite à fração submeter, confirmar e renovar apólices de seguro, abrir e
 comentar ocorrências, e editar o próprio perfil (contactos, receção de recibos por email). Não
 permite ações financeiras - só consulta e download de PDFs. Acesso: qualquer ocupante com ligação
-ativa à fração (proprietário, inquilino ou residente). PT: "portal do condómino". _Avoid_: tenant
-portal, client area, self-service.
+ativa à fração (proprietário, inquilino ou residente) já iniciada (`start_date` até hoje). A API
+aplica a **janela do condómino** (`$shared/portal/owner_window.ts`): cobranças, extrato e recibos só
+do período do ocupante (o inquilino vê o do proprietário ativo), e a fração não lista ex-ocupantes.
+Administradores do condomínio veem tudo. PT: "portal do condómino". _Avoid_: tenant portal, client
+area, self-service.
 
 ## Relationships
 
