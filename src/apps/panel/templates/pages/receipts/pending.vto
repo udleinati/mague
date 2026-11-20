@@ -91,7 +91,7 @@
               <th>Conta</th>
               <th>Descrição banco</th>
               <th class="text-right">Valor</th>
-              <th class="text-right pr-4 w-40"></th>
+              <th class="text-right pr-4 w-56"></th>
             </tr>
           </thead>
           <tbody>
@@ -134,6 +134,20 @@ A linha permanece visível mas marcada como ignorada. Podes retomar a qualquer m
                             data-confirm-cancel="Cancelar"
                             title="Ignorar - sai da fila, retomável depois">
                       ignorar
+                    </button>
+                    <button type="button" class="inline-flex items-center gap-1 link link-primary text-xs"
+                            data-bank-transaction-id="{{ p.bankTransactionId }}" data-unit-id="{{ p.unitId }}"
+                            onclick="openReceiptPreview(this.dataset)"
+                            title="Pré-visualizar o recibo antes de emitir">
+                      <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                      Ver
+                    </button>
+                    <button type="button" class="btn btn-xs btn-ghost"
+                            hx-get="/admin/c/{{ currentCondominiumId }}/receipts/emit-to?bankTransactionId={{ p.bankTransactionId }}&unitId={{ p.unitId }}"
+                            hx-target="#receipt_modal_slot"
+                            hx-swap="innerHTML show:no"
+                            title="Escolher para quem sai o recibo (só essa pessoa recebe)">
+                      Emitir para…
                     </button>
                     <button type="button" class="btn btn-xs btn-primary"
                             hx-post="/admin/c/{{ currentCondominiumId }}/receipts/emit"
@@ -219,6 +233,48 @@ A linha permanece visível mas marcada como ignorada. Podes retomar a qualquer m
     </div>
   {{ /if }}
 {{ /if }}
+
+{{# Slot do modal "Emitir para…" (hx-get); o emit esvazia-o via OOB para fechar o modal. #}}
+<div id="receipt_modal_slot"></div>
+
+{{# Pré-visualização do recibo (dialog + iframe sandbox, padrão da convocatória). Aberta pela
+   linha ("Ver", regra por defeito) ou pelo "Emitir para…" (com o destinatário escolhido). #}}
+<dialog id="receipt_preview_modal" class="modal">
+  <div class="modal-box max-w-4xl">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-base pr-8">Pré-visualização do recibo</h3>
+    <p class="text-xs text-base-content/60 mt-1">Tal como sairia no PDF. O número só é atribuído na emissão.</p>
+    <div class="mt-4 border border-base-200 rounded-lg overflow-hidden bg-base-200/40">
+      <iframe id="receipt_preview_iframe" sandbox class="w-full h-[75vh] bg-white" title="Pré-visualização do recibo"></iframe>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>fechar</button></form>
+</dialog>
+
+<script>
+  // params = { bankTransactionId, unitId } (linha) ou form do "Emitir para…" (com destinatário).
+  window.openReceiptPreview = async function (params, form) {
+    if (form && !form.reportValidity()) return;
+    const body = new URLSearchParams(form ? new FormData(form) : Object.assign({}, params));
+    const modal = document.getElementById("receipt_preview_modal");
+    const iframe = document.getElementById("receipt_preview_iframe");
+    iframe.srcdoc =
+      '<!doctype html><meta charset="utf-8"><body style="font-family:system-ui,sans-serif;padding:2rem;color:#6b7280;">A gerar pré-visualização...</body>';
+    modal.showModal();
+    try {
+      const resp = await fetch("/admin/c/{{ currentCondominiumId }}/receipts/preview", {
+        method: "POST",
+        body,
+        headers: { Accept: "application/json" },
+      });
+      const data = await resp.json();
+      iframe.srcdoc = data.html;
+    } catch (_e) {
+      iframe.srcdoc =
+        '<!doctype html><meta charset="utf-8"><body style="font-family:system-ui,sans-serif;padding:2rem;color:#b91c1c;">Erro a gerar a pré-visualização.</body>';
+    }
+  };
+</script>
 
 {{# Toasts (auto-dismiss + progresso) vivem no admin.vto; sem JS local. #}}
 

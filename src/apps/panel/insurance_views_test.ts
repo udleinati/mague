@@ -4,6 +4,7 @@
 
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { render } from "./render.ts";
+import { testAdminNav } from "./_admin_nav_fixture.ts";
 import {
   type AggregateKind,
   classifyPolicy,
@@ -32,6 +33,7 @@ const emptySummary = {
 
 const indexCtx = (over: Record<string, unknown> = {}) => ({
   currentCondominiumId: "c1",
+  adminNav: testAdminNav,
   units: [],
   totalUnits: 1, // > 0 -> ramo com a nota (não o empty-state global)
   summary: emptySummary,

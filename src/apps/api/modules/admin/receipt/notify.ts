@@ -1,4 +1,4 @@
-// Fase 3 do pipeline: por recipient ativo, ensurePortalAccess (auto-invite) -> sendEmail com
+// Fase 3 do pipeline: por recipient ativo (ou escolhido), ensurePortalAccess (auto-invite) -> sendEmail com
 // PDF anexo -> grava em `email_sent_to`. Best-effort: falhas marcam `status: 'failed'`, nunca
 // lançam. Separado do orchestrator (única fase com I/O fora da transação) para ser retried
 // por `resend_email.ts` sem replicar a lógica.
@@ -13,6 +13,7 @@ import { receiptIssuedEmailHtml, sendEmail } from "$api/libs/email/send.ts";
 import { portalReceiptUrl } from "./urls.ts";
 import { ensurePortalAccess } from "$api/modules/auth/portal_access.ts";
 import type { SnapshotsBundle } from "./_shared.ts";
+import { shouldEmailRecipient } from "./recipients.ts";
 
 interface NotifyRecipientsInput {
   receipt: typeof schema.receipt.$inferSelect;
@@ -46,33 +47,38 @@ export async function notifyRecipients(
   const records: EmailSendRecord[] = [];
 
   for (const recipient of snapshots.recipientsLive) {
-    if (!recipient.email || !recipient.receiveEmails) continue;
+    if (!recipient.email || !shouldEmailRecipient(recipient, recipient.receiveEmails)) continue;
     try {
-      const portalUrl = portalReceiptUrl(panelBaseUrl, condominiumId, unitId, receipt.id);
-      const access = await ensurePortalAccess({
-        postgres,
-        occupant: {
-          id: recipient.occupantId,
-          userId: recipient.userId,
-          email: recipient.email,
-          name: recipient.name,
-        },
-        directUrl: portalUrl,
-        panelBaseUrl,
-        condominium: {
-          id: condominiumId,
-          name: snapshots.condominium.name,
-          designationType: snapshots.condominium.designationType,
-        },
-        // Auto-invite via receipt é system-driven side-effect (não é o admin
-        // a criar o convite - é a app a propagar). Actor `null` faz o
-        // invite_token ficar com `created_by = '{}'`.
-        actor: null,
-      });
-      if (access.inviteSkipped) {
-        console.warn(
-          `[receipt:${receipt.id}] auto-invite skipped for ${recipient.email}: ${access.inviteSkipped}`,
-        );
+      // Destinatário manual (sem ocupante): sem convite nem link do portal, só o PDF.
+      let receiptUrl: string | undefined;
+      if (recipient.occupantId) {
+        const portalUrl = portalReceiptUrl(panelBaseUrl, condominiumId, unitId, receipt.id);
+        const access = await ensurePortalAccess({
+          postgres,
+          occupant: {
+            id: recipient.occupantId,
+            userId: recipient.userId,
+            email: recipient.email,
+            name: recipient.name,
+          },
+          directUrl: portalUrl,
+          panelBaseUrl,
+          condominium: {
+            id: condominiumId,
+            name: snapshots.condominium.name,
+            designationType: snapshots.condominium.designationType,
+          },
+          // Auto-invite via receipt é system-driven side-effect (não é o admin
+          // a criar o convite - é a app a propagar). Actor `null` faz o
+          // invite_token ficar com `created_by = '{}'`.
+          actor: null,
+        });
+        if (access.inviteSkipped) {
+          console.warn(
+            `[receipt:${receipt.id}] auto-invite skipped for ${recipient.email}: ${access.inviteSkipped}`,
+          );
+        }
+        receiptUrl = access.linkUrl;
       }
       const receiptNumber = receipt.number ?? "";
       await sendEmail({
@@ -93,7 +99,7 @@ export async function notifyRecipients(
           receiptNumber,
           amount: formatMoney(receipt.amountCents),
           paymentDate: formatDate(snapshots.bankTx.transactionDate),
-          receiptUrl: access.linkUrl,
+          receiptUrl,
         }),
         attachments: [
           { filename: attachmentName, content: attachmentBytes, contentType: "application/pdf" },

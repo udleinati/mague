@@ -326,7 +326,8 @@ prosa, resident, `occupant.type` (não existe: o tipo de relação vive em
 
 **Inquilino:** Ocupante com `relationship_type='tenant'` em pelo menos uma ligação. Sem direitos de
 voto nem convocatórias por defeito; tipicamente paga a quota mas não é o sujeito jurídico dela. Não
-recebe lembretes de cobrança nem recibos. Em prosa PT-PT. _Avoid_: renter, lessee.
+recebe lembretes de cobrança nem recibos, salvo quando o admin o escolhe como destinatário do
+recibo. Em prosa PT-PT. _Avoid_: renter, lessee.
 
 **Administrador (do condomínio):** Pessoa que gere operacionalmente o condomínio (Art. 1435.º CC).
 Modelado como **atribuição per-condomínio** - registo em `core.manager` (junction
@@ -493,15 +494,19 @@ deliberação de assembleia; o sistema não impõe essa ligação (o ponto `appr
 maioria exigida, 2/3). Ver [fluxo FCR](docs/flows/05-fluxo-fcr.md). _Avoid_: reserve fund,
 contingency fund.
 
-**Recibo:** Documento oficial PT emitido pela administração para um pagamento conciliado: um recibo
-por par (`bank_transaction` de entrada, fração), cobrindo os settlements ativos desse movimento para
-essa fração (`bank_reconciliation` e `bank_deposit_credit`). Tem número sequencial por condomínio e
-ano (`YYYY/NNNNN`), é **imutável** depois de emitido (exceto _void_ com motivo, que mantém o
-histórico). Gera PDF, é enviado por email aos proprietários e residentes da fração com
-`receive_receipt_emails=TRUE`. A emissão é explícita (individual ou em lote); um par pode ser
-dispensado de recibo (`finance.receipt_skip`). Distingue-se de **Settlement**: Recibo é o documento
-legal externo; Settlement é a entry contabilística interna. Schema: `finance.receipt`. _Avoid_:
-payment receipt, transaction receipt.
+**Recibo:** Documento oficial PT emitido pela administração para um pagamento conciliado: cobre os
+settlements ativos de um par (`bank_transaction` de entrada, fração) que ainda não tinham recibo
+(`bank_reconciliation` e `bank_deposit_credit`, gravados em `settlement_ids`). Um movimento
+conciliado aos poucos (ex.: depósito da seguradora consumido por refaturações) gera um recibo por
+cada conciliação nova da mesma fração. Tem número sequencial por condomínio e ano (`YYYY/NNNNN`), é
+**imutável** depois de emitido (exceto _void_ com motivo, que mantém o histórico). Gera PDF, é
+enviado por email aos proprietários e residentes da fração com `receive_receipt_emails=TRUE`. Na
+emissão individual o admin pode escolher um único destinatário ("Emitir para…"): um ocupante da
+fração (inquilino incluído) ou alguém inserido à mão com nome e NIF; só esse aparece no recibo e
+recebe o email. A emissão é explícita (individual ou em lote); um par pode ser dispensado de recibo
+(`finance.receipt_skip`). Distingue-se de **Settlement**: Recibo é o documento legal externo;
+Settlement é a entry contabilística interna. Schema: `finance.receipt`. _Avoid_: payment receipt,
+transaction receipt.
 
 **Fiscal year:** Ano contabilístico do condomínio. Schema: `finance.fiscal_year` (`year`,
 `start_date`, `end_date`, `status`, `closed_at`, `closed_assembly_id`), com `status` em `open`

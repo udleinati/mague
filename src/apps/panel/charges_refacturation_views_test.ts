@@ -7,6 +7,7 @@
 
 import { assertStringIncludes } from "@std/assert";
 import { render } from "./render.ts";
+import { testAdminNav } from "./_admin_nav_fixture.ts";
 
 const charge = (over: Record<string, unknown> = {}) => ({
   id: "ch_src",
@@ -48,6 +49,7 @@ const refacturation = (over: Record<string, unknown> = {}) => ({
 
 const showCtx = (over: Record<string, unknown> = {}) => ({
   currentCondominiumId: "c1",
+  adminNav: testAdminNav,
   condominium: { reconciledThroughDate: null },
   title: "Cobrança",
   charge: charge(),

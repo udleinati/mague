@@ -5,6 +5,7 @@
 
 import { assertStringIncludes } from "@std/assert";
 import { render } from "./render.ts";
+import { testAdminNav } from "./_admin_nav_fixture.ts";
 
 const occupancy = (over: Partial<Record<string, unknown>> = {}) => ({
   id: "uo1",
@@ -19,6 +20,7 @@ const occupancy = (over: Partial<Record<string, unknown>> = {}) => ({
 
 const unitShowData = (over: Partial<Record<string, unknown>> = {}) => ({
   currentCondominiumId: "c1",
+  adminNav: testAdminNav,
   currentUser: { role: "super" },
   condominium: { reconciledThroughDate: "2026-05-20" },
   unitId: "u1",
@@ -80,6 +82,7 @@ Deno.test("units/show: saída marcada para o futuro fica nos ativos, com a data 
 Deno.test("occupants/show: associação terminada continua editável (modal presente)", async () => {
   const html = await render("pages/occupants/show.vto", {
     currentCondominiumId: "c1",
+    adminNav: testAdminNav,
     currentUser: { role: "super" },
     occupant: {
       occupantId: "o1",

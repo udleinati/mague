@@ -279,26 +279,36 @@ crédito (`credit_adjustment`) não lançou nada ao nascer e o cancelamento tamb
 
 ## Recibo
 
-Um recibo corresponde a um par (movimento bancário, fração), não a uma quota. Código em
-[`receipt/`](../../src/apps/api/modules/admin/receipt/); ecrã em `/admin/c/:cid/receipts`.
+Um recibo corresponde às conciliações de um par (movimento bancário, fração), não a uma quota.
+Código em [`receipt/`](../../src/apps/api/modules/admin/receipt/); ecrã em `/admin/c/:cid/receipts`.
 
 - **Elegibilidade** - view `finance.vw_pending_receipts`
   ([`016_vw_receipt_pending.sql`](../../src/db/components/016_vw_receipt_pending.sql)): movimento
   com `amount > 0` e `status` fora de `reversed`/`ignored`, com settlements ativos
-  `bank_reconciliation` ou `bank_deposit_credit` dessa fração, sem recibo não anulado e sem
-  `receipt_skip` ativo. Um `charge_offset` não dá recibo.
-- **Valor** - soma dos settlements ativos dessa fração nesse movimento.
+  `bank_reconciliation` ou `bank_deposit_credit` dessa fração ainda sem recibo não anulado e sem
+  `receipt_skip` ativo no par. Um `charge_offset` não dá recibo.
+- **Valor** - soma dos settlements ativos dessa fração nesse movimento que ainda não têm recibo
+  (`finance.vw_receipted_settlements`). O recibo grava-os em `settlement_ids`; uma conciliação nova
+  no mesmo par volta a pôr o par nos pendentes, só com o valor novo. Recibos anteriores à regra
+  (array vazio) cobrem as conciliações do par feitas até à emissão. Anular um recibo devolve só as
+  conciliações dele à fila.
 - **Emissão** - manual: `POST /receipts` (um par) ou `POST /receipts/bulk` (até 100 por chamada). A
-  conciliação não emite recibos.
+  conciliação não emite recibos. `POST /receipts/preview` (mesmo body) devolve o HTML do recibo tal
+  como sairia, sem número e sem gravar nada ("Ver" e "Pré-visualizar" nos pendentes).
 - **Numeração** - `AAAA/NNNNN` (coluna gerada `number`), sequencial por condomínio e ano; o ano é o
   da data do movimento. Atribuída sob `pg_advisory_xact_lock(hashtext(condominium_id), year)` com
   `MAX(sequence) + 1`; UNIQUE `(condominium_id, year, sequence)`.
-- **Destinatários** - ocupantes com `relationship_type` `owner` ou `resident` ativos na fração à
-  data do movimento; inquilinos ficam de fora. Sem nenhum, a emissão falha (422).
+- **Destinatários** - por defeito, ocupantes com `relationship_type` `owner` ou `resident` ativos na
+  fração à data do movimento; inquilinos ficam de fora. Sem nenhum, a emissão falha (422). No
+  "Emitir para…" o admin escolhe um único destinatário (`recipient` no body): qualquer ocupante da
+  fração nessa data, inquilino incluído (`GET /receipts/recipient-options`), ou um nome/NIF/email
+  inserido à mão. Fica marcado `chosen` no snapshot; o manual tem `occupantId` nulo. Código em
+  [`recipients.ts`](../../src/apps/api/modules/admin/receipt/recipients.ts).
 - **Imutabilidade** - condomínio, fração, destinatários, linhas e movimento ficam congelados em
   colunas `*_snapshot`. O PDF é gerado e guardado no S3 dentro da transação de emissão.
-- **Email** - depois da transação, a cada destinatário com email e `receive_receipt_emails` ativo;
-  falhas de envio não desfazem a emissão.
+- **Email** - depois da transação, a cada destinatário com email e `receive_receipt_emails` ativo (o
+  escolhido recebe sempre, também no re-envio); falhas de envio não desfazem a emissão. O
+  destinatário manual não ganha convite nem link do portal, só o PDF anexo.
 - **Anulação** - manual (`POST /receipts/:receiptId/void`, com motivo) ou automática no estorno do
   movimento (`voided_reason='bank_tx_reversed'`, ver
   [07-fluxo-imputacao.md](./07-fluxo-imputacao.md)). O número mantém-se e o PDF é substituído, na

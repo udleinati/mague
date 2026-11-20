@@ -54,17 +54,23 @@ export function renderAndStorePdfFromSnapshots(
     recipientsLive: [],
     lines: receipt.linesSnapshot,
     bankTx: receipt.bankTxSnapshot,
+    settlementIds: receipt.settlementIds,
   }, panelBaseUrl);
 }
 
 export async function renderReceiptHtml(
-  receipt: typeof schema.receipt.$inferSelect,
+  receipt: Pick<
+    typeof schema.receipt.$inferSelect,
+    "number" | "issuedAt" | "voidedAt" | "voidedReason" | "amountCents"
+  >,
   snapshots: SnapshotsBundle,
   // Mantido por paridade com renderAndStorePdf; o recibo não tem QR (sem URL).
   _panelBaseUrl: string,
+  opts: { preview?: boolean } = {},
 ): Promise<string> {
   return await renderTemplate("receipt.vto", {
     receipt,
+    preview: opts.preview === true,
     condominium: snapshots.condominium,
     unit: snapshots.unit,
     recipients: snapshots.recipients,

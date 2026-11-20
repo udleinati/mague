@@ -4,9 +4,11 @@
 
 import { assert, assertStringIncludes } from "@std/assert";
 import { render } from "./render.ts";
+import { testAdminNav } from "./_admin_nav_fixture.ts";
 
 const showCtx = (over: Record<string, unknown> = {}) => ({
   currentCondominiumId: "c1",
+  adminNav: testAdminNav,
   title: "Ana Pinto",
   section: "users",
   target: {

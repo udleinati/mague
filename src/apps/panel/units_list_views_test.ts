@@ -4,6 +4,7 @@
 
 import { assert, assertStringIncludes } from "@std/assert";
 import { render } from "./render.ts";
+import { testAdminNav } from "./_admin_nav_fixture.ts";
 
 const unit = (over: Record<string, unknown>) => ({
   id: "u1",
@@ -26,6 +27,7 @@ const unit = (over: Record<string, unknown>) => ({
 const renderList = (units: Record<string, unknown>[]) =>
   render("pages/units/list.vto", {
     currentCondominiumId: "c1",
+    adminNav: testAdminNav,
     units,
     stats: {
       total: units.length,

@@ -15,7 +15,6 @@ import type {
   CondominiumSnapshot,
   IssuedByActor,
   LineSnapshot,
-  RecipientSnapshot,
   UnitSnapshot,
 } from "$api/libs/postgres/schemas/receipt.ts";
 import { renderPdf } from "$api/libs/pdf/render.ts";
@@ -25,7 +24,8 @@ import { nanoid } from "nanoid";
 import { renderReceiptHtml } from "./pdf.ts";
 import { notifyRecipients } from "./notify.ts";
 import { humanizeChargeLine, maskIban } from "./format.ts";
-import type { RecipientLive, SnapshotsBundle } from "./_shared.ts";
+import type { ReceiptRecipientChoice, SnapshotsBundle } from "./_shared.ts";
+import { listRecipientCandidates, resolveRecipients } from "./recipients.ts";
 
 export interface EmitReceiptInput {
   condominiumId: string;
@@ -35,6 +35,8 @@ export interface EmitReceiptInput {
   actor: IssuedByActor;
   /** Origin público para construir links nos emails. Vem do header X-Panel-Base-URL. */
   panelBaseUrl: string;
+  /** Destinatário escolhido pelo admin; omitido = owners + residents. */
+  recipient?: ReceiptRecipientChoice;
 }
 
 export interface EmitReceiptResult {
@@ -54,32 +56,11 @@ export async function emitReceipt(
   const { condominiumId, bankTransactionId, unitId, actor, panelBaseUrl } = input;
 
   // 1. Verificar elegibilidade via vw_pending_receipts (idempotência)
-  const eligibilityRows = await postgres.query((db) =>
-    db.execute<{
-      recipient_amount: number;
-      payment_date: string;
-      bank_tx_amount: number;
-      bank_account_id: string;
-    }>(
-      sql`
-        SELECT recipient_amount, payment_date, bank_tx_amount, bank_account_id
-          FROM finance.vw_pending_receipts
-         WHERE condominium_id = ${condominiumId}
-           AND bank_transaction_id = ${bankTransactionId}
-           AND unit_id = ${unitId}
-         LIMIT 1
-      `,
-    )
-  );
-  const eligibility = eligibilityRows[0];
-  if (!eligibility) {
-    throw new AppError({
-      message:
-        `Tupla (bank_tx=${bankTransactionId}, unit=${unitId}) não elegível para emissão (não está em vw_pending_receipts)`,
-      statusCode: STATUS_CODE.UnprocessableEntity,
-      code: "INVALID_STATE",
-    });
-  }
+  const eligibility = await findPendingTuple(postgres, {
+    condominiumId,
+    bankTransactionId,
+    unitId,
+  });
 
   // 2. Snapshots do estado atual.
   const snapshots = await buildSnapshots(postgres, {
@@ -87,9 +68,11 @@ export async function emitReceipt(
     bankTransactionId,
     unitId,
     paymentDate: String(eligibility.payment_date),
+    recipient: input.recipient,
   });
 
-  const amountCents = Number(eligibility.recipient_amount);
+  // Valor = soma das linhas que o recibo cobre (as mesmas de settlement_ids).
+  const amountCents = snapshots.lines.reduce((sum, l) => sum + l.amount, 0);
   const year = new Date(String(eligibility.payment_date)).getUTCFullYear();
 
   // 3. Transação: lock + sequence + render PDF + S3 + INSERT.
@@ -119,6 +102,45 @@ export async function emitReceipt(
     emailsSent,
     emailsFailed,
   };
+}
+
+// Tupla (bank_tx, unit) ainda por emitir; lança INVALID_STATE se já emitida/ignorada/inexistente.
+export async function findPendingTuple(
+  postgres: Postgres,
+  args: { condominiumId: string; bankTransactionId: string; unitId: string },
+): Promise<{
+  recipient_amount: number;
+  payment_date: string;
+  bank_tx_amount: number;
+  bank_account_id: string;
+}> {
+  const rows = await postgres.query((db) =>
+    db.execute<{
+      recipient_amount: number;
+      payment_date: string;
+      bank_tx_amount: number;
+      bank_account_id: string;
+    }>(
+      sql`
+        SELECT recipient_amount, payment_date, bank_tx_amount, bank_account_id
+          FROM finance.vw_pending_receipts
+         WHERE condominium_id = ${args.condominiumId}
+           AND bank_transaction_id = ${args.bankTransactionId}
+           AND unit_id = ${args.unitId}
+         LIMIT 1
+      `,
+    )
+  );
+  const row = rows[0];
+  if (!row) {
+    throw new AppError({
+      message:
+        `Tupla (bank_tx=${args.bankTransactionId}, unit=${args.unitId}) não elegível para emissão (não está em vw_pending_receipts)`,
+      statusCode: STATUS_CODE.UnprocessableEntity,
+      code: "INVALID_STATE",
+    });
+  }
+  return row;
 }
 
 // ─── Fase 2: transação atómica ──────────────────────────────────────────────
@@ -163,6 +185,22 @@ export async function runReceiptTransaction(
         )
       `);
 
+      // Sob o lock: outra emissão concorrente pode já ter coberto estas conciliações.
+      const covered = await tx.execute<{ settlement_id: string }>(sql`
+        SELECT settlement_id FROM finance.vw_receipted_settlements
+         WHERE settlement_id IN (${
+        sql.join(snapshots.settlementIds.map((sid) => sql`${sid}`), sql`, `)
+      })
+         LIMIT 1
+      `);
+      if (covered.length > 0) {
+        throw new AppError({
+          message: "Estas conciliações já têm recibo emitido",
+          statusCode: STATUS_CODE.UnprocessableEntity,
+          code: "INVALID_STATE",
+        });
+      }
+
       const seqRes = await tx.execute<{ next_seq: number }>(sql`
         SELECT COALESCE(MAX(sequence), 0) + 1 AS next_seq
           FROM finance.receipt
@@ -193,6 +231,7 @@ export async function runReceiptTransaction(
         sequence,
         number,
         amountCents,
+        settlementIds: snapshots.settlementIds,
         issuedAt,
         issuedBy: actor,
         voidedAt: null,
@@ -231,6 +270,7 @@ export async function runReceiptTransaction(
           year,
           sequence,
           amountCents,
+          settlementIds: snapshots.settlementIds,
           issuedAt,
           issuedBy: actor,
           condominiumSnapshot: snapshots.condominium,
@@ -263,7 +303,13 @@ export async function runReceiptTransaction(
 // trivial face ao render PDF).
 export async function buildSnapshots(
   postgres: Postgres,
-  args: { condominiumId: string; bankTransactionId: string; unitId: string; paymentDate: string },
+  args: {
+    condominiumId: string;
+    bankTransactionId: string;
+    unitId: string;
+    paymentDate: string;
+    recipient?: ReceiptRecipientChoice;
+  },
 ): Promise<SnapshotsBundle> {
   // Condominium
   const c = await postgres.query((db) =>
@@ -307,59 +353,14 @@ export async function buildSnapshots(
     unitType: u.unitType ?? null,
   };
 
-  // Recipients - owners + residents ativos à data do pagamento; tenants de fora (ADR 0028,
-  // Art. 1424 CC). `userId`/`phone` vêm em paralelo (não no JSONB) para o auto-invite do
-  // email loop criar/recuperar o user e gerar accept-token sem 2.ª query.
-  const recipientRows = await postgres.query((db) =>
-    db.execute<{
-      occupant_id: string;
-      user_id: string | null;
-      name: string;
-      nif: string | null;
-      email: string | null;
-      phone: string | null;
-      receive_receipt_emails: boolean;
-    }>(
-      sql`
-        SELECT o.id AS occupant_id, o.user_id, o.name, o.nif, o.email, o.phone,
-               o.receive_receipt_emails
-          FROM core.unit_occupant uo
-          JOIN core.occupant o ON o.id = uo.occupant_id
-         WHERE uo.unit_id = ${args.unitId}
-           AND uo.relationship_type IN ('owner', 'resident')
-           AND uo.deleted_at IS NULL
-           AND uo.start_date <= ${args.paymentDate}::date
-           AND (uo.end_date IS NULL OR uo.end_date >= ${args.paymentDate}::date)
-           AND o.deleted_at IS NULL
-           AND o.condominium_id = ${args.condominiumId}
-         ORDER BY o.name
-      `,
-    )
+  // Recipients - regra em recipients.ts. `userId`/`phone` vêm em paralelo (não no JSONB) para
+  // o auto-invite do email loop criar/recuperar o user e gerar accept-token sem 2.ª query.
+  const candidates = await listRecipientCandidates(postgres, args);
+  const { recipients, recipientsLive } = resolveRecipients(
+    candidates,
+    args.recipient,
+    args.paymentDate,
   );
-  if (recipientRows.length === 0) {
-    throw new AppError({
-      message:
-        `Sem destinatário (owner/resident) registado em ${args.paymentDate} - corrige unit_occupant primeiro`,
-      statusCode: STATUS_CODE.UnprocessableEntity,
-      code: "INVALID_STATE",
-    });
-  }
-  const recipients: RecipientSnapshot[] = recipientRows.map((r: typeof recipientRows[0]) => ({
-    occupantId: String(r.occupant_id),
-    name: String(r.name),
-    nif: r.nif ?? null,
-    email: r.email ?? null,
-    receiveEmails: Boolean(r.receive_receipt_emails),
-  }));
-  const recipientsLive: RecipientLive[] = recipientRows.map((r: typeof recipientRows[0]) => ({
-    occupantId: String(r.occupant_id),
-    userId: r.user_id ?? null,
-    name: String(r.name),
-    nif: r.nif ?? null,
-    email: r.email ?? null,
-    phone: r.phone ?? null,
-    receiveEmails: Boolean(r.receive_receipt_emails),
-  }));
 
   // Bank tx + bank account (snapshot)
   const btRows = await postgres.query((db) =>
@@ -398,9 +399,10 @@ export async function buildSnapshots(
     ibanMasked: maskIban(btRow.iban),
   };
 
-  // Lines - settlements desta unit nesta bank_tx, com a charge associada
+  // Lines - settlements desta unit nesta bank_tx ainda sem recibo, com a charge associada
   const lineRows = await postgres.query((db) =>
     db.execute<{
+      settlement_id: string;
       amount: number;
       charge_type: string;
       charge_description: string;
@@ -408,7 +410,8 @@ export async function buildSnapshots(
       fcr_amount: number | null;
     }>(
       sql`
-        SELECT s.amount,
+        SELECT s.id AS settlement_id,
+               s.amount,
                c.charge_type,
                c.description AS charge_description,
                c.competence_period,
@@ -419,6 +422,9 @@ export async function buildSnapshots(
            AND COALESCE(s.unit_id, c.unit_id) = ${args.unitId}
            AND s.status = 'active'
            AND s.settlement_type IN ('bank_reconciliation', 'bank_deposit_credit')
+           AND NOT EXISTS (
+             SELECT 1 FROM finance.vw_receipted_settlements rs WHERE rs.settlement_id = s.id
+           )
          ORDER BY c.competence_period NULLS LAST, c.created_at
       `,
     )
@@ -435,5 +441,14 @@ export async function buildSnapshots(
     fcrAmount: r.fcr_amount ?? null,
   }));
 
-  return { condominium, unit, recipients, recipientsLive, lines, bankTx };
+  if (lineRows.length === 0) {
+    throw new AppError({
+      message: "Sem conciliações por emitir neste movimento para esta fração",
+      statusCode: STATUS_CODE.UnprocessableEntity,
+      code: "INVALID_STATE",
+    });
+  }
+  const settlementIds = lineRows.map((r: typeof lineRows[0]) => String(r.settlement_id));
+
+  return { condominium, unit, recipients, recipientsLive, lines, bankTx, settlementIds };
 }

@@ -1,7 +1,13 @@
 import { type AsyncResult, validateResponse } from "../http.ts";
 import { listQuery, type ReceiptListParams } from "../list_params.ts";
 import { ManagerResource } from "../admin.ts";
-import type { PendingReceipt, Receipt, SkippedReceipt } from "../types.ts";
+import type {
+  PendingReceipt,
+  Receipt,
+  ReceiptRecipientChoice,
+  ReceiptRecipientOptions,
+  SkippedReceipt,
+} from "../types.ts";
 
 declare module "../admin.ts" {
   interface ManagerResource {
@@ -23,8 +29,16 @@ declare module "../admin.ts" {
       receiptId: string,
       requestInit?: RequestInit,
     ): AsyncResult<Receipt>;
+    getReceiptRecipientOptions(
+      params: { bankTransactionId: string; unitId: string },
+      requestInit?: RequestInit,
+    ): AsyncResult<ReceiptRecipientOptions>;
+    previewReceipt(
+      body: { bankTransactionId: string; unitId: string; recipient?: ReceiptRecipientChoice },
+      requestInit?: RequestInit,
+    ): AsyncResult<{ html: string }>;
     emitReceipt(
-      body: { bankTransactionId: string; unitId: string },
+      body: { bankTransactionId: string; unitId: string; recipient?: ReceiptRecipientChoice },
       requestInit?: RequestInit,
     ): AsyncResult<{
       receiptId: string;
@@ -126,6 +140,19 @@ export function registerReceiptMethods(): void {
 
   ManagerResource.prototype.getReceipt = function (receiptId, requestInit) {
     return this.request<Receipt>("GET", `/receipts/${receiptId}`, requestInit);
+  };
+
+  ManagerResource.prototype.getReceiptRecipientOptions = function (params, requestInit) {
+    const qs = new URLSearchParams(params).toString();
+    return this.request<ReceiptRecipientOptions>(
+      "GET",
+      `/receipts/recipient-options?${qs}`,
+      requestInit,
+    );
+  };
+
+  ManagerResource.prototype.previewReceipt = function (body, requestInit) {
+    return this.request<{ html: string }>("POST", "/receipts/preview", requestInit, body);
   };
 
   ManagerResource.prototype.emitReceipt = function (body, requestInit) {

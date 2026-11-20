@@ -4,6 +4,7 @@
 
 import { assert, assertStringIncludes } from "@std/assert";
 import { render } from "./render.ts";
+import { testAdminNav } from "./_admin_nav_fixture.ts";
 
 const baseStats = {
   total: 0,
@@ -18,6 +19,7 @@ const baseStats = {
 
 const listCtx = (over: Record<string, unknown> = {}) => ({
   currentCondominiumId: "c1",
+  adminNav: testAdminNav,
   accounts: [],
   fcrTransfers: [],
   stats: baseStats,

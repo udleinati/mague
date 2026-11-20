@@ -151,6 +151,24 @@ Deno.test("receipt: unitIdentifier=null → só designation no label", () => {
   assertEquals(html.includes("·"), false);
 });
 
+// Destinatário manual não tem conta no portal: um botão "Consultar no portal" levava-o a um login
+// onde não consegue entrar. Sem `receiptUrl` só segue o PDF anexo.
+Deno.test("receipt: sem receiptUrl → sem botão nem link do portal", () => {
+  const html = receiptIssuedEmailHtml({
+    recipientName: "Empresa Externa, Lda",
+    condominiumName: "C",
+    designationType: "building",
+    unitDesignation: "1ºA",
+    unitIdentifier: null,
+    receiptNumber: "2026/0010",
+    amount: "210,00 €",
+    paymentDate: "15/05/2026",
+  });
+  assertStringIncludes(html, "anexo");
+  assertEquals(html.includes("portal"), false);
+  assertEquals(html.includes("href="), false);
+});
+
 Deno.test("receipt: unitIdentifier definido → designation + identifier", () => {
   const html = receiptIssuedEmailHtml({
     recipientName: "Maria",

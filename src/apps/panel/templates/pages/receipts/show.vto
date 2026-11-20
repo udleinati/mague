@@ -83,6 +83,7 @@
               <div class="font-medium text-sm">{{ r.name }}</div>
               <div class="text-xs text-base-content/60 mt-0.5">
                 {{ if r.nif }}NIF {{ r.nif }}{{ else }}<span class="text-warning/80">NIF não registado</span>{{ /if }}
+                {{ if r.chosen }}<span class="text-info"> · {{ r.occupantId ? "escolhido na emissão" : "inserido à mão na emissão" }}</span>{{ /if }}
               </div>
             </div>
             <div class="text-xs text-base-content/50 shrink-0">
@@ -174,7 +175,7 @@
             {{ else }}
               <span class="inline-block w-1.5 h-1.5 rounded-full bg-base-300 shrink-0"></span>
               <span class="font-medium truncate">{{ r.name }}</span>
-              <span class="text-xs text-base-content/40 italic">ainda não descarregou</span>
+              <span class="text-xs text-base-content/40 italic">{{ r.occupantId ? "ainda não descarregou" : "sem acesso ao portal" }}</span>
             {{ /if }}
           </div>
         </li>
@@ -227,8 +228,12 @@
       <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
       <h3 class="font-bold text-lg mb-2">Re-enviar emails do recibo</h3>
       <p class="text-sm text-base-content/60 mb-4">
-        Vai re-enviar a notificação aos owners com email registado e que
-        atualmente têm "Receber recibos por email" ativo:
+        {{ if (receipt.recipientsSnapshot ?? []).some((r) => r.chosen) }}
+          Vai re-enviar a notificação só ao destinatário escolhido na emissão:
+        {{ else }}
+          Vai re-enviar a notificação aos owners com email registado e que
+          atualmente têm "Receber recibos por email" ativo:
+        {{ /if }}
       </p>
       {{ if activeRecipients.length === 0 }}
         <p class="text-sm text-base-content/50 italic mb-4 ml-4">

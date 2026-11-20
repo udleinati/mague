@@ -6,7 +6,7 @@
 
 import { assert, assertStringIncludes } from "@std/assert";
 import { render } from "./render.ts";
-import { buildAdminNav } from "./nav.ts";
+import { testAdminNav } from "./_admin_nav_fixture.ts";
 
 const charge = (over: Record<string, unknown> = {}) => ({
   id: "ch_engano",
@@ -36,14 +36,7 @@ const charge = (over: Record<string, unknown> = {}) => ({
 
 const showCtx = (over: Record<string, unknown> = {}) => ({
   currentCondominiumId: "c1",
-  // Fora de um pedido não há cid no ALS e o render injeta adminNav = null.
-  adminNav: buildAdminNav({
-    cid: "c1",
-    activeSection: null,
-    inspectionAlertCount: 0,
-    availableCondominiums: [],
-    occupantUnits: [],
-  }),
+  adminNav: testAdminNav,
   currentUser: { email: "admin@exemplo.pt" },
   condominium: { reconciledThroughDate: null },
   title: "Cobrança",

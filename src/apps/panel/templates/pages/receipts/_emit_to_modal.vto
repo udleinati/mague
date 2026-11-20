@@ -1,0 +1,84 @@
+{{# Modal "Emitir para…" (hx-get lazy para #receipt_modal_slot). Sucesso: o OOB do emitido
+   esvazia o slot e fecha o modal; erro: só toast, o modal fica para corrigir. #}}
+{{ set _relLabels = { owner: "proprietário", tenant: "inquilino", resident: "residente" } }}
+<dialog id="modal_emit_to" class="modal">
+  <div class="modal-box max-w-lg">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-lg mb-1">Emitir recibo para…</h3>
+    <p class="text-xs text-base-content/60 mb-4">
+      Fração <strong>{{ unitDesignation }}</strong>{{ if unitIdentifier }} - {{ unitIdentifier }}{{ /if }}
+      · {{ amountCents |> formatMoney }} · pago em {{ paymentDate |> formatDate }}.
+      O PDF sai só em nome de quem escolheres e o email vai só para essa pessoa.
+    </p>
+    <form hx-post="/admin/c/{{ currentCondominiumId }}/receipts/emit"
+          hx-swap="none"
+          hx-disabled-elt="find button[type='submit']"
+          class="space-y-4" data-emit-to-form>
+      <input type="hidden" name="bankTransactionId" value="{{ bankTransactionId }}">
+      <input type="hidden" name="unitId" value="{{ unitId }}">
+
+      <div class="form-control">
+        <label class="label py-1" for="emit_to_recipient"><span class="label-text text-xs font-medium">Recebido de <span class="text-error">*</span></span></label>
+        <select id="emit_to_recipient" name="recipientOccupantId" required
+                class="select select-sm select-bordered w-full" data-emit-to-select>
+          <option value="" disabled selected>Escolher destinatário…</option>
+          {{ for c of candidates }}
+            <option value="{{ c.occupantId }}" data-email="{{ c.email ?? '' }}">{{ c.name }} - {{ _relLabels[c.relationshipType] ?? c.relationshipType }} - {{ c.nif ? "NIF " + c.nif : "sem NIF" }}</option>
+          {{ /for }}
+          <option value="manual">Outro (inserir manualmente)</option>
+        </select>
+        <p class="text-xs text-base-content/60 mt-1.5" data-emit-to-email-hint></p>
+      </div>
+
+      <div class="space-y-3" data-emit-to-manual hidden>
+        <div class="form-control">
+          <label class="label py-1" for="emit_to_name"><span class="label-text text-xs font-medium">Nome <span class="text-error">*</span></span></label>
+          <input id="emit_to_name" name="recipientName" type="text" required disabled maxlength="200"
+                 class="input input-sm input-bordered w-full">
+        </div>
+        <div class="form-control">
+          <label class="label py-1" for="emit_to_nif"><span class="label-text text-xs font-medium">NIF <span class="text-error">*</span></span></label>
+          <input id="emit_to_nif" name="recipientNif" type="text" required disabled maxlength="20"
+                 class="input input-sm input-bordered w-full font-mono">
+        </div>
+        <div class="form-control">
+          <label class="label py-1" for="emit_to_email"><span class="label-text text-xs font-medium">Email</span></label>
+          <input id="emit_to_email" name="recipientEmail" type="email" disabled
+                 class="input input-sm input-bordered w-full">
+          <p class="text-xs text-base-content/50 mt-1">Sem email, só gera o PDF. Não cria acesso ao portal.</p>
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
+        <button type="button" class="btn btn-sm btn-ghost" onclick="document.getElementById('modal_emit_to').close()">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-outline" onclick="openReceiptPreview(null, this.form)">Pré-visualizar</button>
+        <button type="submit" class="btn btn-sm btn-primary">Emitir</button>
+      </div>
+    </form>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+{{# Campos manuais só ativos com "Outro"; dica do email do ocupante escolhido. Auto-open ao swap. #}}
+<script>
+  (function () {
+    var m = document.getElementById("modal_emit_to");
+    if (!m) return;
+    var select = m.querySelector("[data-emit-to-select]");
+    var manual = m.querySelector("[data-emit-to-manual]");
+    var hint = m.querySelector("[data-emit-to-email-hint]");
+    function sync() {
+      var isManual = select.value === "manual";
+      manual.hidden = !isManual;
+      manual.querySelectorAll("input").forEach(function (i) { i.disabled = !isManual; });
+      if (isManual || !select.value) { hint.textContent = ""; return; }
+      var email = select.selectedOptions[0].getAttribute("data-email");
+      hint.textContent = email
+        ? "O email segue para " + email + "."
+        : "Sem email registado: só gera o PDF.";
+    }
+    select.addEventListener("change", sync);
+    sync();
+    if (!m.open) m.showModal();
+  })();
+</script>

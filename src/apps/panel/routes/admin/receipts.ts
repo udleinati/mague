@@ -1,6 +1,7 @@
 // Routes /admin/c/:cid/receipts/* - emissão, listagem, void, re-envio email.
 //
 // /admin/c/:cid/receipts/pending - fila para emitir
+// /admin/c/:cid/receipts/emit-to  - modal "Emitir para…" (HTMX)
 // /admin/c/:cid/receipts          - histórico (filtros via query string)
 // /admin/c/:cid/receipts/:id      - detalhe
 
@@ -21,6 +22,14 @@ export function registerReceiptsRoutes(panelRouter: Hono): void {
       return c.html(await listFragment(params));
     }
     return c.html(await listPage(params));
+  });
+  // Antes de /:id para "emit-to" não ser lido como id.
+  panelRouter.get("/admin/c/:cid/receipts/emit-to", async (c) => {
+    const { emitToModal } = await import("../../controllers/receipts.ts");
+    const q = new URL(c.req.url).searchParams;
+    return c.html(
+      await emitToModal(q.get("bankTransactionId") ?? "", q.get("unitId") ?? ""),
+    );
   });
   panelRouter.get("/admin/c/:cid/receipts/:id", async (c) => {
     const { showPage } = await import("../../controllers/receipts.ts");
@@ -44,6 +53,22 @@ export function registerReceiptsRoutes(panelRouter: Hono): void {
       successMsg: (r) => `Recibo ${(r as { number?: string }).number ?? "?"} emitido.`,
       errorPrefix: "Erro ao emitir",
     });
+  });
+  // Pré-visualização (read-only): JSON { html } para o iframe do modal (padrão da convocatória).
+  panelRouter.post("/admin/c/:cid/receipts/preview", async (c) => {
+    const { previewReceipt } = await import("../../controllers/receipts.ts");
+    try {
+      const form = (await c.req.parseBody()) as Record<string, string | File>;
+      return c.json(await previewReceipt(form));
+    } catch (err) {
+      const { extractApiErrorMessage } = await import("../_form_error.ts");
+      const msg = extractApiErrorMessage(err, "Erro a gerar a pré-visualização.");
+      const safe = msg.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+      return c.json({
+        html:
+          `<!doctype html><meta charset="utf-8"><body style="font-family:system-ui,sans-serif;padding:2rem;color:#b91c1c;max-width:40rem;margin:2rem auto;">${safe}</body>`,
+      }, 422);
+    }
   });
   panelRouter.post("/admin/c/:cid/receipts/skip", async (c) => {
     const { skipReceiptHtmx } = await import("../../controllers/receipts.ts");

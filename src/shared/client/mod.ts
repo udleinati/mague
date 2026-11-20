@@ -54,6 +54,8 @@ export type {
   ReceiptCondominiumSnapshot,
   ReceiptEmailSendRecord,
   ReceiptLineSnapshot,
+  ReceiptRecipientChoice,
+  ReceiptRecipientOptions,
   ReceiptRecipientSnapshot,
   ReceiptUnitSnapshot,
   Settlement,

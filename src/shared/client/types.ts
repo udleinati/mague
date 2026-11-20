@@ -639,12 +639,33 @@ export interface ReceiptUnitSnapshot {
 }
 
 export interface ReceiptRecipientSnapshot {
-  occupantId: string;
+  /** null = destinatário manual, sem ocupante na fração. */
+  occupantId: string | null;
   name: string;
   nif: string | null;
   email: string | null;
   receiveEmails: boolean;
+  /** Escolhido pelo admin na emissão ("Emitir para…"). */
+  chosen?: boolean;
 }
+
+/** `GET /receipts/recipient-options` - ocupantes da fração na data do pagamento. */
+export interface ReceiptRecipientOptions {
+  paymentDate: string;
+  amountCents: number;
+  candidates: Array<{
+    occupantId: string;
+    name: string;
+    nif: string | null;
+    email: string | null;
+    relationshipType: "owner" | "tenant" | "resident";
+  }>;
+}
+
+/** Body `recipient` do emit: ocupante da fração ou destinatário manual. */
+export type ReceiptRecipientChoice =
+  | { occupantId: string }
+  | { name: string; nif: string; email?: string | null };
 
 export interface ReceiptLineSnapshot {
   description: string;

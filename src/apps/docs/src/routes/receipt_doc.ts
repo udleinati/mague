@@ -50,6 +50,26 @@ const PendingReceiptDoc = z.object({
 const EmitReceiptBodyDoc = z.object({
   bankTransactionId: z.string(),
   unitId: z.string(),
+  recipient: z.union([
+    z.object({ occupantId: z.string() }),
+    z.object({ name: z.string(), nif: z.string(), email: z.string().nullable().optional() }),
+  ]).optional().openapi({
+    description: "Destinatário único escolhido pelo admin: ocupante da fração à data do " +
+      "pagamento (ver `recipient-options`) ou destinatário manual (nome + NIF, email opcional). " +
+      "Omitido = owners + residents. O escolhido recebe o email mesmo com opt-out.",
+  }),
+});
+
+const RecipientOptionsDoc = z.object({
+  paymentDate: z.string().openapi({ example: "2026-09-24" }),
+  amountCents: z.number().int(),
+  candidates: z.array(z.object({
+    occupantId: z.string(),
+    name: z.string(),
+    nif: z.string().nullable(),
+    email: z.string().nullable(),
+    relationshipType: z.enum(["owner", "tenant", "resident"]),
+  })),
 });
 
 const EmitReceiptResponseDoc = z.object({
@@ -131,6 +151,27 @@ export const listPendingReceiptsDoc: RouteConfig = {
   },
 };
 
+export const listRecipientOptionsDoc: RouteConfig = {
+  description: "Ocupantes ligados à fração na data do pagamento (qualquer relação), para " +
+    "escolher o destinatário do recibo antes de emitir. O par tem de estar pendente.",
+  method: "get",
+  path: "/admin/condominiums/{cid}/receipts/recipient-options",
+  request: {
+    params: CondoOnlyParamsDoc,
+    query: z.object({ bankTransactionId: z.string(), unitId: z.string() }),
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: z.object({ data: RecipientOptionsDoc }) } },
+      description: "Candidatos",
+    },
+    422: {
+      content: { "application/json": { schema: ErrorResponseDoc } },
+      description: "Par não pendente (já emitido, ignorado ou inexistente)",
+    },
+  },
+};
+
 export const getReceiptDoc: RouteConfig = {
   description: "Obtém recibo pelo ID.",
   method: "get",
@@ -169,6 +210,29 @@ export const emitReceiptDoc: RouteConfig = {
     400: {
       content: { "application/json": { schema: ErrorResponseDoc } },
       description: "Inelegível, validação ou pipeline falhou",
+    },
+  },
+};
+
+export const previewReceiptDoc: RouteConfig = {
+  description: "Pré-visualização: HTML do recibo tal como sairia (mesmo template do PDF, " +
+    "tarja PRÉ-VISUALIZAÇÃO, sem número). Mesmo body do emit; não grava nada.",
+  method: "post",
+  path: "/admin/condominiums/{cid}/receipts/preview",
+  request: {
+    params: CondoOnlyParamsDoc,
+    body: { content: { "application/json": { schema: EmitReceiptBodyDoc } } },
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": { schema: z.object({ data: z.object({ html: z.string() }) }) },
+      },
+      description: "HTML do recibo",
+    },
+    422: {
+      content: { "application/json": { schema: ErrorResponseDoc } },
+      description: "Par não pendente ou destinatário inválido",
     },
   },
 };
@@ -300,8 +364,10 @@ export const trackReceiptAccessDoc: RouteConfig = {
 const routes = [
   listReceiptsDoc,
   listPendingReceiptsDoc,
+  listRecipientOptionsDoc,
   getReceiptDoc,
   emitReceiptDoc,
+  previewReceiptDoc,
   emitBulkReceiptsDoc,
   voidReceiptDoc,
   resendReceiptEmailDoc,

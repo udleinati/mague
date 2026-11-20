@@ -1,14 +1,35 @@
 -- 016_vw_receipt_pending.sql
--- Views auxiliares para emissão de recibos (vw_pending_receipts =
--- tuplas (bank_tx, unit) elegíveis; vw_receipt_emit_data = payload do emit).
+-- Views auxiliares para emissão de recibos (vw_receipted_settlements = conciliações com
+-- recibo; vw_pending_receipts = conciliações por (bank_tx, unit) ainda sem recibo;
+-- vw_receipt_emit_data = payload do emit).
 --
 -- settlement/charge/receipt não têm deleted_at; equivalentes usados abaixo:
 --   • s.deleted_at IS NULL    → s.status = 'active'
 --   • c.deleted_at IS NULL    → c.status <> 'cancelled'
---   • r.deleted_at IS NULL    → r.voided_at IS NULL
+--   • r.deleted_at IS NULL    → r.voided_at IS NULL (em vw_receipted_settlements)
 --   • rs.deleted_at IS NULL   → mantém-se (receipt_skip ainda usa deleted_at)
 
 DROP VIEW IF EXISTS finance.vw_pending_receipts;
+DROP VIEW IF EXISTS finance.vw_receipted_settlements;
+
+-- Settlements já cobertos por um recibo ativo. Recibo com settlement_ids vazio (anterior à
+-- migration 004 ou emitido por código antigo) cobre os do par criados até à emissão.
+CREATE VIEW finance.vw_receipted_settlements AS
+SELECT s.id AS settlement_id,
+       r.id AS receipt_id
+FROM finance.receipt r
+JOIN finance.settlement s
+  ON s.bank_transaction_id = r.bank_transaction_id
+LEFT JOIN finance.charge c
+  ON c.id = COALESCE(s.debit_charge_id, s.credit_charge_id)
+WHERE r.voided_at IS NULL
+  AND (s.id = ANY (r.settlement_ids)
+       OR (cardinality(r.settlement_ids) = 0
+           AND COALESCE(s.unit_id, c.unit_id) = r.unit_id
+           AND s.created_at <= r.issued_at));
+
+-- Um pendente por par (movimento, fração) com as conciliações ativas ainda sem recibo; o
+-- valor é só o delas (um movimento consumido aos poucos gera vários recibos).
 CREATE VIEW finance.vw_pending_receipts AS
 SELECT bt.condominium_id,
        bt.id AS bank_transaction_id,
@@ -31,10 +52,8 @@ WHERE bt.amount > 0
   AND s.settlement_type IN ('bank_reconciliation', 'bank_deposit_credit')
   AND COALESCE(s.unit_id, c.unit_id) IS NOT NULL
   AND NOT EXISTS (
-    SELECT 1 FROM finance.receipt r
-    WHERE r.bank_transaction_id = bt.id
-      AND r.unit_id = COALESCE(s.unit_id, c.unit_id)
-      AND r.voided_at IS NULL
+    SELECT 1 FROM finance.vw_receipted_settlements rs
+    WHERE rs.settlement_id = s.id
   )
   AND NOT EXISTS (
     SELECT 1 FROM finance.receipt_skip rs
