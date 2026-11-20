@@ -38,7 +38,7 @@ export const previewReceiptHandler = async (ctx: Context, postgres: Postgres) =>
       issuedAt: new Date(),
       voidedAt: null,
       voidedReason: null,
-      amountCents: Number(pending.recipient_amount),
+      amountCents: snapshots.lines.reduce((sum, l) => sum + l.amount, 0),
     },
     snapshots,
     "",

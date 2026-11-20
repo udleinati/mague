@@ -1,5 +1,6 @@
 // POST /v1/admin/condominiums/:cid/receipts - Body: { bankTransactionId, unitId, recipient? }.
-// Emite 1 recibo para a tupla (bank_tx, unit). Wrapper sobre `emitReceipt`. `recipient` =
+// Emite 1 recibo com as conciliações da tupla (bank_tx, unit) ainda sem recibo. Wrapper sobre
+// `emitReceipt`. `recipient` =
 // { occupantId } ou { name, nif, email? } (ver recipients.ts); omitido = owners + residents.
 
 import type { Context } from "hono";

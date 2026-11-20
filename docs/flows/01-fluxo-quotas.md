@@ -279,15 +279,19 @@ crédito (`credit_adjustment`) não lançou nada ao nascer e o cancelamento tamb
 
 ## Recibo
 
-Um recibo corresponde a um par (movimento bancário, fração), não a uma quota. Código em
-[`receipt/`](../../src/apps/api/modules/admin/receipt/); ecrã em `/admin/c/:cid/receipts`.
+Um recibo corresponde às conciliações de um par (movimento bancário, fração), não a uma quota.
+Código em [`receipt/`](../../src/apps/api/modules/admin/receipt/); ecrã em `/admin/c/:cid/receipts`.
 
 - **Elegibilidade** - view `finance.vw_pending_receipts`
   ([`016_vw_receipt_pending.sql`](../../src/db/components/016_vw_receipt_pending.sql)): movimento
   com `amount > 0` e `status` fora de `reversed`/`ignored`, com settlements ativos
-  `bank_reconciliation` ou `bank_deposit_credit` dessa fração, sem recibo não anulado e sem
-  `receipt_skip` ativo. Um `charge_offset` não dá recibo.
-- **Valor** - soma dos settlements ativos dessa fração nesse movimento.
+  `bank_reconciliation` ou `bank_deposit_credit` dessa fração ainda sem recibo não anulado e sem
+  `receipt_skip` ativo no par. Um `charge_offset` não dá recibo.
+- **Valor** - soma dos settlements ativos dessa fração nesse movimento que ainda não têm recibo
+  (`finance.vw_receipted_settlements`). O recibo grava-os em `settlement_ids`; uma conciliação nova
+  no mesmo par volta a pôr o par nos pendentes, só com o valor novo. Recibos anteriores à regra
+  (array vazio) cobrem as conciliações do par feitas até à emissão. Anular um recibo devolve só as
+  conciliações dele à fila.
 - **Emissão** - manual: `POST /receipts` (um par) ou `POST /receipts/bulk` (até 100 por chamada). A
   conciliação não emite recibos. `POST /receipts/preview` (mesmo body) devolve o HTML do recibo tal
   como sairia, sem número e sem gravar nada ("Ver" e "Pré-visualizar" nos pendentes).

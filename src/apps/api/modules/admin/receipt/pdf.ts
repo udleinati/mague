@@ -54,6 +54,7 @@ export function renderAndStorePdfFromSnapshots(
     recipientsLive: [],
     lines: receipt.linesSnapshot,
     bankTx: receipt.bankTxSnapshot,
+    settlementIds: receipt.settlementIds,
   }, panelBaseUrl);
 }
 
