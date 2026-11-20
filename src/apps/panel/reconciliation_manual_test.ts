@@ -134,21 +134,21 @@ Deno.test("modal parcial: mostra o já conciliado e o disponível, e a devoluç�
     baseData({
       t: {
         id: "tx1",
-        transactionDate: "2026-10-27",
-        description: "TRF SEGURADORA",
-        amount: 718_60,
+        transactionDate: "2099-03-10",
+        description: "TRF ENTRADA TESTE",
+        amount: 500_00,
       },
-      txUnallocated: 266_57,
-      txAllocated: 452_03,
+      txUnallocated: 200_00,
+      txAllocated: 300_00,
     }),
   );
   assertStringIncludes(html, "data-tx-available");
-  assertStringIncludes(html, "452,03 €");
+  assertStringIncludes(html, "300,00 €");
   assertStringIncludes(html, "Disponível para conciliar");
-  assertStringIncludes(html, "266,57 €");
+  assertStringIncludes(html, "200,00 €");
   // Propor o valor do movimento na devolução excederia o que falta conciliar.
-  assertStringIncludes(html, 'value="266.57"');
-  assert(!html.includes('value="718.60"'));
+  assertStringIncludes(html, 'value="200.00"');
+  assert(!html.includes('value="500.00"'));
 });
 
 Deno.test("modal sem conciliações: não mostra o quadro do disponível", async () => {

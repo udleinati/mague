@@ -11,9 +11,9 @@ const FRAGMENT = "pages/reconciliation/_list_fragment.vto";
 
 const tx = (over: Record<string, unknown>) => ({
   id: "tx1",
-  transactionDate: "2026-10-27",
-  description: "PAGAMENTO TRANSFERENCIA DE SEGURADORA",
-  amount: 71860,
+  transactionDate: "2099-03-10",
+  description: "TRF ENTRADA TESTE",
+  amount: 50000,
   status: "unreconciled",
   settlements: [],
   ...over,
@@ -51,13 +51,13 @@ Deno.test("conciliação: movimento parcial em Em aberto mantém o conciliar", a
     FRAGMENT,
     ctx({
       transactions: [
-        tx({ status: "partial", unallocated: 26657 }),
-        tx({ id: "tx2", status: "reversed", unallocated: 71860 }),
+        tx({ status: "partial", unallocated: 20000 }),
+        tx({ id: "tx2", status: "reversed", unallocated: 50000 }),
       ],
     }),
   );
   // O que falta conciliar fica à vista na lista, sem abrir o modal.
-  assertStringIncludes(html, "(falta 266,57 €)");
+  assertStringIncludes(html, "(falta 200,00 €)");
   assertStringIncludes(html, "Revertido");
   assertStringIncludes(html, "/reconciliation/tx/tx1/modal");
   assertStringIncludes(html, "/reconciliation/tx/tx2/modal");

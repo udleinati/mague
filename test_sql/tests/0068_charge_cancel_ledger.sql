@@ -20,7 +20,7 @@ INSERT INTO finance.charge (id, condominium_id, unit_id, kind, nature, charge_ty
   original_amount, expected_amount, open_amount, description)
 VALUES ('ch_ccl_deb', 'cd_ccl', 'u_ccl', 'receivable', 'debit', 'opening_balance_debit', 'open',
   'unit', '2099-03-01', '2099-03-01',
-  97500, 97500, 97500, 'Dívida lançada por engano');
+  12000, 12000, 12000, 'Dívida lançada por engano');
 
 UPDATE finance.charge SET status = 'cancelled' WHERE id = 'ch_ccl_deb';
 

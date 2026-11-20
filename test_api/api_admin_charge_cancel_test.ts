@@ -245,7 +245,7 @@ describe("admin charges - cancelamento", () => {
     const { data: wrong } = await receivable(unitB.id, {
       chargeType: "opening_balance_debit",
       description: "Dívida lançada por engano",
-      amountCents: 97500,
+      amountCents: 12000,
     });
     const { data: before } = await client.admin.getCharge(credit.id, { headers: hdr() });
     assertEquals(before.openAmount, 0); // consumido pelo auto-offset
@@ -263,7 +263,7 @@ describe("admin charges - cancelamento", () => {
 
     const { data: ledger } = await client.admin.getChargeLedger(wrong.id, { headers: hdr() });
     const cancelled = ledger.filter((l) => l.entryType === "charge_cancelled");
-    assertEquals(cancelled.map((l) => Number(l.amount)), [97500, 97500]);
+    assertEquals(cancelled.map((l) => Number(l.amount)), [12000, 12000]);
     assertEquals(net(ledger), 0);
   });
 

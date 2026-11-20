@@ -9,18 +9,18 @@ import { render } from "./render.ts";
 import { buildAdminNav } from "./nav.ts";
 
 const charge = (over: Record<string, unknown> = {}) => ({
-  id: "ch_975",
+  id: "ch_engano",
   code: "R0001A",
   kind: "receivable",
   nature: "debit",
   chargeType: "opening_balance_debit",
   status: "paid",
   description: "Dívida de quotas 2025",
-  issueDate: "2026-11-01",
+  issueDate: "2099-03-01",
   dueDate: null,
-  competencePeriod: "2026-11",
-  originalAmount: 97500,
-  settledAmount: 97500,
+  competencePeriod: "2099-03",
+  originalAmount: 12000,
+  settledAmount: 12000,
   openAmount: 0,
   note: null,
   cancellationReason: null,
@@ -56,7 +56,7 @@ const showCtx = (over: Record<string, unknown> = {}) => ({
   canCancel: true,
   offsetsToUndo: [{
     id: "st1",
-    amount: 97500,
+    amount: 12000,
     code: "R0000Z",
     description: "Crédito de adiantamento",
     competencePeriod: "2026-10-01",
@@ -85,7 +85,7 @@ Deno.test("cancelar: modal mostra os offsets a desfazer e exige justificação +
   assertStringIncludes(html, "Compensações a desfazer (1)");
   assertStringIncludes(html, 'name="reason" required minlength="10"');
   assertStringIncludes(html, 'pattern="CANCELAR"');
-  assertStringIncludes(html, 'action="/admin/c/c1/charges/ch_975/cancel"');
+  assertStringIncludes(html, 'action="/admin/c/c1/charges/ch_engano/cancel"');
   // O botão da Zona perigosa abre o modal próprio; o modal global (sem campo de
   // justificação) não pode intercetar este form.
   assertStringIncludes(html, "document.getElementById('cancel_charge_modal').showModal()");
