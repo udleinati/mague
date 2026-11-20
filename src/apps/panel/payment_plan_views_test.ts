@@ -4,6 +4,7 @@
 
 import { assert, assertStringIncludes } from "@std/assert";
 import { render } from "./render.ts";
+import { testAdminNav } from "./_admin_nav_fixture.ts";
 
 const overdueUnit = (over: Partial<Record<string, unknown>> = {}) => ({
   unitId: "u1",
@@ -23,6 +24,7 @@ const overdueUnit = (over: Partial<Record<string, unknown>> = {}) => ({
 Deno.test("billing-reminders: duas colunas (Vencido + Total vencido)", async () => {
   const html = await render("pages/billing_reminders/list.vto", {
     currentCondominiumId: "c1",
+    adminNav: testAdminNav,
     reconciledThroughDate: "2026-05-20",
     guard: { ok: true },
     filters: { overdue: 30, plan: "all" },
@@ -43,6 +45,7 @@ Deno.test("billing-reminders: tfoot soma 'Vencido +Nd' e 'Total vencido' das fra
   // se a reduce somar o campo errado (ou não somar), as asserções falham.
   const html = await render("pages/billing_reminders/list.vto", {
     currentCondominiumId: "c1",
+    adminNav: testAdminNav,
     reconciledThroughDate: "2026-05-20",
     guard: { ok: true },
     filters: { overdue: 30, plan: "all" },
@@ -64,6 +67,7 @@ Deno.test("billing-reminders: tfoot soma 'Vencido +Nd' e 'Total vencido' das fra
 Deno.test("billing-reminders: barra de filtros bloco + plano com estado ativo", async () => {
   const html = await render("pages/billing_reminders/list.vto", {
     currentCondominiumId: "c1",
+    adminNav: testAdminNav,
     reconciledThroughDate: "2026-05-20",
     guard: { ok: true },
     filters: { overdue: 60, plan: "without" },
@@ -83,6 +87,7 @@ Deno.test("billing-reminders: bloco +1d existe e a coluna Vencido acompanha", as
   // dia"; a coluna "Vencido +1d" tem de refletir o filtro ativo.
   const html = await render("pages/billing_reminders/list.vto", {
     currentCondominiumId: "c1",
+    adminNav: testAdminNav,
     reconciledThroughDate: "2026-05-20",
     guard: { ok: true },
     filters: { overdue: 1, plan: "all" },
@@ -97,6 +102,7 @@ Deno.test("billing-reminders: bloco +1d existe e a coluna Vencido acompanha", as
 Deno.test("billing-reminders: badge 'Em plano' e bulk exclui plano da contagem", async () => {
   const html = await render("pages/billing_reminders/list.vto", {
     currentCondominiumId: "c1",
+    adminNav: testAdminNav,
     reconciledThroughDate: "2026-05-20",
     guard: { ok: true },
     filters: { overdue: 30, plan: "all" },
@@ -199,6 +205,7 @@ Deno.test("units/show: plano só com nota interna não mostra rótulo de partilh
 Deno.test("billing-reminders: tooltip do plano mostra as duas notas ao admin", async () => {
   const html = await render("pages/billing_reminders/list.vto", {
     currentCondominiumId: "c1",
+    adminNav: testAdminNav,
     reconciledThroughDate: "2026-05-20",
     guard: { ok: true },
     filters: { overdue: 30, plan: "all" },
@@ -218,6 +225,7 @@ Deno.test("billing-reminders: nota da administração gravada pré-preenche o te
   // o perdeu e reescreve.
   const html = await render("pages/billing_reminders/list.vto", {
     currentCondominiumId: "c1",
+    adminNav: testAdminNav,
     reconciledThroughDate: "2026-05-20",
     guard: { ok: true },
     filters: { overdue: 30, plan: "all" },
@@ -236,6 +244,7 @@ Deno.test("billing-reminders: sem condomínio no contexto, o textarea da nota fi
   // ser robusto.
   const html = await render("pages/billing_reminders/list.vto", {
     currentCondominiumId: "c1",
+    adminNav: testAdminNav,
     reconciledThroughDate: "2026-05-20",
     guard: { ok: true },
     filters: { overdue: 30, plan: "all" },
@@ -249,6 +258,7 @@ Deno.test("billing-reminders: ícone 'Ver' (ADR 0022) abre o email num modal de 
   // email mostra-se num modal+iframe (mesmo padrão do histórico de emails).
   const html = await render("pages/billing_reminders/list.vto", {
     currentCondominiumId: "c1",
+    adminNav: testAdminNav,
     reconciledThroughDate: "2026-05-20",
     guard: { ok: true },
     filters: { overdue: 30, plan: "all" },
@@ -289,6 +299,7 @@ Deno.test("units/list: badge 'Em plano' só na fração com plano ativo", async 
   });
   const html = await render("pages/units/list.vto", {
     currentCondominiumId: "c1",
+    adminNav: testAdminNav,
     units: [
       baseUnit({ id: "u1", designation: "1ºE", hasActivePlan: true }),
       baseUnit({ id: "u2", designation: "2ºD", hasActivePlan: false }),
@@ -315,6 +326,7 @@ Deno.test("units/list: badge 'Em plano' só na fração com plano ativo", async 
 
 const showData = (over: Record<string, unknown>) => ({
   currentCondominiumId: "c1",
+  adminNav: testAdminNav,
   condominium: { reconciledThroughDate: "2026-05-20" },
   unit: {
     designation: "1ºE",

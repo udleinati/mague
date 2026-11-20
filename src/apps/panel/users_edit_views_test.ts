@@ -2,9 +2,11 @@
 
 import { assert, assertStringIncludes } from "@std/assert";
 import { render } from "./render.ts";
+import { testAdminNav } from "./_admin_nav_fixture.ts";
 
 const editCtx = (target: Record<string, unknown> = {}) => ({
   currentCondominiumId: "c1",
+  adminNav: testAdminNav,
   title: "Editar Ana Pinto",
   section: "users",
   target: {

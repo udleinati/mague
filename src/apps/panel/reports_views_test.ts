@@ -4,11 +4,13 @@
 
 import { assert, assertStringIncludes } from "@std/assert";
 import { render } from "./render.ts";
+import { testAdminNav } from "./_admin_nav_fixture.ts";
 
 // ─── Movimentos do ano ─────────────────────────────────────────────────────
 
 const movementsCtx = (over: Record<string, unknown> = {}) => ({
   currentCondominiumId: "c1",
+  adminNav: testAdminNav,
   title: "Movimentos do ano",
   section: "report_movements",
   report: {
@@ -127,6 +129,7 @@ const cashflowRow = (over: Record<string, unknown> = {}) => ({
 
 const cashflowCtx = (over: Record<string, unknown> = {}) => ({
   currentCondominiumId: "c1",
+  adminNav: testAdminNav,
   title: "Previsão de tesouraria",
   section: "report_cashflow",
   horizonMonths: 12,
@@ -260,6 +263,7 @@ const budgetExec = (over: Record<string, unknown> = {}) => ({
 
 const assembliesCtx = (over: Record<string, unknown> = {}) => ({
   currentCondominiumId: "c1",
+  adminNav: testAdminNav,
   title: "Execução por Ata",
   section: "report_assemblies",
   assemblies: [{
@@ -321,6 +325,7 @@ Deno.test("por Ata (detalhe): cada despesa diz se foi etiquetada ou inferida", a
   // admin precisa de saber onde olhar.
   const html = await render("pages/reports/assembly_show.vto", {
     currentCondominiumId: "c1",
+    adminNav: testAdminNav,
     title: "Ata 12",
     section: "report_assemblies",
     assembly: {
