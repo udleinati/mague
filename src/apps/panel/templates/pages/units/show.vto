@@ -244,8 +244,9 @@
     <thead>
       <tr class="text-base-content/40 text-[10px] uppercase tracking-widest">
         <th class="pl-4 hidden md:table-cell">Competência</th>
+        <th class="pl-4 md:pl-3">Código</th>
         <th class="hidden md:table-cell">Tipo</th>
-        <th class="pl-4 md:pl-3">Descrição</th>
+        <th>Descrição</th>
         <th class="text-right hidden md:table-cell">Original</th>
         <th class="text-right hidden md:table-cell">Pago</th>
         <th class="text-right">Em aberto</th>
@@ -254,11 +255,19 @@
     </thead>
     <tbody>
       {{ if charges.length === 0 }}
-        <tr><td colspan="7" class="p-8 text-center text-base-content/50">Sem cobranças nesta fração.</td></tr>
+        <tr><td colspan="8" class="p-8 text-center text-base-content/50">Sem cobranças nesta fração.</td></tr>
       {{ else }}
         {{ for c of charges }}
           <tr class="hover:bg-base-200/30 border-t border-base-100 text-sm">
             <td class="pl-4 text-base-content/70 hidden md:table-cell" data-search>{{ c.competencePeriod ?? "-" }}</td>
+            <td data-search class="pl-4 md:pl-3 align-top md:align-middle whitespace-nowrap font-mono text-xs font-semibold tabular-nums">
+              {{# Code clicável - leva ao detalhe da cobrança (mesmo padrão da listagem). #}}
+              {{ if c.code }}
+                <a href="/admin/c/{{ currentCondominiumId }}/charges/{{ c.id }}" class="link link-hover link-primary">{{ c.code }}</a>
+              {{ else }}
+                <span class="text-base-content/30">-</span>
+              {{ /if }}
+            </td>
             <td class="hidden md:table-cell">
               {{ if c.nature === "credit" }}
                 <span class="inline-flex items-center gap-1 text-xs font-medium text-info">
@@ -268,7 +277,7 @@
                 <span class="text-xs text-base-content/70" data-search>{{ typeLabels[c.chargeType] ?? c.chargeType }}</span>
               {{ /if }}
             </td>
-            <td data-search class="pl-4 md:pl-3 align-top md:align-middle">
+            <td data-search class="align-top md:align-middle">
               <div class="max-w-[36vw] md:max-w-[320px]">
                 <div class="truncate" title="{{ c.description ?? '' }}">{{ c.description ?? "-" }}</div>
                 {{# Mobile: dobra Tipo/Competência/Original/Pago (colunas escondidas) numa

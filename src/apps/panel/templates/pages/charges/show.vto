@@ -91,6 +91,14 @@
     {{ /if }}
   </div>
 
+  {{# Justificação do cancelamento - só admin, nunca exposta ao portal. #}}
+  {{ if charge.status === "cancelled" && charge.cancellationReason }}
+    <div class="rounded-lg border border-base-300 bg-base-200/50 px-4 py-3 mb-6">
+      <div class="text-[10px] uppercase tracking-wider font-bold text-base-content/60 mb-1">Motivo do cancelamento</div>
+      <p class="text-sm whitespace-pre-line leading-relaxed">{{ charge.cancellationReason }}</p>
+    </div>
+  {{ /if }}
+
   {{# Nota interna - só admin, nunca exposta ao portal. #}}
   {{ if charge.note }}
     <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 mb-6 flex items-start gap-3">
@@ -690,19 +698,25 @@
   </script>
 {{ /if }}
 
-{{# Cancelar reverte o ledger e é irreversível: Zona perigosa (ADR 0025) com
-   typed-match "CANCELAR". Só em estados canceláveis (igual ao guard da API). #}}
-{{ if (charge.status === "open" || charge.status === "overdue") && Number(charge.settledAmount ?? 0) === 0 }}
+{{# Cancelar é irreversível: Zona perigosa (ADR 0025) com modal próprio para a
+   justificação + typed-match "CANCELAR". canCancel = mesmo guard da API. #}}
+{{ if canCancel }}
+  {{ set _cancelEntity = charge.nature === "credit" ? "crédito" : "cobrança" }}
+  {{ set _cancelBody = offsetsToUndo.length > 0
+    ? "Cancela " + (charge.code ?? charge.description) + ", desfaz as compensações com outras cobranças da fração e anula o lançamento contabilístico."
+    : "Cancela " + (charge.code ?? charge.description) + " e anula o lançamento contabilístico." }}
   {{ include "partials/danger_zone.vto" {
-    entityName: "cobrança",
+    entityName: _cancelEntity,
     entityLabel: charge.code ?? charge.description,
     actionUrl: "/admin/c/" + currentCondominiumId + "/charges/" + charge.id + "/cancel",
-    confirmBody: "Cancela a cobrança " + (charge.code ?? "") + " (" + charge.description + ") e reverte o lançamento contabilístico.",
+    confirmBody: _cancelBody,
     actionVerb: "Cancelar",
     typedWord: "CANCELAR",
     dangerIcon: "ban",
+    dialogId: "cancel_charge_modal",
     currentUser,
   } }}
+  {{ include "pages/charges/_cancel_modal.vto" { charge, offsetsToUndo, entityName: _cancelEntity, currentCondominiumId, currentUser } }}
 {{ /if }}
 
 {{ /layout }}

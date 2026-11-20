@@ -175,17 +175,18 @@ FIFO matching.
 **Offset:** `Settlement` automático que liga uma `charge` crédito a uma `charge` débito da mesma
 fração (só receivables). Criado em TypeScript por `applyAutoOffset`
 (`$api/modules/admin/charge/auto_offset.ts`), chamado na criação manual de charges, na geração de
-quotas e na geração recorrente; o trigger `finance.fn_charge_ai` só emite ledger. Identificado por
-`settlement_type='charge_offset'`. A ordem de consumo é própria, distinta da da imputação (ver
+quotas, na geração recorrente e no cancelamento de uma charge (para as que ela deixou livres); o
+trigger `finance.fn_charge_ai` só emite ledger. Identificado por `settlement_type='charge_offset'`.
+A ordem de consumo é própria, distinta da da imputação (ver
 [ADR 0035](docs/adr/0035-auto-offset-ordering-distinct-from-allocation.md)). _Avoid_: compensação,
 auto-compensation.
 
 **Conciliação** (PT-PT) ↔ **Reconciliation** (en): Ato de criar `settlement(s)` para um `bank_tx`
 pendente - pode ser manual (utilizador escolhe a charge) ou via _imputação_ (algoritmo). A página
-`/admin/c/:cid/reconciliation` lista os bank_tx em aberto. A **data de corte**
-(`core.condominium.reconciled_through_date`) diz até que dia a conciliação está feita; é a
-referência de "vencido" no saldo da fração e nos lembretes de cobrança. Ver
-[fluxo de conciliação](docs/flows/06-fluxo-reconciliacao.md).
+`/admin/c/:cid/reconciliation` abre no separador "Em aberto": os bank_tx por conciliar, parciais e
+revertidos. A **data de corte** (`core.condominium.reconciled_through_date`) diz até que dia a
+conciliação está feita; é a referência de "vencido" no saldo da fração e nos lembretes de cobrança.
+Ver [fluxo de conciliação](docs/flows/06-fluxo-reconciliacao.md).
 
 - **PT-PT** (prosa, UI labels, docs PT, comentários PT): usar **conciliação**. Em PT-PT,
   "reconciliação" é castelhanismo - evitar.

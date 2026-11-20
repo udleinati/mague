@@ -39,6 +39,8 @@ const CHARGE_TOP_LEVEL_COLUMNS = {
   // Etiqueta manual despesa -> orçamento, lida pelo
   // relatório por Ata.
   budgetId: true,
+  // Justificação do cancelamento - interna, o portal strip-a como a `note`.
+  cancellationReason: true,
   createdAt: true,
   updatedAt: true,
   createdBy: true,
@@ -139,6 +141,7 @@ export function formatChargeForResponse(row: ChargeRowLike) {
     sourceType: row.sourceType,
     sourceId: row.sourceId,
     budgetId: row.budgetId ?? null,
+    cancellationReason: row.cancellationReason ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     unit: row.unit ?? null,

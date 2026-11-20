@@ -26,6 +26,7 @@ const SETTLEMENT_NESTED_WITH = {
   debitCharge: {
     columns: {
       id: true,
+      code: true,
       description: true,
       chargeType: true,
       unitId: true,
@@ -36,6 +37,7 @@ const SETTLEMENT_NESTED_WITH = {
   creditCharge: {
     columns: {
       id: true,
+      code: true,
       description: true,
       chargeType: true,
       unitId: true,
@@ -63,6 +65,7 @@ export const SETTLEMENT_PROJECTION = {
 // Tipos dos nested - derivados à mão (Drizzle não infere de config `as const`).
 export type SettlementNestedCharge = {
   id: string;
+  code: string | null;
   description: string;
   chargeType: string;
   unitId: string | null;

@@ -30,8 +30,9 @@ e `EXECUTE FUNCTION finance.fn_x()` nos triggers.
   de origem. Charges `nature='credit'` não lançam nada na criação.
 - `fn_charge_bu` (BEFORE UPDATE) - recusa cancelar uma charge com settlements ativos; ao cancelar,
   zera `amount`, `open_amount` e `settled_amount`.
-- `fn_charge_au` (AFTER UPDATE) - quando a charge passa a `cancelled`, emite o lançamento inverso
-  (`charge_cancelled`) pelo `open_amount` que tinha.
+- `fn_charge_au` (AFTER UPDATE) - quando uma charge `nature='debit'` passa a `cancelled`, emite o
+  lançamento inverso (`charge_cancelled`) pelo `open_amount` que tinha. Uma charge a crédito não
+  lançou nada na criação e não tem nada a anular.
 - `fn_charge_amount_adjust_ledger` (AFTER UPDATE OF `original_amount`) - emite o delta
   (`charge_amount_adjusted`) quando o valor de uma charge payable é editado. Não atua em
   refaturações nem em charges canceladas.
@@ -99,7 +100,8 @@ o `status` do `bank_transaction`, nos dois sentidos. Regras que não são simpli
 contra charges de natureza oposta em aberto na mesma fração, criando settlements `charge_offset`.
 Nenhum trigger o faz: é uma chamada explícita, na transação que cria a charge. Chamam-no
 `charge/create.ts`, `budget/quota_generator.ts` e `recurring_template/generator.ts`;
-`charge/create_refacturations.ts` não o chama. Ordem do offset:
+`charge/create_refacturations.ts` não o chama. `charge/cancel.ts` também o chama, para as charges
+que a charge cancelada deixou livres. Ordem do offset:
 [ADR 0035](./0035-auto-offset-ordering-distinct-from-allocation.md).
 
 **Algoritmos e orquestradores**
@@ -116,8 +118,11 @@ Nenhum trigger o faz: é uma chamada explícita, na transação que cria a charg
 - Estorno de um `bank_transaction`: `bank_transaction/reverse.ts`. Numa transação, marca-o como
   `reversed`, chama `reverseSettlement` para cada settlement ativo e anula os recibos emitidos
   contra ele.
-- Cancelamento de charge: `charge/cancel.ts` só muda o `status`; os triggers zeram os montantes e
-  emitem o lançamento inverso.
+- Cancelamento de charge: `charge/cancel.ts`, numa transação, reverte os offsets da charge
+  (`reverseSettlement`), muda o `status` para `cancelled` com a justificação (`cancellation_reason`)
+  e volta a aplicar o auto-offset às charges que ficaram livres; os triggers zeram os montantes e
+  emitem o lançamento inverso. Um settlement com movimento bancário bloqueia (reverte-se o
+  movimento).
 
 ### Onde colocar uma regra nova
 

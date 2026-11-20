@@ -50,9 +50,9 @@ export function registerChargesRoutes(panelRouter: Hono): void {
   });
   panelRouter.post("/admin/c/:cid/charges/:id/cancel", (c) => {
     const id = c.req.param("id");
-    return runFormAction(c, async () => {
+    return runFormAction(c, async (form) => {
       const { cancelCharge } = await import("../../controllers/charges.ts");
-      return await cancelCharge(id);
+      return await cancelCharge(id, form);
     }, {
       successPath: `charges/${id}`,
       successMsg: "Cobrança cancelada.",

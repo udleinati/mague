@@ -218,8 +218,9 @@ até esgotar a quota ou os créditos. A quota pode por isso nascer `partial` ou 
 offset (`entry_type='settlement_applied'`): Dr conta do crédito (`2782` para `credit_balance`) / Cr
 `2111`. Esta ordem é distinta da prioridade de imputação
 ([ADR 0035](../adr/0035-auto-offset-ordering-distinct-from-allocation.md)). A mesma função é chamada
-na criação manual de charges (`charge/create.ts`) e na geração de recorrentes
-(`recurring_template/generator.ts`).
+na criação manual de charges (`charge/create.ts`), na geração de recorrentes
+(`recurring_template/generator.ts`) e no cancelamento, para as charges que ficaram livres
+(`charge/cancel.ts`).
 
 **Mapa de quotas** - `GET /budgets/:budgetId/quota_map`
 ([`quota_map.ts`](../../src/apps/api/modules/admin/budget/quota_map.ts)) devolve os valores por
@@ -265,11 +266,16 @@ parte.
 
 ### 5. Cancelamento
 
-`POST /charges/:chargeId/cancel` ([`cancel.ts`](../../src/apps/api/modules/admin/charge/cancel.ts))
-só aceita charges `open` ou `overdue` com `settled_amount = 0`. `finance.fn_charge_bu` recusa o
-cancelamento se houver settlements ativos e põe os montantes a zero; `finance.fn_charge_au` emite
-`charge_cancelled` pelo valor que estava em aberto: Dr `721` / Cr `2111` na quota ordinária (sem
-linha `723`), Dr `722` / Cr `2112` na extraordinária.
+`POST /charges/:chargeId/cancel { reason }`
+([`cancel.ts`](../../src/apps/api/modules/admin/charge/cancel.ts)) exige uma justificação (10 a 500
+caracteres, gravada em `cancellation_reason`) e aceita charges `open`, `partial`, `paid` ou
+`overdue` cujos settlements ativos sejam todos `charge_offset`; um settlement com movimento bancário
+devolve `409 CHARGE_HAS_BANK_SETTLEMENTS` (reverte-se o movimento na conciliação). Numa transação, o
+handler reverte os offsets da charge (a outra ponta volta a ficar em aberto), cancela a charge e
+volta a aplicar o auto-offset às charges que ficaram livres. `finance.fn_charge_bu` põe os montantes
+a zero; `finance.fn_charge_au` emite `charge_cancelled` pelo valor que estava em aberto: Dr `721` /
+Cr `2111` na quota ordinária (sem linha `723`), Dr `722` / Cr `2112` na extraordinária. Uma charge a
+crédito (`credit_adjustment`) não lançou nada ao nascer e o cancelamento também não lança.
 
 ## Recibo
 

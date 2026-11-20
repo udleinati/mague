@@ -46,6 +46,8 @@ export const charge = schema.table("charge", {
   paymentMethod: varchar("payment_method", { length: 20 }).notNull().default("manual"),
   updatedBy: actorColumn("updated_by"),
   // Charge não tem soft-delete (cancelamento via status).
+  // Justificação do cancelamento (interna, como `note`). NULL nas anteriores à migration 002.
+  cancellationReason: text("cancellation_reason"),
 });
 
 export type ChargeSelect = typeof charge.$inferSelect;

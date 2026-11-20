@@ -151,16 +151,16 @@ fração.
   caso contrário `409 AMOUNT_EDIT_LOCKED`. Ao mudar o valor, o handler grava `original_amount`,
   `expected_amount` e `open_amount` com o novo valor e o trigger `trg_charge_amount_adjust_ledger`
   lança a diferença.
-- **Cancelar**: `POST /charges/:chargeId/cancel`
-  ([charge/cancel.ts](../../src/apps/api/modules/admin/charge/cancel.ts)). Só com `status` `open` ou
-  `overdue` e `settled_amount = 0`; caso contrário `409 CHARGE_NOT_CANCELLABLE` (ou
-  `409 CHARGE_ALREADY_CANCELLED`). O trigger `fn_charge_bu` põe `amount`, `settled_amount` e
-  `open_amount` a zero (mantém `original_amount` e `expected_amount`) e `fn_charge_au` lança o
-  inverso da criação.
+- **Cancelar**: `POST /charges/:chargeId/cancel { reason }`
+  ([charge/cancel.ts](../../src/apps/api/modules/admin/charge/cancel.ts)). Justificação obrigatória
+  (`400` sem ela). Numa despesa, só sem pagamentos: um settlement ativo devolve
+  `409 CHARGE_HAS_BANK_SETTLEMENTS` (ou `409 CHARGE_ALREADY_CANCELLED`). O trigger `fn_charge_bu`
+  põe `amount`, `settled_amount` e `open_amount` a zero (mantém `original_amount` e
+  `expected_amount`) e `fn_charge_au` lança o inverso da criação.
 
-Os dois handlers repetem as condições no `WHERE` do `UPDATE`; se o estado mudar a meio, devolvem
-`409 CHARGE_STATE_CHANGED`. `finance.charge` não tem soft-delete nem endpoint de eliminação: anular
-é passar a `cancelled`.
+A edição repete as condições no `WHERE` do `UPDATE`; se o estado mudar a meio, devolve
+`409 CHARGE_STATE_CHANGED`. O cancelamento tranca a charge (`FOR UPDATE`) na transação.
+`finance.charge` não tem soft-delete nem endpoint de eliminação: anular é passar a `cancelled`.
 
 ### Despesa recorrente
 
@@ -247,8 +247,8 @@ outra.
 com `{ supplierId, amount, sourceChargeId?, description?, settlementDate? }`. No painel é o
 separador "Devolução" do modal de conciliação, visível nas entradas. Numa transação:
 
-1. Valida o movimento: do condomínio, `amount > 0` (`400 WRONG_SIGN`), `status` `unreconciled` ou
-   `partial` (`409 WRONG_STATUS`).
+1. Valida o movimento: do condomínio, `amount > 0` (`400 WRONG_SIGN`), `status` `unreconciled`,
+   `partial` ou `reversed` (`409 WRONG_STATUS`).
 2. Valida o fornecedor e, se indicada, a despesa de origem: `payable` e do mesmo fornecedor.
 3. Insere uma charge `kind='payable'`, `nature='credit'`, `charge_type='supplier_service'`, com
    `issue_date`, `due_date` e `competence_period` iguais à data do movimento, `account_id` = rubrica
@@ -310,8 +310,6 @@ quando as duas têm a mesma rubrica. O resto da fatura paga-se depois pelo fluxo
   `next_run_date` e `throughDate`. Uma charge cancelada de um modelo continua a contar para a
   verificação de duplicados: essa competência não volta a ser gerada, mesmo recuando
   `next_run_date`.
-- **Cancelar uma charge `nature='credit'`.** `fn_charge_au` lança `charge_cancelled` também para
-  charges de crédito, apesar de a criação não ter lançado nada.
 
 ## Limites conhecidos
 

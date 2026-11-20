@@ -45,6 +45,7 @@ function ch(
     invoiceNumber: null,
     paymentMethod: "manual",
     updatedBy: null,
+    cancellationReason: null,
   };
   return { ...base, ...overrides };
 }

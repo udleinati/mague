@@ -2,6 +2,7 @@
 //   ?bankTransactionId=…  filtra pelo(s) movimento(s) bancário(s) (CSV de IDs);
 //                         presente-mas-vazio → resposta vazia (não "todos").
 //   ?unitId=…             filtra pela fração (sujeito a `assertUserCanAccessUnit`)
+//   ?chargeId=…           settlements em que a charge é uma das pontas
 //   ?dateFrom=YYYY-MM-DD  filtra `settlement_date >= dateFrom`
 //   ?dateTo=YYYY-MM-DD    filtra `settlement_date <= dateTo`
 //   ?limit=N              cap (default 1000, max 5000)
@@ -36,6 +37,7 @@ export const listSettlements = async (ctx: Context, postgres: Postgres) => {
     ? bankTxRaw.split(",").map((s) => s.trim()).filter(Boolean)
     : null;
   const unitFilter = ctx.req.query("unitId") ?? null;
+  const chargeFilter = ctx.req.query("chargeId") ?? null;
   const dateFrom = ctx.req.query("dateFrom") ?? null;
   const dateTo = ctx.req.query("dateTo") ?? null;
   const limit = parseLimit(ctx.req.query("limit"), { default: DEFAULT_LIMIT, max: MAX_LIMIT });
@@ -76,6 +78,12 @@ export const listSettlements = async (ctx: Context, postgres: Postgres) => {
            WHERE c.id IN (${schema.settlement.debitChargeId}, ${schema.settlement.creditChargeId})
              AND c.unit_id = ${unitFilter}
         )`,
+      )
+      : undefined,
+    chargeFilter
+      ? or(
+        eq(schema.settlement.debitChargeId, chargeFilter),
+        eq(schema.settlement.creditChargeId, chargeFilter),
       )
       : undefined,
     dateRange(schema.settlement.settlementDate, dateFrom, dateTo),

@@ -62,6 +62,7 @@
     {{ else if t.status === "partial" }}
       <span class="inline-flex items-center gap-1.5 text-xs font-medium text-warning">
         <span class="inline-block w-1.5 h-1.5 rounded-full bg-warning"></span> Parcial
+        {{ if t.unallocated }}<span class="tabular-nums whitespace-nowrap">(falta {{ t.unallocated |> formatMoney }})</span>{{ /if }}
       </span>
     {{ else if t.status === "ignored" }}
       <span class="inline-flex items-center gap-1.5 text-xs text-base-content/50">

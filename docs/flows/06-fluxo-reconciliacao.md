@@ -189,9 +189,6 @@ dívida com `due_date` até essa data; sem data de corte, nada é vencido
   bancário. O painel filtra as charges pelo sinal.
 - **Linhas repetidas num ficheiro.** O commit não deduplica linhas entre si: duas com o mesmo hash
   no mesmo pedido violam `bank_tx_import_hash_unique` e nada é importado.
-- **Reverter um movimento com excedente em crédito.** Além das linhas `settlement_reversed`, o
-  cancelamento da charge de crédito lança `charge_cancelled` (Dr `7888` / Cr `2782`), embora a
-  criação dessa charge não tenha lançado nada.
 
 ## Limites conhecidos
 

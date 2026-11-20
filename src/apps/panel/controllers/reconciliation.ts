@@ -21,7 +21,7 @@ function enrichTransactions(
   const unitLabelById = unitLabelMap(units);
   const supplierNameById = supplierLabelMap(suppliers);
 
-  const settlementsByTx = new Map<string, Rec[]>();
+  const settlementsByTx = new Map<string, Array<Settlement & Rec>>();
   for (const s of settlements) {
     const bankTxId = s.bankTransactionId;
     if (!bankTxId) continue;
@@ -53,10 +53,22 @@ function enrichTransactions(
     settlementsByTx.set(bankTxId, arr);
   }
 
-  return txs.map((t) => ({
-    ...t,
-    settlements: settlementsByTx.get(String(t.id)) ?? [],
-  }));
+  return txs.map((t) => {
+    const txSettlements = settlementsByTx.get(String(t.id)) ?? [];
+    return {
+      ...t,
+      settlements: txSettlements,
+      unallocated: unallocatedCents(t.amount, txSettlements),
+    };
+  });
+}
+
+// Por conciliar do movimento: |amount| menos os settlements ativos.
+function unallocatedCents(amount: number, settlements: ReadonlyArray<Settlement>): number {
+  const allocated = settlements
+    .filter((s) => s.status === "active")
+    .reduce((sum, s) => sum + s.amount, 0);
+  return Math.max(0, Math.abs(amount) - allocated);
 }
 
 // POST .../reconciliation/cutoff. Aceita YYYY-MM-DD ou `_clear=1` (null).
@@ -70,10 +82,11 @@ export async function setReconciliationCutoff(form: Record<string, string | File
   return { ok: true };
 }
 
+// Tab "Em aberto" e default: tudo o que ainda pode ser conciliado.
+export const OPEN_STATUS_FILTER = "unreconciled,partial,reversed";
+
 async function fetchReconciliationData(params: Record<string, string>) {
-  // Default só pendentes (unreconciled+partial), reduz payload em condos
-  // maduros. `?status=` explícito (mesmo vazio = "todos") é respeitado.
-  const statusFilter = params.status === undefined ? "unreconciled,partial" : params.status;
+  const statusFilter = params.status === undefined ? OPEN_STATUS_FILTER : params.status;
   const bankAccountFilter = params.bankAccountId ?? "";
 
   // Filtro de ano server-side (default ano atual, "" = Todos). Ver
@@ -155,6 +168,7 @@ async function fetchReconciliationData(params: Record<string, string>) {
     transactions,
     bankAccounts: bankAccountsRes.data,
     filterStatus: statusFilter,
+    openStatusFilter: OPEN_STATUS_FILTER,
     filterBankAccountId: bankAccountFilter,
     filterYear,
     availableYears,
@@ -202,10 +216,8 @@ export async function renderTxModal(bankTxId: string) {
   }
 
   // Por alocar do movimento: base do "falta conciliar" da tab Manual.
-  const allocated = settlementsRes.data
-    .filter((s) => s.status === "active")
-    .reduce((sum, s) => sum + s.amount, 0);
-  const txUnallocated = Math.max(0, Math.abs(t.amount) - allocated);
+  const txUnallocated = unallocatedCents(t.amount, settlementsRes.data);
+  const txAllocated = Math.abs(t.amount) - txUnallocated;
 
   // listUnits devolve ordem natural (A, B, …, Z, AA, AB, …) via API.
   const units = unitsRes.data;
@@ -291,6 +303,7 @@ export async function renderTxModal(bankTxId: string) {
   return await render("pages/reconciliation/_tx_modal.vto", {
     t,
     txUnallocated,
+    txAllocated,
     units,
     suppliers,
     openCharges,
