@@ -214,6 +214,29 @@ export const emitReceiptDoc: RouteConfig = {
   },
 };
 
+export const previewReceiptDoc: RouteConfig = {
+  description: "Pré-visualização: HTML do recibo tal como sairia (mesmo template do PDF, " +
+    "tarja PRÉ-VISUALIZAÇÃO, sem número). Mesmo body do emit; não grava nada.",
+  method: "post",
+  path: "/admin/condominiums/{cid}/receipts/preview",
+  request: {
+    params: CondoOnlyParamsDoc,
+    body: { content: { "application/json": { schema: EmitReceiptBodyDoc } } },
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": { schema: z.object({ data: z.object({ html: z.string() }) }) },
+      },
+      description: "HTML do recibo",
+    },
+    422: {
+      content: { "application/json": { schema: ErrorResponseDoc } },
+      description: "Par não pendente ou destinatário inválido",
+    },
+  },
+};
+
 export const emitBulkReceiptsDoc: RouteConfig = {
   description:
     "Emite múltiplos recibos em sequência (uso: 'emitir todos os pendentes'). " +
@@ -344,6 +367,7 @@ const routes = [
   listRecipientOptionsDoc,
   getReceiptDoc,
   emitReceiptDoc,
+  previewReceiptDoc,
   emitBulkReceiptsDoc,
   voidReceiptDoc,
   resendReceiptEmailDoc,

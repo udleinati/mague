@@ -11,6 +11,7 @@
 //   4. Manual: nome/NIF externos, email sem link do portal e sem criar conta.
 //   5. Ocupante de outra fração ou manual sem NIF: recusado, a linha continua pendente.
 //   6. Re-enviar um recibo escolhido vai só ao escolhido, mesmo com opt-out.
+//   7. Pré-visualizar mostra o recibo como sairia (por defeito ou escolhido) sem emitir.
 
 import { assertEquals, assertNotEquals } from "@std/assert";
 import { describe, it } from "@std/testing/bdd";
@@ -164,6 +165,35 @@ describe("admin receipts - destinatário escolhido na emissão", () => {
       data.candidates.map((c) => [c.occupantId, c.relationshipType]),
       [[ids.owner, "owner"], [ids.tenant, "tenant"], [ids.resident, "resident"]],
     );
+  });
+
+  it("pré-visualização mostra o recibo como sairia e não emite nada", async () => {
+    const before = await sql<{ n: number }[]>`
+      SELECT COUNT(*)::int AS n FROM finance.receipt WHERE condominium_id = ${condo.id}
+    `;
+    const { data: byDefault } = await client.admin.previewReceipt(
+      { bankTransactionId: txs[3], unitId: unit.id },
+      { headers },
+    );
+    // Regra por defeito: owner + residente, inquilino de fora.
+    assertEquals(byDefault.html.includes("A Proprietária"), true);
+    assertEquals(byDefault.html.includes("C Residente"), true);
+    assertEquals(byDefault.html.includes("B Inquilina"), false);
+    assertEquals(byDefault.html.includes("PRÉ-VISUALIZAÇÃO"), true);
+
+    const { data: chosen } = await client.admin.previewReceipt(
+      { bankTransactionId: txs[3], unitId: unit.id, recipient: { occupantId: ids.tenant } },
+      { headers },
+    );
+    assertEquals(chosen.html.includes("B Inquilina"), true);
+    assertEquals(chosen.html.includes("A Proprietária"), false);
+
+    const after = await sql<{ n: number }[]>`
+      SELECT COUNT(*)::int AS n FROM finance.receipt WHERE condominium_id = ${condo.id}
+    `;
+    assertEquals(after[0].n, before[0].n);
+    const { data: pending } = await client.admin.listPendingReceipts({ headers });
+    assertEquals(pending.some((p) => p.bankTransactionId === txs[3]), true);
   });
 
   it("proprietário escolhido com opt-out: só ele no recibo e só ele recebe email", async () => {

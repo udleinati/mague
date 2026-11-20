@@ -5,6 +5,7 @@
 //   GET  receipts                    → histórico filtrado
 //   GET  receipts/:id                → detalhe + anular + re-enviar
 //   GET  receipts/emit-to            → modal "Emitir para…" (escolha do destinatário)
+//   POST receipts/preview            → HTML do recibo antes de emitir (JSON { html })
 //   POST receipts/emit               → emite 1; emit-bulk → todos
 //   POST receipts/:id/void           → anula com justificação
 //   POST receipts/:id/resend-email   → re-envia
@@ -211,6 +212,21 @@ function recipientFromForm(
     nif: parseFormString(form, "recipientNif"),
     email: parseFormString(form, "recipientEmail", { emptyAsNull: true }),
   };
+}
+
+/** POST receipts/preview - HTML do recibo tal como sairia (mesmos campos do emit). */
+export async function previewReceipt(form: Record<string, string | File>) {
+  const bankTransactionId = parseFormString(form, "bankTransactionId");
+  const unitId = parseFormString(form, "unitId");
+  if (!bankTransactionId || !unitId) {
+    throw new Error("bankTransactionId e unitId são obrigatórios");
+  }
+  const result = await client.admin.previewReceipt({
+    bankTransactionId,
+    unitId,
+    recipient: recipientFromForm(form),
+  });
+  return result.data;
 }
 
 /** POST receipts/emit { bankTransactionId, unitId, recipient* } */

@@ -54,6 +54,22 @@ export function registerReceiptsRoutes(panelRouter: Hono): void {
       errorPrefix: "Erro ao emitir",
     });
   });
+  // Pré-visualização (read-only): JSON { html } para o iframe do modal (padrão da convocatória).
+  panelRouter.post("/admin/c/:cid/receipts/preview", async (c) => {
+    const { previewReceipt } = await import("../../controllers/receipts.ts");
+    try {
+      const form = (await c.req.parseBody()) as Record<string, string | File>;
+      return c.json(await previewReceipt(form));
+    } catch (err) {
+      const { extractApiErrorMessage } = await import("../_form_error.ts");
+      const msg = extractApiErrorMessage(err, "Erro a gerar a pré-visualização.");
+      const safe = msg.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+      return c.json({
+        html:
+          `<!doctype html><meta charset="utf-8"><body style="font-family:system-ui,sans-serif;padding:2rem;color:#b91c1c;max-width:40rem;margin:2rem auto;">${safe}</body>`,
+      }, 422);
+    }
+  });
   panelRouter.post("/admin/c/:cid/receipts/skip", async (c) => {
     const { skipReceiptHtmx } = await import("../../controllers/receipts.ts");
     const form = (await c.req.parseBody()) as Record<string, string | File>;

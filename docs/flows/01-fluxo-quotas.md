@@ -289,7 +289,8 @@ Um recibo corresponde a um par (movimento bancário, fração), não a uma quota
   `receipt_skip` ativo. Um `charge_offset` não dá recibo.
 - **Valor** - soma dos settlements ativos dessa fração nesse movimento.
 - **Emissão** - manual: `POST /receipts` (um par) ou `POST /receipts/bulk` (até 100 por chamada). A
-  conciliação não emite recibos.
+  conciliação não emite recibos. `POST /receipts/preview` (mesmo body) devolve o HTML do recibo tal
+  como sairia, sem número e sem gravar nada ("Ver" e "Pré-visualizar" nos pendentes).
 - **Numeração** - `AAAA/NNNNN` (coluna gerada `number`), sequencial por condomínio e ano; o ano é o
   da data do movimento. Atribuída sob `pg_advisory_xact_lock(hashtext(condominium_id), year)` com
   `MAX(sequence) + 1`; UNIQUE `(condominium_id, year, sequence)`.

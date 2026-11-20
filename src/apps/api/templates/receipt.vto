@@ -5,6 +5,7 @@
      • recipients        → RecipientSnapshot[]
      • lines             → LineSnapshot[]
      • bankTx            → BankTxSnapshot
+     • preview           → true antes de emitir (sem número, tarja "PRÉ-VISUALIZAÇÃO")
    Helpers globais: formatMoney, formatDate, num, etc.
 #}}
 
@@ -12,7 +13,7 @@
 <html lang="pt">
 <head>
   <meta charset="utf-8">
-  <title>Recibo {{ receipt.number }}</title>
+  <title>Recibo {{ preview ? "(pré-visualização)" : receipt.number }}</title>
   <style>
     /* Reset minimal + estilo de "documento contabilístico" */
     * { box-sizing: border-box; }
@@ -206,6 +207,21 @@
       flex: 1;
     }
 
+    /* Pré-visualização antes de emitir: sem número, não é documento válido. */
+    .preview-watermark {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) rotate(-30deg);
+      font-size: 40pt;
+      font-weight: 900;
+      color: rgba(37, 99, 235, 0.14);
+      letter-spacing: 8px;
+      white-space: nowrap;
+      pointer-events: none;
+      user-select: none;
+    }
+
     /* Watermark "ANULADO" - só aparece se voided_at existir */
     .voided-watermark {
       position: absolute;
@@ -229,6 +245,9 @@
     {{ if receipt.voidedAt }}
       <div class="voided-watermark">ANULADO</div>
     {{ /if }}
+    {{ if preview }}
+      <div class="preview-watermark">PRÉ-VISUALIZAÇÃO</div>
+    {{ /if }}
 
     <div class="header">
       <div class="brand">
@@ -243,7 +262,7 @@
       </div>
       <div class="doc-info">
         <div class="label">Recibo Nº</div>
-        <div class="number">{{ receipt.number }}</div>
+        <div class="number">{{ preview ? "A atribuir" : receipt.number }}</div>
         <div class="label">Data emissão</div>
         <div class="date">{{ receipt.issuedAt |> formatDate }}</div>
       </div>

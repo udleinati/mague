@@ -33,6 +33,10 @@ declare module "../admin.ts" {
       params: { bankTransactionId: string; unitId: string },
       requestInit?: RequestInit,
     ): AsyncResult<ReceiptRecipientOptions>;
+    previewReceipt(
+      body: { bankTransactionId: string; unitId: string; recipient?: ReceiptRecipientChoice },
+      requestInit?: RequestInit,
+    ): AsyncResult<{ html: string }>;
     emitReceipt(
       body: { bankTransactionId: string; unitId: string; recipient?: ReceiptRecipientChoice },
       requestInit?: RequestInit,
@@ -145,6 +149,10 @@ export function registerReceiptMethods(): void {
       `/receipts/recipient-options?${qs}`,
       requestInit,
     );
+  };
+
+  ManagerResource.prototype.previewReceipt = function (body, requestInit) {
+    return this.request<{ html: string }>("POST", "/receipts/preview", requestInit, body);
   };
 
   ManagerResource.prototype.emitReceipt = function (body, requestInit) {
