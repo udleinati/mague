@@ -3,6 +3,7 @@
 // final antes do JSON (defesa contra schema-drift expor colunas sensíveis tipo `deletedAt`).
 
 import type { AssemblySelect } from "$api/libs/postgres/schemas/assembly.ts";
+import type { AssemblyScope } from "./_query.ts";
 
 const ASSEMBLY_TOP_LEVEL_COLUMNS = {
   id: true,
@@ -61,4 +62,12 @@ export function formatAssemblyForResponse(row: AssemblyRowLike) {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+// Portal (`scope: "public"`): `notes` são as notas internas da administração.
+export function formatAssemblyForScope(row: AssemblyRowLike, scope: AssemblyScope) {
+  const out = formatAssemblyForResponse(row);
+  if (scope === "all") return out;
+  const { notes: _internal, ...publicFields } = out;
+  return publicFields;
 }

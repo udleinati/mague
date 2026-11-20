@@ -105,8 +105,11 @@ createSettlementInTx (TypeScript, uma transação)
 criado pela imputação. `validateSettlement` exige `amount > 0`, as pontas certas para o tipo,
 `amount` até ao `open_amount` de cada charge (em `bank_reconciliation` e `charge_offset`) e até ao
 valor por alocar do movimento, que é `abs(amount)` menos a soma dos settlements ativos; as falhas
-devolvem `400 VALIDATION_ERROR`. Charges ou movimento de outro condomínio contam como inexistentes
-(`404 NOT_FOUND`).
+devolvem `400 VALIDATION_ERROR`. `validateSettlementSides` confere as pontas: `debit_charge_id` com
+`nature='debit'` e `credit_charge_id` com `nature='credit'`; em `charge_offset`, o mesmo `kind` e,
+nas receivables, a mesma fração; em `bank_reconciliation`, entrada para receivable a débito ou
+payable a crédito e saída nos outros casos (`400 WRONG_SIGN`). Charges ou movimento de outro
+condomínio contam como inexistentes (`404 NOT_FOUND`).
 
 Lançamentos de `fn_settlement_ai`
 ([004_trg_financial.sql](../../src/db/components/004_trg_financial.sql)); "conta da charge" é o
@@ -184,9 +187,8 @@ dívida com `due_date` até essa data; sem data de corte, nada é vencido
   `partial`; só a imputação por fração transforma o excedente em crédito. Sem nenhuma charge que o
   explique, fica `unreconciled` ou é marcado `ignored`. Entradas por identificar:
   [03-fluxo-suspense.md](./03-fluxo-suspense.md).
-- **Sinal e estado em `POST /settlements`.** O endpoint não confronta o sinal do movimento com o
-  `kind` da charge nem verifica o `status` do movimento; o sinal só decide o lado do lançamento
-  bancário. O painel filtra as charges pelo sinal.
+- **Estado em `POST /settlements`.** O endpoint não verifica o `status` do movimento. O sinal é
+  confrontado com a charge (`WRONG_SIGN`), e o painel já só lista as charges compatíveis.
 - **Linhas repetidas num ficheiro.** O commit não deduplica linhas entre si: duas com o mesmo hash
   no mesmo pedido violam `bank_tx_import_hash_unique` e nada é importado.
 

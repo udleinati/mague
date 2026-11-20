@@ -77,11 +77,16 @@ export async function seedInviteToken(opts: {
   userId: string;
   purpose: "invite" | "reset";
   ttlSeconds?: number;
+  /** Âmbito de quem convidou (`scope_condominium_ids`); omitido = NULL (sem limite). */
+  scopeCondominiumIds?: string[];
 }): Promise<void> {
   const ttl = opts.ttlSeconds ?? 3600;
+  const scope = opts.scopeCondominiumIds
+    ? `ARRAY[${opts.scopeCondominiumIds.map((c) => `'${c}'`).join(",")}]::text[]`
+    : "NULL";
   await sqlExec(`
-    INSERT INTO core.invite_token (token, user_id, purpose, expires_at)
-    VALUES ('${opts.token}', '${opts.userId}', '${opts.purpose}', now() + interval '${ttl} seconds')
+    INSERT INTO core.invite_token (token, user_id, purpose, expires_at, scope_condominium_ids)
+    VALUES ('${opts.token}', '${opts.userId}', '${opts.purpose}', now() + interval '${ttl} seconds', ${scope})
   `);
 }
 

@@ -37,7 +37,9 @@ services:
     env_file:
       - .env.prod
     environment:
-      APP_ENV: production
+      # `ENVIRONMENT` (lido por src/config/env.ts): sem ele a app corre como
+      # development e devolve mensagens internas nos erros 500.
+      ENVIRONMENT: production
       APP_PORT: "3000"
       APP_URL: https://api.mague.pt
       DATABASE_URL: postgres://mague:${POSTGRES_PASSWORD}@db:5432/mague
@@ -62,7 +64,7 @@ services:
     env_file:
       - .env.prod
     environment:
-      APP_ENV: production
+      ENVIRONMENT: production
       PANEL_PORT: "3400"
       # Container name (não `api`): o panel está na rede edge partilhada -
       # nome único evita resolução ambígua se outro stack registar `api` lá.

@@ -4,7 +4,8 @@
 import type { Context } from "hono";
 import type { Postgres } from "$api/libs/postgres/postgres.ts";
 import { getMeUnit } from "$api/modules/admin/unit/retrieve.ts";
+import { isCondoAdmin } from "$api/libs/shared/require_condo_admin.ts";
 
 export const portalGetUnit = (ctx: Context, postgres: Postgres) => {
-  return getMeUnit(ctx, postgres);
+  return getMeUnit(ctx, postgres, { onlyCurrentOccupants: !isCondoAdmin(ctx) });
 };

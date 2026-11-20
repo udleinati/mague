@@ -37,3 +37,23 @@ export function advanceByInterval(dateIso: string, intervalType: string): string
   }
   return `${newY}-${String(newM).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
+
+/**
+ * Datas de execução de um template até throughDate (inclusive), respeitando endDate.
+ * Pára em `max + 1` datas: o caller deteta o excesso sem percorrer séculos.
+ */
+export function pendingRunDates(
+  nextRunDate: string,
+  throughDate: string,
+  endDate: string | null,
+  intervalType: string,
+  max: number,
+): string[] {
+  const dates: string[] = [];
+  let date = nextRunDate;
+  while (date <= throughDate && (endDate === null || endDate >= date) && dates.length <= max) {
+    dates.push(date);
+    date = advanceByInterval(date, intervalType);
+  }
+  return dates;
+}

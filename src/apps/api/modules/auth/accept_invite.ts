@@ -14,6 +14,7 @@ import { createSession } from "$api/libs/session/store.ts";
 import { signSessionToken } from "$api/libs/session/jwt.ts";
 import { formatAuthSessionForResponse } from "./_projection.ts";
 import { isTokenValid } from "./_token.ts";
+import { accountReachableOutside, loadUserMembership } from "$api/libs/membership/mod.ts";
 
 /** GET /v1/auth/invite/:token - preview do convite. Devolve user info. */
 export const previewInvite = async (ctx: Context, postgres: Postgres) => {
@@ -76,9 +77,10 @@ export const acceptInvite = async (ctx: Context, postgres: Postgres) => {
     });
   }
 
+  // Tokens de reset só abrem em /reset-password.
   const tokenRow = await postgres.query((db) =>
     db.query.inviteToken.findFirst({
-      where: (t, ops) => ops.eq(t.token, token),
+      where: (t, ops) => ops.and(ops.eq(t.token, token), ops.eq(t.purpose, "invite")),
     })
   );
   if (!tokenRow || !isTokenValid(tokenRow)) {
@@ -86,6 +88,27 @@ export const acceptInvite = async (ctx: Context, postgres: Postgres) => {
       message: "Convite inválido ou expirado",
       statusCode: STATUS_CODE.Gone,
       code: "INVALID_TOKEN",
+    });
+  }
+
+  // Sem `includeInactive`: conta inativa ou apagada não se reativa por convite (ADR 0020).
+  const membership = await loadUserMembership(postgres, tokenRow.userId);
+  if (!membership) {
+    throw new AppError({
+      message: "Conta inativa: contacta a administração.",
+      statusCode: STATUS_CODE.Conflict,
+      code: "USER_INACTIVE",
+    });
+  }
+
+  // O link fica no email_log/BCC do condomínio: se desde o envio a conta passou
+  // a abrir condomínios fora do âmbito de quem convidou, o aceite já não serve.
+  const scope = tokenRow.scopeCondominiumIds;
+  if (scope && (membership.isSuper || accountReachableOutside(membership, scope))) {
+    throw new AppError({
+      message: "Este convite já não é válido para esta conta. Pede um novo à administração.",
+      statusCode: STATUS_CODE.Forbidden,
+      code: "FORBIDDEN",
     });
   }
 
@@ -98,7 +121,6 @@ export const acceptInvite = async (ctx: Context, postgres: Postgres) => {
       await tx.update(schema.user)
         .set({
           passwordHash: hash,
-          isActive: true,
           passwordChangedAt: new Date(),
           firstLoginAt: sql`COALESCE(${schema.user.firstLoginAt}, NOW())`,
           lastLoginAt: sql`NOW()`,

@@ -19,7 +19,7 @@ import {
   type NestedOccupantUO,
   type OwnerWindow,
   resolveOwnerWindow as resolveWindowPure,
-} from "$panel/portal/owner_window.ts";
+} from "$shared/portal/owner_window.ts";
 import { computeOwnerBalance } from "$panel/portal/owner_balance.ts";
 import { groupSettlementsByBankTx } from "$panel/portal/bank_payments.ts";
 import { loadPortalUnitContext } from "$panel/portal/portal_context.ts";
@@ -329,7 +329,6 @@ export async function portalAssembleias(params: { year?: string } = {}) {
     location: string | null;
     minutesNumber: string | null;
     convocationSentAt: string | null;
-    notes: string | null;
   };
   type AgendaItemRec = Rec & {
     id: string;

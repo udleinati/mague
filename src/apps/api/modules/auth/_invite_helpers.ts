@@ -71,11 +71,13 @@ export async function ensureUserForOccupant(
 /**
  * Invalida tokens anteriores do user e cria novo token de convite.
  * `actor`: ActorSnapshot (ADR 0011), ou `{}` em fluxo público (forgot-password).
+ * `scopeCondominiumIds`: condomínios de quem convida (`null` = super), revalidados no aceite.
  */
 export async function createInviteToken(
   postgres: Postgres,
   userId: string,
   actor: ActorSnapshot,
+  scopeCondominiumIds: readonly string[] | null,
 ): Promise<{ token: string; expiresAt: Date }> {
   await postgres.query((db) =>
     db.update(schema.inviteToken)
@@ -94,6 +96,7 @@ export async function createInviteToken(
       userId,
       purpose: "invite",
       createdBy: actor,
+      scopeCondominiumIds: scopeCondominiumIds === null ? null : [...scopeCondominiumIds],
       expiresAt,
     })
   );

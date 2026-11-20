@@ -122,9 +122,13 @@ describe("guard ADR 0011 - respostas sem ActorSnapshots + draft assembly IDOR", 
     // Assembleia pública (held) + draft, cada uma com um anexo (metadata SQL;
     // bytes S3 não são precisos para list).
     heldAssemblyId = (await sqlExec(`
-      INSERT INTO core.assembly (condominium_id, type, scheduled_at, status, created_by)
-      VALUES ('${condo.id}', 'ordinary', now(), 'held', ${RICH_ACTOR})
+      INSERT INTO core.assembly (condominium_id, type, scheduled_at, status, notes, created_by)
+      VALUES ('${condo.id}', 'ordinary', now(), 'held', 'nota-interna-admin', ${RICH_ACTOR})
       RETURNING id`)).split("\n")[0].trim();
+    await sqlExec(`
+      INSERT INTO core.assembly_agenda_item (assembly_id, sequence, subject, created_by, updated_by)
+      VALUES ('${heldAssemblyId}', 1, 'Ponto 1', ${RICH_ACTOR}, ${RICH_ACTOR});
+    `);
     draftAssemblyId = (await sqlExec(`
       INSERT INTO core.assembly (condominium_id, type, scheduled_at, status, created_by)
       VALUES ('${condo.id}', 'ordinary', now(), 'draft', ${RICH_ACTOR})
@@ -183,6 +187,26 @@ describe("guard ADR 0011 - respostas sem ActorSnapshots + draft assembly IDOR", 
       const { status, body } = await getJson(path, aliceHeaders);
       assertNoLeaks(path, status, body);
     }
+  });
+
+  // O detalhe devolvia os pontos da ordem do dia em bruto (email/IP/user-agent
+  // do admin) e as notas internas da assembleia a qualquer condómino.
+  it("portal: detalhe de assembleia sem actor keys nem notas internas", async () => {
+    const path = `/v1/portal/condominiums/${condo.id}/assemblies/${heldAssemblyId}`;
+    const { status, body } = await getJson(path, aliceHeaders);
+    assertNoLeaks(path, status, body);
+    const data = (body as { data: Record<string, unknown> & { agendaItems: unknown[] } }).data;
+    assertEquals(data.agendaItems.length, 1);
+    assertEquals("notes" in data, false, "notas internas expostas no portal");
+    const list = await getJson(`/v1/portal/condominiums/${condo.id}/assemblies`, aliceHeaders);
+    assertEquals(JSON.stringify(list.body).includes("nota-interna-admin"), false);
+  });
+
+  it("admin: detalhe de assembleia sem actor keys (mantém as notas)", async () => {
+    const path = `/v1/admin/condominiums/${condo.id}/assemblies/${heldAssemblyId}`;
+    const { status, body } = await getJson(path, MASTER);
+    assertNoLeaks(path, status, body);
+    assertEquals((body as { data: { notes: string } }).data.notes, "nota-interna-admin");
   });
 
   it("portal: anexos de assembleia pública listam sem actor keys", async () => {

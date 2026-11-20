@@ -2,9 +2,12 @@ import { render } from "$panel/render.ts";
 import { Client } from "$shared/client/mod.ts";
 import { panelConfig } from "$panel/config.ts";
 import { parseFormString } from "$panel/libs/form_parsing.ts";
+import { clientIpHeaders } from "$panel/context.ts";
+import { validateNextPath } from "$panel/libs/next_path.ts";
 
-// Client sem defaults de role/cond - endpoints /auth/* são públicos.
-const client = new Client({ baseUrl: panelConfig.apiUrl });
+// Client sem defaults de role/cond - endpoints /auth/* são públicos. O IP do
+// cliente vai sempre: o rate-limit do login conta por IP.
+const client = new Client({ baseUrl: panelConfig.apiUrl, defaultHeaders: clientIpHeaders });
 
 export async function loginPage(params: Record<string, string> = {}) {
   const flash = params.flash
@@ -65,18 +68,9 @@ export async function changePassword(
 
 // ── Convite + reset (sem auth) ────────────────────────────────────────────
 
-// Anti open-redirect: só aceita paths que começam por "/" mas não "//".
-// Decode primeiro - `next=%2F%2Fevil.com` passaria o check sem decode.
+// Anti open-redirect: mesma regra do `next` do login (`/\evil.com` passava).
 export function sanitizeNext(raw: string | null | undefined): string | undefined {
-  if (!raw) return undefined;
-  let decoded: string;
-  try {
-    decoded = decodeURIComponent(raw);
-  } catch {
-    return undefined;
-  }
-  if (!decoded.startsWith("/") || decoded.startsWith("//")) return undefined;
-  return decoded;
+  return validateNextPath(raw) ?? undefined;
 }
 
 /** GET /accept-invite?token=...&next=... - preview do convite. */

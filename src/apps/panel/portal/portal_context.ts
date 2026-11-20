@@ -10,7 +10,7 @@ import {
   type NestedOccupantUO,
   type OwnerWindow,
   resolveOwnerWindow,
-} from "$panel/portal/owner_window.ts";
+} from "$shared/portal/owner_window.ts";
 
 /** Shape mínimo (contractual) da unit; o payload da API pode ter mais campos. */
 export interface PortalUnit extends Record<string, unknown> {

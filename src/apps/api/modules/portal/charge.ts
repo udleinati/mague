@@ -4,7 +4,9 @@
 
 import type { Context } from "hono";
 import { Postgres } from "$api/libs/postgres/postgres.ts";
+import { sql } from "drizzle-orm";
 import { portalScope } from "$api/libs/portal/scope.ts";
+import { inOwnerWindowSql, loadPortalOwnerWindow } from "$api/libs/portal/owner_window.ts";
 import { parseLimit } from "$api/libs/shared/pagination.ts";
 import { parseYear } from "$api/libs/shared/list_query.ts";
 import {
@@ -83,6 +85,7 @@ export const portalListCharges = async (ctx: Context, postgres: Postgres) => {
   const { kind, status, year: yearRaw, limit: limitRaw } = ctx.req.query();
   const year = parseYear(yearRaw);
   const limit = parseLimit(limitRaw, { default: DEFAULT_LIMIT, max: MAX_LIMIT });
+  const ownerWindow = await loadPortalOwnerWindow(ctx, postgres, unitId);
 
   const result = await postgres.query((db) =>
     db.query.charge.findMany({
@@ -101,6 +104,11 @@ export const portalListCharges = async (ctx: Context, postgres: Postgres) => {
           filters.push(ops.gte(e.competencePeriod, `${year}-01-01`));
           filters.push(ops.lte(e.competencePeriod, `${year}-12-31`));
         }
+        const inWindow = inOwnerWindowSql(
+          sql`COALESCE(${e.competencePeriod}, ${e.issueDate})`,
+          ownerWindow,
+        );
+        if (inWindow) filters.push(inWindow);
         return ops.and(...filters);
       },
       orderBy: (e, ops) => [ops.desc(e.competencePeriod), ops.desc(e.createdAt)],

@@ -63,7 +63,7 @@ function systemHeader(label: string, title: string): string {
 /** CTA preto principal. */
 function primaryButton(href: string, label: string): string {
   return `<div style="${S_CTA_WRAP}">` +
-    `<a href="${href}" style="${S_CTA}">${escapeHtml(label)}</a>` +
+    `<a href="${escapeHtml(href)}" style="${S_CTA}">${escapeHtml(label)}</a>` +
     `</div>`;
 }
 
@@ -73,7 +73,7 @@ function footerWithLink(
   href: string,
 ): string {
   return `<p style="${S_FOOTER}">${intro}<br>` +
-    `<span style="${S_LINK_PLAIN}">${href}</span></p>`;
+    `<span style="${S_LINK_PLAIN}">${escapeHtml(href)}</span></p>`;
 }
 
 /**

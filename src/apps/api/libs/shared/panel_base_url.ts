@@ -37,10 +37,8 @@ export function safePanelBaseUrl(ctx: Context): string {
   const headerVal = ctx.req.header("x-panel-base-url");
   if (headerVal) {
     const origin = originOf(headerVal);
-    if (origin && allowedOrigins.has(origin)) {
-      // Devolve o header inteiro (preserva path/query) - origin já validado.
-      return headerVal;
-    }
+    // Só o origin: path/query do header iam crus para o `href` dos emails.
+    if (origin && allowedOrigins.has(origin)) return origin;
   }
   return env.panelBaseUrl;
 }

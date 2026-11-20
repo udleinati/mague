@@ -2,13 +2,14 @@
 // (unitId fixo no path). GET list/retrieve/pdf + POST track_access.
 
 import type { Context } from "hono";
-import { sql } from "drizzle-orm";
+import { type AnyColumn, sql } from "drizzle-orm";
 import { STATUS_CODE } from "@std/http";
 import { Postgres } from "$api/libs/postgres/postgres.ts";
 import { AppError } from "$api/libs/error/app_error.ts";
 import { findEntityOrFail } from "$api/libs/shared/find_entity.ts";
 import { getObject } from "$api/libs/storage/s3.ts";
 import { loadUnitOwnedEntity, portalScope } from "$api/libs/portal/scope.ts";
+import { inOwnerWindowSql, loadPortalOwnerWindow } from "$api/libs/portal/owner_window.ts";
 import { parseLimit } from "$api/libs/shared/pagination.ts";
 import {
   formatReceiptForResponse,
@@ -19,6 +20,9 @@ import type { ReceiptAccessRecord, RecipientSnapshot } from "$api/libs/postgres/
 const DEFAULT_LIMIT = 1000;
 const MAX_LIMIT = 2000;
 
+// Data do pagamento que o recibo titula (a mesma que o panel usa na janela).
+const receiptTxDate = (snapshot: AnyColumn) => sql`${snapshot}->>'transactionDate'`;
+
 export const portalListReceipts = async (ctx: Context, postgres: Postgres) => {
   const { cid: condominiumId, unitId } = portalScope(ctx);
 
@@ -26,6 +30,7 @@ export const portalListReceipts = async (ctx: Context, postgres: Postgres) => {
   const voidedFilter = ctx.req.query("voided");
   const year = yearStr ? Number(yearStr) : null;
   const limit = parseLimit(ctx.req.query("limit"), { default: DEFAULT_LIMIT, max: MAX_LIMIT });
+  const ownerWindow = await loadPortalOwnerWindow(ctx, postgres, unitId);
 
   const result = await postgres.query((db) =>
     db.query.receipt.findMany({
@@ -36,6 +41,7 @@ export const portalListReceipts = async (ctx: Context, postgres: Postgres) => {
           year != null ? ops.eq(r.year, year) : undefined,
           voidedFilter === "true" ? ops.isNotNull(r.voidedAt) : undefined,
           voidedFilter === "false" ? ops.isNull(r.voidedAt) : undefined,
+          inOwnerWindowSql(receiptTxDate(r.bankTxSnapshot), ownerWindow),
         ),
       orderBy: (r, { desc }) => [desc(r.issuedAt)],
       limit,
@@ -48,6 +54,7 @@ export const portalListReceipts = async (ctx: Context, postgres: Postgres) => {
 };
 
 export const portalGetReceipt = async (ctx: Context, postgres: Postgres) => {
+  const ownerWindow = await loadPortalOwnerWindow(ctx, postgres, portalScope(ctx).unitId);
   const { entity: receipt } = await loadUnitOwnedEntity({
     ctx,
     paramName: "receiptId",
@@ -60,6 +67,7 @@ export const portalGetReceipt = async (ctx: Context, postgres: Postgres) => {
               ops.eq(r.id, id),
               ops.eq(r.condominiumId, cid),
               ops.eq(r.unitId, unitId),
+              inOwnerWindowSql(receiptTxDate(r.bankTxSnapshot), ownerWindow),
             ),
           ...RECEIPT_PROJECTION,
         })
@@ -73,6 +81,7 @@ export const portalGetReceipt = async (ctx: Context, postgres: Postgres) => {
  * via `loadUnitOwnedEntity` (cid + unitId): só recibos da própria fração.
  */
 export const portalServeReceiptPdf = async (ctx: Context, postgres: Postgres) => {
+  const ownerWindow = await loadPortalOwnerWindow(ctx, postgres, portalScope(ctx).unitId);
   const { entity: receipt } = await loadUnitOwnedEntity({
     ctx,
     paramName: "receiptId",
@@ -85,6 +94,7 @@ export const portalServeReceiptPdf = async (ctx: Context, postgres: Postgres) =>
               ops.eq(r.id, id),
               ops.eq(r.condominiumId, cid),
               ops.eq(r.unitId, unitId),
+              inOwnerWindowSql(receiptTxDate(r.bankTxSnapshot), ownerWindow),
             ),
         })
       ),

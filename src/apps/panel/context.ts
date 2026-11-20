@@ -46,6 +46,9 @@ export interface PanelRequestContext {
    *  localhost). Enviado à API via `X-Panel-Base-URL` para links em emails
    *  sem depender de `PANEL_BASE_URL`. */
   requestOrigin: string;
+  /** IP do cliente (1º `X-Forwarded-For` do Caddy). Repassado à API para o
+   *  rate-limit do login e o IP de audit; sem ele tudo cai num IP único. */
+  clientIp: string | null;
   /** Slot de memoização request-scoped do `loadPortalUnitContext()`
    *  (`getUnit + getCondominium` uma vez), partilhado render.ts/controllers.
    *  Mutável de propósito. */
@@ -91,12 +94,18 @@ export function currentPortalOccupant(): { occupantId: string; nif: string | nul
 
 // Headers default das chamadas panel→API: `Authorization: Bearer <jwt>` (cid
 // vai no path, não em header) e `X-Panel-Base-URL` (origin para links em
-// emails). IP de audit vai no `x-forwarded-for` do Caddy.
+// emails) + IP do cliente em `x-forwarded-for`.
 export function defaultApiHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...clientIpHeaders() };
   const token = currentToken();
   if (token) headers["authorization"] = `Bearer ${token}`;
   const origin = als.getStore()?.requestOrigin;
   if (origin) headers["x-panel-base-url"] = origin;
   return headers;
+}
+
+// Só o IP do cliente: serve o Client pré-login (/auth/*), sem token nem origin.
+export function clientIpHeaders(): Record<string, string> {
+  const ip = als.getStore()?.clientIp;
+  return ip ? { "x-forwarded-for": ip } : {};
 }

@@ -387,3 +387,52 @@ Deno.test("accountReachableOutside: gestão removida noutro condomínio não con
   });
   assertEquals(accountReachableOutside(m, ["cid_a"]), false);
 });
+
+// Apagar o condomínio (soft-delete do super) tem de cortar o acesso: antes os
+// ocupantes continuavam a ler e escrever no portal e os managers no admin.
+Deno.test("deletedCondoIds: condo apagado não dá gestão nem portal (histórico mantém-se)", () => {
+  const m = computeUserMembership({
+    user: makeUser(),
+    managers: [
+      makeManager({ id: "m1", condominiumId: "cid_gone" }),
+      makeManager({ id: "m2", condominiumId: "cid_live" }),
+    ],
+    activeOccupants: [
+      makeOccupant({ id: "occ1", condominiumId: "cid_gone" }),
+      makeOccupant({ id: "occ2", condominiumId: "cid_live" }),
+    ],
+    activeUnitOccupants: [
+      makeUnitOccupant({ unitId: "u_gone", occupantId: "occ1" }),
+      makeUnitOccupant({ unitId: "u_live", occupantId: "occ2" }),
+    ],
+    unitsByCondoId: unitsMap([["cid_gone", ["u_gone"]], ["cid_live", ["u_live"]]]),
+    deletedCondoIds: new Set(["cid_gone"]),
+  });
+  assertEquals(m.activeManagerCondoIds, ["cid_live"]);
+  assertEquals(m.occupantCondoIds, ["cid_live"]);
+  assertEquals(m.historicManagerCondoIds.sort(), ["cid_gone", "cid_live"]);
+  const gone = m.inCondo("cid_gone");
+  assertEquals(gone.isManager, false);
+  assertEquals(gone.linkedUnitIds, []);
+  assertEquals(gone.hasManagerHistory, true);
+  assertEquals(m.inCondo("cid_live").linkedUnitIds, ["u_live"]);
+});
+
+// Comprador registado com início futuro (antes da escritura) via o portal do
+// vendedor: dados pessoais e financeiros de quem ainda é dono.
+Deno.test("inCondo: ligação com startDate futuro não dá portal (owned mantém-se para o admin)", () => {
+  const m = computeUserMembership({
+    user: makeUser(),
+    managers: [],
+    activeOccupants: [makeOccupant({ id: "occ1", condominiumId: "cid_a" })],
+    activeUnitOccupants: [
+      makeUnitOccupant({ unitId: "u_now", occupantId: "occ1", startDate: "2026-11-20" }),
+      makeUnitOccupant({ unitId: "u_later", occupantId: "occ1", startDate: "2026-12-01" }),
+    ],
+    unitsByCondoId: unitsMap([["cid_a", ["u_now", "u_later"]]]),
+    today: "2026-11-20",
+  });
+  const c = m.inCondo("cid_a");
+  assertEquals(c.linkedUnitIds, ["u_now"]);
+  assertEquals(c.ownedUnitIds.sort(), ["u_later", "u_now"]);
+});

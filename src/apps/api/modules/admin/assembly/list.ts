@@ -6,7 +6,7 @@ import type { Context } from "hono";
 import { Postgres } from "$api/libs/postgres/postgres.ts";
 import { requireCondominiumId } from "$api/libs/shared/require_condominium.ts";
 import { parseLimit } from "$api/libs/shared/pagination.ts";
-import { ASSEMBLY_PROJECTION, formatAssemblyForResponse } from "./_projection.ts";
+import { ASSEMBLY_PROJECTION, formatAssemblyForScope } from "./_projection.ts";
 import { type AssemblyScope, buildAssemblyListOrderBy, buildAssemblyListWhere } from "./_query.ts";
 
 const DEFAULT_LIMIT = 500;
@@ -35,6 +35,6 @@ export const listAssemblies = async (
     })
   );
 
-  const data = result.map(formatAssemblyForResponse);
+  const data = result.map((row) => formatAssemblyForScope(row, scope));
   return ctx.json({ data });
 };

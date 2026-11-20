@@ -7,7 +7,13 @@ import { formatUnitForResponse, UNIT_PROJECTION } from "./_projection.ts";
 import { schema } from "$api/libs/postgres/schemas/mod.ts";
 import { and, eq, isNull } from "drizzle-orm";
 
-export const getMeUnit = async (ctx: Context, postgres: Postgres) => {
+// `onlyCurrentOccupants` (portal, não-admin): ligações terminadas levam
+// email/telefone/NIF de ex-ocupantes e ficam de fora.
+export const getMeUnit = async (
+  ctx: Context,
+  postgres: Postgres,
+  opts: { onlyCurrentOccupants?: boolean } = {},
+) => {
   const condominiumId = requireCondominiumId(ctx);
 
   const unitId = ctx.req.param("unitId");
@@ -60,5 +66,8 @@ export const getMeUnit = async (ctx: Context, postgres: Postgres) => {
     }
     : undefined;
 
-  return ctx.json({ data: formatUnitForResponse(unit, { balance: unitBalance }) });
+  const row = opts.onlyCurrentOccupants
+    ? { ...unit, unitOccupants: unit.unitOccupants.filter((uo) => !uo.endDate) }
+    : unit;
+  return ctx.json({ data: formatUnitForResponse(row, { balance: unitBalance }) });
 };

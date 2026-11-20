@@ -41,20 +41,34 @@ export async function loadUserMembership(
   ]);
   if (!user) return null;
 
-  // Fase 2: unit_occupants para os occupants encontrados.
+  // Fase 2: unit_occupants para os occupants encontrados + condos apagados
+  // entre os da vinculação (soft-delete do condo corta o acesso).
   const occupantIds = activeOccupants.map((o) => o.id);
-  const activeUnitOccupants = occupantIds.length > 0
-    ? await postgres.query((db) =>
-      db.query.unitOccupant.findMany({
-        where: (uo, ops) =>
-          ops.and(
-            ops.inArray(uo.occupantId, occupantIds),
-            ops.isNull(uo.deletedAt),
-            ops.isNull(uo.endDate),
-          ),
-      })
-    )
-    : [];
+  const condoIds = [
+    ...new Set([...managers, ...activeOccupants].map((r) => r.condominiumId)),
+  ];
+  const [activeUnitOccupants, deletedCondos] = await Promise.all([
+    occupantIds.length > 0
+      ? postgres.query((db) =>
+        db.query.unitOccupant.findMany({
+          where: (uo, ops) =>
+            ops.and(
+              ops.inArray(uo.occupantId, occupantIds),
+              ops.isNull(uo.deletedAt),
+              ops.isNull(uo.endDate),
+            ),
+        })
+      )
+      : [],
+    condoIds.length > 0
+      ? postgres.query((db) =>
+        db.query.condominium.findMany({
+          columns: { id: true },
+          where: (c, ops) => ops.and(ops.inArray(c.id, condoIds), ops.isNotNull(c.deletedAt)),
+        })
+      )
+      : [],
+  ]);
 
   // Fase 3: units das unit_occupants, para mapear unit->cid. Só ativas
   // (defesa multi-tenant: unit_occupant órfão a apontar para unit eliminada
@@ -89,5 +103,7 @@ export async function loadUserMembership(
     activeOccupants,
     activeUnitOccupants,
     unitsByCondoId,
+    deletedCondoIds: new Set(deletedCondos.map((c) => c.id)),
+    today: new Date().toISOString().slice(0, 10),
   });
 }

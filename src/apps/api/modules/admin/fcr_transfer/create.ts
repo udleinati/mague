@@ -32,27 +32,6 @@ export const createFcrTransfer = async (ctx: Context, postgres: Postgres) => {
 
   const body = await dtoValidator(fcrTransferCreateSchema, await ctx.req.json());
 
-  // Saldo das bolsas vem do ledger (v_bank_balance). Condomínio sem lançamentos
-  // não tem linha na view - conta como zero.
-  const balanceRow = await postgres.query((db) =>
-    db.select().from(schema.bankBalance)
-      .where(eq(schema.bankBalance.condominiumId, condominiumId))
-  );
-  const balances = {
-    ordinaryCents: Number(balanceRow[0]?.ordinaryCents ?? 0),
-    fcrCents: Number(balanceRow[0]?.fcrCents ?? 0),
-  };
-
-  const available = fcrTransferSourceBalance(body.direction, balances);
-  if (body.amountCents > available) {
-    throw new AppError({
-      message: `Saldo insuficiente na ${fcrTransferSourceLabel(body.direction)}: ` +
-        `disponível ${formatMoney(available)}, pedido ${formatMoney(body.amountCents)}.`,
-      statusCode: STATUS_CODE.UnprocessableEntity,
-      code: "FCR_TRANSFER_INSUFFICIENT_BALANCE",
-    });
-  }
-
   const accounts = fcrTransferAccounts(body.direction);
   const description = body.direction === "to_fcr"
     ? "Transferência para bolsa FCR"
@@ -60,6 +39,30 @@ export const createFcrTransfer = async (ctx: Context, postgres: Postgres) => {
 
   const created = await postgres.query((db) =>
     db.transaction(async (tx) => {
+      // Lock do condomínio: transferências concorrentes leem o saldo uma de cada vez.
+      // NO KEY UPDATE não bloqueia os INSERTs que só referenciam o condomínio (FK).
+      await tx.select({ id: schema.condominium.id }).from(schema.condominium)
+        .where(eq(schema.condominium.id, condominiumId)).for("no key update");
+
+      // Saldo das bolsas vem do ledger (v_bank_balance). Condomínio sem lançamentos
+      // não tem linha na view - conta como zero.
+      const balanceRow = await tx.select().from(schema.bankBalance)
+        .where(eq(schema.bankBalance.condominiumId, condominiumId));
+      const balances = {
+        ordinaryCents: Number(balanceRow[0]?.ordinaryCents ?? 0),
+        fcrCents: Number(balanceRow[0]?.fcrCents ?? 0),
+      };
+
+      const available = fcrTransferSourceBalance(body.direction, balances);
+      if (body.amountCents > available) {
+        throw new AppError({
+          message: `Saldo insuficiente na ${fcrTransferSourceLabel(body.direction)}: ` +
+            `disponível ${formatMoney(available)}, pedido ${formatMoney(body.amountCents)}.`,
+          statusCode: STATUS_CODE.UnprocessableEntity,
+          code: "FCR_TRANSFER_INSUFFICIENT_BALANCE",
+        });
+      }
+
       const [transfer] = await tx.insert(schema.fcrTransfer).values({
         condominiumId,
         direction: body.direction,

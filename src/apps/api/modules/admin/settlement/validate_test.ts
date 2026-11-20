@@ -13,9 +13,11 @@
 import { assertEquals, assertThrows } from "@std/assert";
 import { AppError } from "$api/libs/error/app_error.ts";
 import {
+  type ChargeSide,
   type SettlementInput,
   type SettlementType,
   validateSettlement,
+  validateSettlementSides,
   type ValidationContext,
 } from "./validate.ts";
 
@@ -454,4 +456,161 @@ Deno.test("bank_deposit_credit: amount > saldo não-alocado → 400", () => {
       ),
     AppError,
   );
+});
+
+// Reverter um bank_deposit_credit cancela a charge de crédito por id: tem de
+// ter sido validada como do condomínio na criação.
+Deno.test("bank_deposit_credit: credit charge não existente → 404", () => {
+  const err = assertThrows(
+    () =>
+      validateSettlement(
+        input({
+          settlementType: "bank_deposit_credit",
+          bankTransactionId: "bt1",
+          creditChargeId: "ghost",
+        }),
+        ctx({ bankTxAbs: 100, creditChargeOpen: null }),
+      ),
+    AppError,
+  );
+  assertEquals(err.code, "NOT_FOUND");
+  assertEquals(err.statusCode, 404);
+});
+
+// ─── validateSettlementSides ───────────────────────────────────────────────
+// Um settlement marca charges como pagas. Sem estas regras, um offset entre
+// duas dívidas (ou com um crédito de outra fração) salda-as sem dinheiro.
+
+const quota: ChargeSide = { nature: "debit", kind: "receivable", unitId: "uA" };
+const unitCredit: ChargeSide = { nature: "credit", kind: "receivable", unitId: "uA" };
+const invoice: ChargeSide = { nature: "debit", kind: "payable", unitId: null };
+const creditNote: ChargeSide = { nature: "credit", kind: "payable", unitId: null };
+
+const offset = input({ settlementType: "charge_offset", debitChargeId: "d", creditChargeId: "c" });
+
+function sidesErr(i: SettlementInput, sides: Parameters<typeof validateSettlementSides>[1]) {
+  return assertThrows(() => validateSettlementSides(i, sides), AppError);
+}
+
+Deno.test("sides charge_offset: crédito da fração contra quota da mesma fração é aceite", () => {
+  validateSettlementSides(offset, {
+    debitCharge: quota,
+    creditCharge: unitCredit,
+    bankTxAmount: null,
+  });
+});
+
+Deno.test("sides charge_offset: nota de crédito contra fatura do fornecedor é aceite (D11)", () => {
+  validateSettlementSides(offset, {
+    debitCharge: invoice,
+    creditCharge: creditNote,
+    bankTxAmount: null,
+  });
+});
+
+Deno.test("sides charge_offset: duas dívidas (credit side nature=debit) → 400", () => {
+  const err = sidesErr(offset, {
+    debitCharge: quota,
+    creditCharge: { ...quota },
+    bankTxAmount: null,
+  });
+  assertEquals(err.code, "VALIDATION_ERROR");
+  assertEquals(err.statusCode, 400);
+});
+
+Deno.test("sides charge_offset: debit side com nature=credit → 400", () => {
+  const err = sidesErr(offset, {
+    debitCharge: { ...unitCredit },
+    creditCharge: unitCredit,
+    bankTxAmount: null,
+  });
+  assertEquals(err.code, "VALIDATION_ERROR");
+});
+
+Deno.test("sides charge_offset: crédito de outra fração não paga a quota → 400", () => {
+  const err = sidesErr(offset, {
+    debitCharge: quota,
+    creditCharge: { ...unitCredit, unitId: "uB" },
+    bankTxAmount: null,
+  });
+  assertEquals(err.code, "VALIDATION_ERROR");
+});
+
+Deno.test("sides charge_offset: crédito sem fração (ex. saldo inicial) não paga quota → 400", () => {
+  sidesErr(offset, {
+    debitCharge: quota,
+    creditCharge: { ...unitCredit, unitId: null },
+    bankTxAmount: null,
+  });
+});
+
+Deno.test("sides charge_offset: crédito receivable não paga fatura de fornecedor → 400", () => {
+  const err = sidesErr(offset, {
+    debitCharge: invoice,
+    creditCharge: { nature: "credit", kind: "receivable", unitId: null },
+    bankTxAmount: null,
+  });
+  assertEquals(err.code, "VALIDATION_ERROR");
+});
+
+Deno.test("sides bank_reconciliation: entrada salda quota; saída salda fatura", () => {
+  const rec = input({
+    settlementType: "bank_reconciliation",
+    bankTransactionId: "bt",
+    debitChargeId: "d",
+  });
+  validateSettlementSides(rec, { debitCharge: quota, creditCharge: null, bankTxAmount: 5000 });
+  validateSettlementSides(rec, { debitCharge: invoice, creditCharge: null, bankTxAmount: -5000 });
+});
+
+Deno.test("sides bank_reconciliation: devoluções (credit) seguem o sentido inverso", () => {
+  const rec = input({
+    settlementType: "bank_reconciliation",
+    bankTransactionId: "bt",
+    creditChargeId: "c",
+  });
+  // Fornecedor devolve dinheiro (entrada); condomínio devolve crédito à fração (saída).
+  validateSettlementSides(rec, { debitCharge: null, creditCharge: creditNote, bankTxAmount: 2000 });
+  validateSettlementSides(rec, {
+    debitCharge: null,
+    creditCharge: unitCredit,
+    bankTxAmount: -2000,
+  });
+});
+
+Deno.test("sides bank_reconciliation: entrada contra fatura de fornecedor → WRONG_SIGN", () => {
+  // Dinheiro que entra não paga uma despesa: o ledger lançava Dr 121 / Cr despesa.
+  const err = sidesErr(
+    input({ settlementType: "bank_reconciliation", bankTransactionId: "bt", debitChargeId: "d" }),
+    { debitCharge: invoice, creditCharge: null, bankTxAmount: 5000 },
+  );
+  assertEquals(err.code, "WRONG_SIGN");
+  assertEquals(err.statusCode, 400);
+});
+
+Deno.test("sides bank_reconciliation: saída contra quota → WRONG_SIGN", () => {
+  const err = sidesErr(
+    input({ settlementType: "bank_reconciliation", bankTransactionId: "bt", debitChargeId: "d" }),
+    { debitCharge: quota, creditCharge: null, bankTxAmount: -5000 },
+  );
+  assertEquals(err.code, "WRONG_SIGN");
+});
+
+Deno.test("sides bank_reconciliation: quota no lado crédito → 400", () => {
+  // Os effects tratam o lado crédito com base no original_amount: estado errado.
+  const err = sidesErr(
+    input({ settlementType: "bank_reconciliation", bankTransactionId: "bt", creditChargeId: "c" }),
+    { debitCharge: null, creditCharge: quota, bankTxAmount: 5000 },
+  );
+  assertEquals(err.code, "VALIDATION_ERROR");
+});
+
+Deno.test("sides bank_deposit_credit: excedente tem de ir para uma charge de crédito", () => {
+  const dep = input({
+    settlementType: "bank_deposit_credit",
+    bankTransactionId: "bt",
+    creditChargeId: "c",
+  });
+  validateSettlementSides(dep, { debitCharge: null, creditCharge: unitCredit, bankTxAmount: 3000 });
+  sidesErr(dep, { debitCharge: null, creditCharge: quota, bankTxAmount: 3000 });
 });
