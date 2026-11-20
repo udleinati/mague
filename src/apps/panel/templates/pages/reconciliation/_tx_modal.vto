@@ -10,6 +10,14 @@
       <span class="flex-1 min-w-0 truncate">{{ t.description ?? "-" }}</span>
       <span class="tabular-nums font-semibold {{ if t.amount < 0 }}text-error{{ else }}text-success{{ /if }}">{{ t.amount |> formatMoney }}</span>
     </p>
+    {{# Movimento parcial: o que se concilia agora é só o que falta, não o valor do movimento. #}}
+    {{ if txAllocated > 0 }}
+      <div class="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 mb-4 text-sm flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1"
+           data-tx-available>
+        <span class="text-base-content/70">Já conciliado <span class="tabular-nums font-medium">{{ txAllocated |> formatMoney }}</span></span>
+        <span>Disponível para conciliar <span class="tabular-nums font-bold">{{ txUnallocated |> formatMoney }}</span></span>
+      </div>
+    {{ /if }}
 
     <div role="tablist" class="tabs tabs-boxed tabs-sm mb-4">
       {{ if t.amount > 0 }}
@@ -123,7 +131,7 @@
         <div class="form-control">
           <label class="label py-1"><span class="label-text-alt">Valor (€)</span></label>
           <input type="number" name="amount" step="0.01" required
-                 value="{{ (t.amount / 100).toFixed(2) }}"
+                 value="{{ (txUnallocated / 100).toFixed(2) }}"
                  class="input input-sm input-bordered">
         </div>
 

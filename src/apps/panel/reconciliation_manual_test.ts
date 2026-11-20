@@ -127,3 +127,31 @@ Deno.test("modal manual: saída lista payables e mostra vazio quando não há ch
   assertStringIncludes(emptyHtml, "Sem charges em aberto");
   assertEquals(countOccurrences(emptyHtml, 'name="chargeIds[]"'), 0);
 });
+
+Deno.test("modal parcial: mostra o já conciliado e o disponível, e a devolução parte do disponível", async () => {
+  const html = await render(
+    MODAL,
+    baseData({
+      t: {
+        id: "tx1",
+        transactionDate: "2026-10-27",
+        description: "TRF SEGURADORA",
+        amount: 718_60,
+      },
+      txUnallocated: 266_57,
+      txAllocated: 452_03,
+    }),
+  );
+  assertStringIncludes(html, "data-tx-available");
+  assertStringIncludes(html, "452,03 €");
+  assertStringIncludes(html, "Disponível para conciliar");
+  assertStringIncludes(html, "266,57 €");
+  // Propor o valor do movimento na devolução excederia o que falta conciliar.
+  assertStringIncludes(html, 'value="266.57"');
+  assert(!html.includes('value="718.60"'));
+});
+
+Deno.test("modal sem conciliações: não mostra o quadro do disponível", async () => {
+  const html = await render(MODAL, baseData({ txAllocated: 0 }));
+  assert(!html.includes("data-tx-available"));
+});

@@ -26,10 +26,11 @@
   <div class="divider divider-horizontal mx-1 h-8"></div>
 
   <div class="tabs tabs-boxed bg-base-200/50">
-    <a href="/admin/c/{{ currentCondominiumId }}/reconciliation?status={{ _baseQs }}"
-       hx-get="/admin/c/{{ currentCondominiumId }}/reconciliation?status={{ _baseQs }}"
+    {{# Em aberto (default): por conciliar, parciais e revertidos - tudo o que ainda se concilia. #}}
+    <a href="/admin/c/{{ currentCondominiumId }}/reconciliation?status={{ openStatusFilter }}{{ _baseQs }}"
+       hx-get="/admin/c/{{ currentCondominiumId }}/reconciliation?status={{ openStatusFilter }}{{ _baseQs }}"
        hx-target="#reconciliation-fragment" hx-swap="innerHTML" hx-push-url="true"
-       class="tab tab-sm {{ if filterStatus === '' }}tab-active{{ /if }}">Todos</a>
+       class="tab tab-sm {{ if filterStatus === openStatusFilter }}tab-active{{ /if }}">Em aberto</a>
     <a href="/admin/c/{{ currentCondominiumId }}/reconciliation?status=unreconciled{{ _baseQs }}"
        hx-get="/admin/c/{{ currentCondominiumId }}/reconciliation?status=unreconciled{{ _baseQs }}"
        hx-target="#reconciliation-fragment" hx-swap="innerHTML" hx-push-url="true"

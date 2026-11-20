@@ -183,10 +183,10 @@ auto-compensation.
 
 **Conciliação** (PT-PT) ↔ **Reconciliation** (en): Ato de criar `settlement(s)` para um `bank_tx`
 pendente - pode ser manual (utilizador escolhe a charge) ou via _imputação_ (algoritmo). A página
-`/admin/c/:cid/reconciliation` lista os bank_tx em aberto. A **data de corte**
-(`core.condominium.reconciled_through_date`) diz até que dia a conciliação está feita; é a
-referência de "vencido" no saldo da fração e nos lembretes de cobrança. Ver
-[fluxo de conciliação](docs/flows/06-fluxo-reconciliacao.md).
+`/admin/c/:cid/reconciliation` abre no separador "Em aberto": os bank_tx por conciliar, parciais e
+revertidos. A **data de corte** (`core.condominium.reconciled_through_date`) diz até que dia a
+conciliação está feita; é a referência de "vencido" no saldo da fração e nos lembretes de cobrança.
+Ver [fluxo de conciliação](docs/flows/06-fluxo-reconciliacao.md).
 
 - **PT-PT** (prosa, UI labels, docs PT, comentários PT): usar **conciliação**. Em PT-PT,
   "reconciliação" é castelhanismo - evitar.
