@@ -247,8 +247,8 @@ outra.
 com `{ supplierId, amount, sourceChargeId?, description?, settlementDate? }`. No painel é o
 separador "Devolução" do modal de conciliação, visível nas entradas. Numa transação:
 
-1. Valida o movimento: do condomínio, `amount > 0` (`400 WRONG_SIGN`), `status` `unreconciled` ou
-   `partial` (`409 WRONG_STATUS`).
+1. Valida o movimento: do condomínio, `amount > 0` (`400 WRONG_SIGN`), `status` `unreconciled`,
+   `partial` ou `reversed` (`409 WRONG_STATUS`).
 2. Valida o fornecedor e, se indicada, a despesa de origem: `payable` e do mesmo fornecedor.
 3. Insere uma charge `kind='payable'`, `nature='credit'`, `charge_type='supplier_service'`, com
    `issue_date`, `due_date` e `competence_period` iguais à data do movimento, `account_id` = rubrica

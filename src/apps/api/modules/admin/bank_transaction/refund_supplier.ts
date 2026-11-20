@@ -56,7 +56,11 @@ export const refundSupplier = async (ctx: Context, postgres: Postgres) => {
         code: "WRONG_SIGN",
       });
     }
-    if (bankTx.status !== "unreconciled" && bankTx.status !== "partial") {
+    // Revertido não tem settlements ativos: refaz-se como nos outros caminhos de conciliação.
+    if (
+      bankTx.status !== "unreconciled" && bankTx.status !== "partial" &&
+      bankTx.status !== "reversed"
+    ) {
       throw new AppError({
         message:
           `Movimento já está ${bankTx.status} - reverte primeiro se quiseres mudar a imputação.`,

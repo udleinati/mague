@@ -11,6 +11,7 @@
 //   • Happy path sem sourceChargeId (refund autónomo, source_id null)
 //   • WRONG_SIGN: bank_tx negativa
 //   • WRONG_STATUS: bank_tx já reconciled
+//   • bank_tx revertida aceita nova devolução
 //   • supplier mismatch: sourceChargeId de outro fornecedor
 //   • amount excede |bank_tx|
 
@@ -248,6 +249,40 @@ describe("admin refund_supplier - devolução de fornecedor via bank_reconciliat
     assertEquals(resp.status, 409);
     const body = await resp.json() as { error: { code: string } };
     assertEquals(body.error.code, "WRONG_STATUS");
+  });
+
+  // ─── Cenário 4b: bank_tx revertida aceita nova devolução ─────────────────
+  it("devolução revertida por engano regista-se de novo no mesmo movimento", async () => {
+    const headers = fx.hdr();
+    const base =
+      `${BASE_URL}/v1/admin/condominiums/${fx.condominium.id}/bank_transactions/${inflowTxId}`;
+
+    const reverseResp = await fetch(`${base}/reverse`, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: "Devolução registada no fornecedor errado" }),
+    });
+    assertEquals(reverseResp.status, 200);
+    await reverseResp.body?.cancel();
+
+    // Sem settlements ativos o movimento está livre: o separador Devolução tem de o aceitar,
+    // como a conciliação manual e a imputação.
+    const resp = await fetch(`${base}/refund_supplier`, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        supplierId: supplierA,
+        sourceChargeId: originalChargeId,
+        amount: 5000,
+      }),
+    });
+    assertEquals(resp.status, 201);
+    const body = await resp.json() as {
+      data: { chargeId: string; bankTransactionStatus: string };
+    };
+    assertEquals(body.data.bankTransactionStatus, "reconciled");
+    const { data: chg } = await client.admin.getCharge(body.data.chargeId, { headers });
+    assertEquals((chg as unknown as { status: string }).status, "paid");
   });
 
   // ─── Cenário 5: supplier mismatch ────────────────────────────────────────
