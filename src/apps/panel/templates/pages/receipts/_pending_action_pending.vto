@@ -17,6 +17,13 @@
             title="Ignorar - sai da fila, retomável depois">
       ignorar
     </button>
+    <button type="button" class="btn btn-xs btn-ghost"
+            hx-get="/admin/c/{{ currentCondominiumId }}/receipts/emit-to?bankTransactionId={{ bankTransactionId }}&unitId={{ unitId }}"
+            hx-target="#receipt_modal_slot"
+            hx-swap="innerHTML show:no"
+            title="Escolher para quem sai o recibo (só essa pessoa recebe)">
+      Emitir para…
+    </button>
     <button type="button" class="btn btn-xs btn-primary"
             hx-post="/admin/c/{{ currentCondominiumId }}/receipts/emit"
             hx-vals='{"bankTransactionId": "{{ bankTransactionId }}", "unitId": "{{ unitId }}"}'

@@ -293,12 +293,17 @@ Um recibo corresponde a um par (movimento bancário, fração), não a uma quota
 - **Numeração** - `AAAA/NNNNN` (coluna gerada `number`), sequencial por condomínio e ano; o ano é o
   da data do movimento. Atribuída sob `pg_advisory_xact_lock(hashtext(condominium_id), year)` com
   `MAX(sequence) + 1`; UNIQUE `(condominium_id, year, sequence)`.
-- **Destinatários** - ocupantes com `relationship_type` `owner` ou `resident` ativos na fração à
-  data do movimento; inquilinos ficam de fora. Sem nenhum, a emissão falha (422).
+- **Destinatários** - por defeito, ocupantes com `relationship_type` `owner` ou `resident` ativos na
+  fração à data do movimento; inquilinos ficam de fora. Sem nenhum, a emissão falha (422). No
+  "Emitir para…" o admin escolhe um único destinatário (`recipient` no body): qualquer ocupante da
+  fração nessa data, inquilino incluído (`GET /receipts/recipient-options`), ou um nome/NIF/email
+  inserido à mão. Fica marcado `chosen` no snapshot; o manual tem `occupantId` nulo. Código em
+  [`recipients.ts`](../../src/apps/api/modules/admin/receipt/recipients.ts).
 - **Imutabilidade** - condomínio, fração, destinatários, linhas e movimento ficam congelados em
   colunas `*_snapshot`. O PDF é gerado e guardado no S3 dentro da transação de emissão.
-- **Email** - depois da transação, a cada destinatário com email e `receive_receipt_emails` ativo;
-  falhas de envio não desfazem a emissão.
+- **Email** - depois da transação, a cada destinatário com email e `receive_receipt_emails` ativo (o
+  escolhido recebe sempre, também no re-envio); falhas de envio não desfazem a emissão. O
+  destinatário manual não ganha convite nem link do portal, só o PDF anexo.
 - **Anulação** - manual (`POST /receipts/:receiptId/void`, com motivo) ou automática no estorno do
   movimento (`voided_reason='bank_tx_reversed'`, ver
   [07-fluxo-imputacao.md](./07-fluxo-imputacao.md)). O número mantém-se e o PDF é substituído, na

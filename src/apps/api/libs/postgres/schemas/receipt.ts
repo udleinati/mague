@@ -94,11 +94,14 @@ export interface UnitSnapshot {
 }
 
 export interface RecipientSnapshot {
-  occupantId: string;
+  /** null = destinatário manual, sem ocupante na fração. */
+  occupantId: string | null;
   name: string;
   nif: string | null;
   email: string | null;
   receiveEmails: boolean;
+  /** Escolhido pelo admin na emissão: único destinatário, recebe email mesmo com opt-out. */
+  chosen?: boolean;
 }
 
 export interface LineSnapshot {

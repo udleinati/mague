@@ -1,5 +1,6 @@
-// POST /v1/admin/condominiums/:cid/receipts - Body: { bankTransactionId, unitId }.
-// Emite 1 recibo para a tupla (bank_tx, unit). Wrapper sobre `emitReceipt`.
+// POST /v1/admin/condominiums/:cid/receipts - Body: { bankTransactionId, unitId, recipient? }.
+// Emite 1 recibo para a tupla (bank_tx, unit). Wrapper sobre `emitReceipt`. `recipient` =
+// { occupantId } ou { name, nif, email? } (ver recipients.ts); omitido = owners + residents.
 
 import type { Context } from "hono";
 import { STATUS_CODE } from "@std/http";
@@ -8,6 +9,7 @@ import { requireCondominiumId } from "$api/libs/shared/require_condominium.ts";
 import { AppError } from "$api/libs/error/app_error.ts";
 import { requireActor } from "$api/middleware/api_auth.ts";
 import { emitReceipt } from "./emit_orchestrator.ts";
+import { parseRecipientChoice } from "./recipients.ts";
 
 export const emitReceiptHandler = async (ctx: Context, postgres: Postgres) => {
   const condominiumId = requireCondominiumId(ctx);
@@ -24,6 +26,7 @@ export const emitReceiptHandler = async (ctx: Context, postgres: Postgres) => {
     });
   }
 
+  const recipient = parseRecipientChoice(body?.recipient);
   const actor = requireActor(ctx);
 
   // Origin do panel para links nos emails; fallback para env.
@@ -42,6 +45,7 @@ export const emitReceiptHandler = async (ctx: Context, postgres: Postgres) => {
         // role não vem em ActorIdentity; deixar undefined
       },
       panelBaseUrl,
+      recipient,
     });
     return ctx.json({ data: result }, STATUS_CODE.Created);
   } catch (e) {

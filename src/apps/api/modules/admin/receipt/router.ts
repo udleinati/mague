@@ -13,15 +13,17 @@ import { voidReceipt } from "./void.ts";
 import { resendReceiptEmail } from "./resend_email.ts";
 import { serveReceiptPdf } from "./serve_pdf.ts";
 import { trackReceiptAccess } from "./track_access.ts";
+import { listRecipientOptions } from "./recipient_options.ts";
 
 export const receiptRoutes = () => {
   const route = new Hono<ApiEnv>();
   const basePath = "/receipts";
 
-  // /pending e /skipped têm que vir ANTES de /:receiptId para Hono não
+  // /pending, /skipped e /recipient-options têm que vir ANTES de /:receiptId para Hono não
   // interpretar como id.
   route.get(`${basePath}/pending`, (ctx) => listPendingReceipts(ctx, postgres));
   route.get(`${basePath}/skipped`, (ctx) => listSkippedReceipts(ctx, postgres));
+  route.get(`${basePath}/recipient-options`, (ctx) => listRecipientOptions(ctx, postgres));
   route.get(basePath, (ctx) => listReceipts(ctx, postgres));
   route.get(`${basePath}/:receiptId`, (ctx) => getReceipt(ctx, postgres));
   route.get(`${basePath}/:receiptId/pdf`, (ctx) => serveReceiptPdf(ctx, postgres));

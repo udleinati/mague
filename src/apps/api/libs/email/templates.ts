@@ -129,6 +129,7 @@ export function resetPasswordEmailHtml(params: {
 /**
  * Email enviado quando um Recibo é emitido. Inclui PDF anexo + link
  * "Consultar no portal" (que via auto-invite pode ser `/accept-invite?next=…`).
+ * Sem `receiptUrl` (destinatário manual, sem acesso ao portal) só segue o PDF.
  */
 export function receiptIssuedEmailHtml(params: {
   recipientName: string;
@@ -143,7 +144,7 @@ export function receiptIssuedEmailHtml(params: {
   amount: string;
   /** Já formatado, ex: "15/05/2026". */
   paymentDate: string;
-  receiptUrl: string;
+  receiptUrl?: string;
 }): string {
   const unitLabel = params.unitIdentifier
     ? `${escapeHtml(params.unitDesignation)} <span style="color:#6b7280;font-weight:normal">· ${
@@ -160,10 +161,14 @@ export function receiptIssuedEmailHtml(params: {
       }</span> relativo à fração <strong>${unitLabel}</strong>.</p>` +
       `<p style="${S_P}">O recibo n.º <strong>${
         escapeHtml(params.receiptNumber)
-      }</strong> segue em <strong>anexo</strong> a este email. Também pode ser consultado em qualquer altura no portal.</p>` +
-      primaryButton(params.receiptUrl, "Consultar no portal") +
+      }</strong> segue em <strong>anexo</strong> a este email.${
+        params.receiptUrl ? " Também pode ser consultado em qualquer altura no portal." : ""
+      }</p>` +
+      (params.receiptUrl ? primaryButton(params.receiptUrl, "Consultar no portal") : "") +
       `<p style="${S_P}">Os melhores cumprimentos,<br><strong>A Administração</strong></p>` +
-      footerWithLink(`Caso o botão não funcione, copie o link direto:`, params.receiptUrl),
+      (params.receiptUrl
+        ? footerWithLink(`Caso o botão não funcione, copie o link direto:`, params.receiptUrl)
+        : ""),
   );
 }
 

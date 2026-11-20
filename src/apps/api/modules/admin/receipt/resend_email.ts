@@ -1,7 +1,7 @@
 // POST /v1/admin/condominiums/:cid/receipts/:receiptId/resend-email - re-envia o email do
 // recibo aos owners (não regenera o PDF, usa o do S3). Destinatários vêm do snapshot
 // (imutável, legal/audit), mas `receive_receipt_emails` é lida no estado ATUAL do occupant
-// - opt-in/out alterado depois da emissão vale aqui.
+// - opt-in/out alterado depois da emissão vale aqui. O destinatário escolhido recebe sempre.
 
 import type { Context } from "hono";
 import { STATUS_CODE } from "@std/http";
@@ -16,6 +16,7 @@ import { getObject } from "$api/libs/storage/s3.ts";
 import { requireActor } from "$api/middleware/api_auth.ts";
 import { formatDate, formatMoney } from "$api/libs/templates/render.ts";
 import { portalReceiptUrl } from "./urls.ts";
+import { shouldEmailRecipient } from "./recipients.ts";
 import type {
   CondominiumSnapshot,
   EmailSendRecord,
@@ -63,7 +64,7 @@ export const resendReceiptEmail = async (ctx: Context, postgres: Postgres) => {
   // Preferências atuais dos occupants do snapshot (1 query batch) - honra opt-in/out alterado
   // depois da emissão (ver topo do ficheiro).
   const recipientsSnapshot = (receipt.recipientsSnapshot ?? []) as RecipientSnapshot[];
-  const occupantIds = recipientsSnapshot.map((r) => r.occupantId).filter(Boolean);
+  const occupantIds = recipientsSnapshot.map((r) => r.occupantId).filter((id) => id !== null);
   const currentOccupants = occupantIds.length === 0
     ? []
     : await postgres.query((db) =>
@@ -82,8 +83,10 @@ export const resendReceiptEmail = async (ctx: Context, postgres: Postgres) => {
 
   for (const recipient of recipientsSnapshot) {
     // Estado ACTUAL do occupant - `undefined` = ocupante eliminado, não envia.
-    const currentReceive = currentReceiveByOccupantId.get(recipient.occupantId);
-    if (!recipient.email || currentReceive !== true) continue;
+    const currentReceive = recipient.occupantId
+      ? currentReceiveByOccupantId.get(recipient.occupantId) === true
+      : false;
+    if (!recipient.email || !shouldEmailRecipient(recipient, currentReceive)) continue;
     try {
       await sendEmail({
         to: recipient.email,
@@ -105,7 +108,9 @@ export const resendReceiptEmail = async (ctx: Context, postgres: Postgres) => {
           paymentDate: formatDate(
             (receipt.bankTxSnapshot as { transactionDate: string }).transactionDate,
           ),
-          receiptUrl: portalReceiptUrl(panelBaseUrl, condominiumId, receipt.unitId, receipt.id),
+          receiptUrl: recipient.occupantId
+            ? portalReceiptUrl(panelBaseUrl, condominiumId, receipt.unitId, receipt.id)
+            : undefined,
         }),
         attachments: [
           { filename: pdfFilename, content: pdfBytes, contentType: "application/pdf" },

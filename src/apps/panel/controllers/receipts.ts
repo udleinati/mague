@@ -4,6 +4,7 @@
 //   GET  receipts/pending            → candidatos a emitir
 //   GET  receipts                    → histórico filtrado
 //   GET  receipts/:id                → detalhe + anular + re-enviar
+//   GET  receipts/emit-to            → modal "Emitir para…" (escolha do destinatário)
 //   POST receipts/emit               → emite 1; emit-bulk → todos
 //   POST receipts/:id/void           → anula com justificação
 //   POST receipts/:id/resend-email   → re-envia
@@ -16,6 +17,7 @@ import { proxyDownload } from "$panel/libs/download_proxy.ts";
 import { resolveServerYearParam } from "$shared/year_filter/mod.ts";
 import { parseFormString } from "$panel/libs/form_parsing.ts";
 import { client } from "$panel/client.ts";
+import type { ReceiptRecipientChoice } from "$shared/client/mod.ts";
 
 type Rec = Record<string, unknown>;
 
@@ -155,8 +157,8 @@ export async function showPage(receiptId: string) {
 
   // Modal de re-envio precisa do `receive_receipt_emails` ACTUAL (o snapshot
   // pode estar desatualizado). Filtra pelos IDs do snapshot (query targeted),
-  // mesmo critério que `resend_email.ts`.
-  const occupantIds = recipientsSnapshot.map((r) => r.occupantId).filter(Boolean);
+  // mesmo critério que `resend_email.ts` (o escolhido recebe sempre).
+  const occupantIds = recipientsSnapshot.map((r) => r.occupantId).filter((id) => id !== null);
   const occupantsRes = occupantIds.length === 0
     ? { data: [] }
     : await client.admin.listOccupants({ ids: occupantIds.join(",") });
@@ -168,7 +170,10 @@ export async function showPage(receiptId: string) {
     occupants.map((o) => [o.id, o.receiveReceiptEmails ?? true]),
   );
   const activeRecipients = recipientsSnapshot.filter(
-    (r) => r.email && currentReceiveByOccupantId.get(r.occupantId) === true,
+    (r) =>
+      r.email &&
+      (r.chosen === true ||
+        (r.occupantId !== null && currentReceiveByOccupantId.get(r.occupantId) === true)),
   );
 
   return await render("pages/receipts/show.vto", {
@@ -179,14 +184,44 @@ export async function showPage(receiptId: string) {
   });
 }
 
-/** POST receipts/emit { bankTransactionId, unitId } */
+/** GET receipts/emit-to - modal com os ocupantes da fração na data do pagamento + "Outro". */
+export async function emitToModal(bankTransactionId: string, unitId: string) {
+  const [optionsRes, unitRes] = await Promise.all([
+    client.admin.getReceiptRecipientOptions({ bankTransactionId, unitId }),
+    client.admin.getUnit(unitId),
+  ]);
+  return await render("pages/receipts/_emit_to_modal.vto", {
+    bankTransactionId,
+    unitId,
+    unitDesignation: unitRes.data.designation,
+    unitIdentifier: unitRes.data.identifier ?? null,
+    ...optionsRes.data,
+  });
+}
+
+// Select do "Emitir para…": occupantId ou "manual" (+ nome/NIF/email). Vazio = regra por defeito.
+function recipientFromForm(
+  form: Record<string, string | File>,
+): ReceiptRecipientChoice | undefined {
+  const choice = parseFormString(form, "recipientOccupantId");
+  if (!choice) return undefined;
+  if (choice !== "manual") return { occupantId: choice };
+  return {
+    name: parseFormString(form, "recipientName"),
+    nif: parseFormString(form, "recipientNif"),
+    email: parseFormString(form, "recipientEmail", { emptyAsNull: true }),
+  };
+}
+
+/** POST receipts/emit { bankTransactionId, unitId, recipient* } */
 export async function emitOne(form: Record<string, string | File>) {
   const bankTransactionId = parseFormString(form, "bankTransactionId");
   const unitId = parseFormString(form, "unitId");
   if (!bankTransactionId || !unitId) {
     throw new Error("bankTransactionId e unitId são obrigatórios");
   }
-  const result = await client.admin.emitReceipt({ bankTransactionId, unitId });
+  const recipient = recipientFromForm(form);
+  const result = await client.admin.emitReceipt({ bankTransactionId, unitId, recipient });
   return result.data;
 }
 
@@ -203,6 +238,7 @@ export async function emitOneHtmx(form: Record<string, string | File>) {
       const r = await client.admin.emitReceipt({
         bankTransactionId: f.bankTransactionId,
         unitId: f.unitId,
+        recipient: recipientFromForm(f),
       });
       return r.data;
     },

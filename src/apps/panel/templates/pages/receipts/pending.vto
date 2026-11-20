@@ -91,7 +91,7 @@
               <th>Conta</th>
               <th>Descrição banco</th>
               <th class="text-right">Valor</th>
-              <th class="text-right pr-4 w-40"></th>
+              <th class="text-right pr-4 w-56"></th>
             </tr>
           </thead>
           <tbody>
@@ -134,6 +134,13 @@ A linha permanece visível mas marcada como ignorada. Podes retomar a qualquer m
                             data-confirm-cancel="Cancelar"
                             title="Ignorar - sai da fila, retomável depois">
                       ignorar
+                    </button>
+                    <button type="button" class="btn btn-xs btn-ghost"
+                            hx-get="/admin/c/{{ currentCondominiumId }}/receipts/emit-to?bankTransactionId={{ p.bankTransactionId }}&unitId={{ p.unitId }}"
+                            hx-target="#receipt_modal_slot"
+                            hx-swap="innerHTML show:no"
+                            title="Escolher para quem sai o recibo (só essa pessoa recebe)">
+                      Emitir para…
                     </button>
                     <button type="button" class="btn btn-xs btn-primary"
                             hx-post="/admin/c/{{ currentCondominiumId }}/receipts/emit"
@@ -219,6 +226,9 @@ A linha permanece visível mas marcada como ignorada. Podes retomar a qualquer m
     </div>
   {{ /if }}
 {{ /if }}
+
+{{# Slot do modal "Emitir para…" (hx-get); o emit esvazia-o via OOB para fechar o modal. #}}
+<div id="receipt_modal_slot"></div>
 
 {{# Toasts (auto-dismiss + progresso) vivem no admin.vto; sem JS local. #}}
 
